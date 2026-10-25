@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Muzillac Tennis Club (TCM)</title>
+  <meta name="theme-color" content="#E65100">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            tcm: {
+              orange: '#E65100',
+              'orange-light': '#FF6D00',
+              'orange-dark': '#BF360C',
+              dark: '#0d0f12',
+              surface: '#16191f',
+              card: '#1e222a',
+              border: '#2a303c'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      background-color: #0d0f12;
+      color: #f3f4f6;
+    }
+    h1, h2, h3, .font-heading {
+      font-family: 'Outfit', sans-serif;
+    }
+    .scrollbar-none::-webkit-scrollbar { display: none; }
+    .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-[#0d0f12] text-zinc-100 min-h-screen pb-20 select-none antialiased">
+
+  <!-- ==================== BARRE DE NAVIGATION FIXE EN HAUT ==================== -->
+  <header class="fixed top-0 left-0 right-0 z-50 bg-[#16191f]/95 backdrop-blur-md border-b border-[#2a303c]">
+    <div class="max-w-4xl mx-auto px-4">
+      <div class="flex items-center justify-between h-16">
+        <!-- Logo Club -->
+        <div class="flex items-center space-x-3 cursor-pointer" onclick="switchTab('infos')">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#BF360C] to-[#E65100] flex items-center justify-center font-heading font-black text-white text-lg shadow-lg shadow-orange-950/40 border border-orange-500/30">
+            TCM
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-heading font-extrabold text-white text-base tracking-tight">TC MUZILLAC</span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#E65100]/20 text-[#FF6D00] border border-[#E65100]/40">BZH</span>
+            </div>
+            <p class="text-[11px] text-zinc-400">Application officielle du club</p>
+          </div>
+        </div>
+
+        <!-- 3 ONGLETS DEMANDÉS : 'Infos Club', 'Adhérents', 'Rencontres' -->
+        <nav class="flex space-x-1 sm:space-x-2 bg-[#0d0f12] p-1 rounded-xl border border-[#2a303c]">
+          <button id="btn-infos" onclick="switchTab('infos')" class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-zinc-400 hover:text-white">
+            Infos Club
+          </button>
+          <button id="btn-adherents" onclick="switchTab('adherents')" class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all bg-[#E65100] text-white shadow-md shadow-orange-900/30">
+            Adhérents
+          </button>
+          <button id="btn-rencontres" onclick="switchTab('rencontres')" class="tab-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all text-zinc-400 hover:text-white">
+            Rencontres
+          </button>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENEUR PRINCIPAL (AVEC ESPACE POUR LA NAV FIXE) -->
+  <main class="max-w-4xl mx-auto px-4 pt-20">
+
+    <!-- ==================== ONGLET 1 : ADHÉRENTS (ACTIF PAR DÉFAUT) ==================== -->
+    <section id="tab-adherents-content" class="tab-pane">
+      <!-- En-tête adhérents & Statistiques rapides -->
+      <div class="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-black text-white font-heading flex items-center gap-2">
+            Adhérents du club
+            <span id="badge-total-adherents" class="text-xs px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-sans font-bold">15</span>
+          </h1>
+          <p class="text-xs text-zinc-400 mt-0.5">Triés par classement FFT décroissant (du meilleur à NC)</p>
+        </div>
+
+        <!-- Bouton Ten'Up Général -->
+        <a href="https://tenup.fft.fr" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center space-x-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#E65100] to-[#FF6D00] text-white text-xs font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-950/50">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+          <span>Portail Ten'Up FFT</span>
+        </a>
+      </div>
+
+      <!-- Barre de recherche et filtres -->
+      <div class="mb-5 space-y-3">
+        <div class="relative">
+          <svg class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="text" id="search-input" oninput="filterAdherents()" placeholder="Rechercher par nom, licence, groupe, classement..." class="w-full pl-10 pr-4 py-2.5 bg-[#16191f] text-sm text-white placeholder-zinc-500 rounded-xl border border-[#2a303c] focus:outline-none focus:border-[#E65100] focus:ring-1 focus:ring-[#E65100]">
+        </div>
+
+        <div class="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
+          <button onclick="setFilterGroup('all')" class="filter-chip active px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#E65100] text-white" data-group="all">Tous</button>
+          <button onclick="setFilterGroup('retard')" class="filter-chip px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#1e222a] text-zinc-300 hover:text-white border border-[#2a303c]" data-group="retard">⚠️ Solde dû (> 0 €)</button>
+          <button onclick="setFilterGroup('competition')" class="filter-chip px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#1e222a] text-zinc-300 hover:text-white border border-[#2a303c]" data-group="competition">🏆 Compétition</button>
+          <button onclick="setFilterGroup('loisir')" class="filter-chip px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#1e222a] text-zinc-300 hover:text-white border border-[#2a303c]" data-group="loisir">🎾 Loisir & Cours</button>
+          <button onclick="setFilterGroup('jeunes')" class="filter-chip px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#1e222a] text-zinc-300 hover:text-white border border-[#2a303c]" data-group="jeunes">⚡ Jeunes</button>
+        </div>
+      </div>
+
+      <!-- Liste des cartes adhérents triées comme sur Glide -->
+      <div id="adherents-list" class="space-y-3">
+        <!-- Rempli dynamiquement en JS -->
+      </div>
+    </section>
+
+    <!-- ==================== ONGLET 2 : RENCONTRES ==================== -->
+    <section id="tab-rencontres-content" class="tab-pane hidden">
+      <div class="mb-5 flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-black text-white font-heading">Rencontres par équipes</h1>
+          <p class="text-xs text-zinc-400 mt-0.5">Calendrier des interclubs Morbihan & Bretagne</p>
+        </div>
+        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-[#E65100]/20 text-[#FF6D00] border border-[#E65100]/40">Saison 2026/2027</span>
+      </div>
+
+      <!-- Liste des rencontres -->
+      <div id="rencontres-list" class="space-y-3">
+        <!-- Rempli dynamiquement en JS -->
+      </div>
+    </section>
+
+    <!-- ==================== ONGLET 3 : INFOS CLUB ==================== -->
+    <section id="tab-infos-content" class="tab-pane hidden">
+      <div class="space-y-5">
+        <!-- Bannière Club -->
+        <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1e222a] via-[#16191f] to-[#0d0f12] border border-[#2a303c] p-6">
+          <div class="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-orange-600/10 blur-2xl pointer-events-none"></div>
+          <div class="flex items-start gap-4">
+            <div class="w-14 h-14 rounded-2xl bg-[#E65100] flex items-center justify-center font-heading font-black text-white text-2xl shadow-xl shadow-orange-950/60 border border-orange-400/30 shrink-0">
+              TCM
+            </div>
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-[#FF6D00]">Club affilié FFT</span>
+              <h2 class="text-2xl font-black text-white font-heading">Tennis Club de Muzillac</h2>
+              <p class="text-xs text-zinc-400 mt-1">Code FFT : 52 56 0142 • Comité Morbihan • Ligue de Bretagne</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coordonnées & Accès -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-[#1e222a] p-4 rounded-xl border border-[#2a303c]">
+            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#E65100]"></span>
+              Infrastructures & Courts
+            </h3>
+            <ul class="text-xs text-zinc-300 space-y-2">
+              <li class="flex items-center gap-2">🎾 2 courts intérieurs couverts en résine</li>
+              <li class="flex items-center gap-2">☀️ 2 courts extérieurs en béton poreux</li>
+              <li class="flex items-center gap-2">💡 Éclairage LED compétition sur tous les courts</li>
+              <li class="flex items-center gap-2">🏢 Club-house avec vestiaires et douches</li>
+            </ul>
+          </div>
+
+          <div class="bg-[#1e222a] p-4 rounded-xl border border-[#2a303c]">
+            <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#E65100]"></span>
+              Contact & Localisation
+            </h3>
+            <p class="text-xs text-zinc-300 mb-2 font-medium">Complexe sportif du Chêne Rond, Rue du Stade, 56190 Muzillac</p>
+            <div class="space-y-1.5 text-xs text-zinc-400">
+              <p>Email : <a href="mailto:tennisclubmuzillac@gmail.com" class="text-[#FF6D00] hover:underline">tennisclubmuzillac@gmail.com</a></p>
+              <p>Téléphone : <a href="tel:0297416780" class="text-white hover:underline">02 97 41 67 80</a></p>
+              <p>Président : Laurent Le Guennec</p>
+              <p>Enseignant DE : Alexandre Rault</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Liens rapides Ten'Up -->
+        <div class="bg-gradient-to-r from-orange-950/40 via-[#1e222a] to-[#16191f] p-4 rounded-xl border border-orange-500/30 flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-white">Réservation de courts en ligne</h3>
+            <p class="text-xs text-zinc-400">Réservez vos créneaux horaires directement sur l'application officielle Ten'Up</p>
+          </div>
+          <a href="https://tenup.fft.fr" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 bg-[#E65100] text-white rounded-lg text-xs font-bold hover:brightness-110 transition shadow-md shadow-orange-950">
+            Accéder à Ten'Up
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== MODALE FICHE ADHÉRENT DÉTAILLÉE ==================== -->
+  <div id="modal-adherent" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-[#1e222a] border border-[#2a303c] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+      <div class="p-5 border-b border-[#2a303c] flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div id="modal-rank-badge" class="w-12 h-12 rounded-xl bg-[#E65100]/20 border border-[#E65100]/40 text-[#FF6D00] font-black font-heading flex items-center justify-center text-lg">
+            15/1
+          </div>
+          <div>
+            <h3 id="modal-name" class="font-bold text-white text-base">NOM Prénom</h3>
+            <p id="modal-sub" class="text-xs text-zinc-400">Licence : 2849102 B</p>
+          </div>
+        </div>
+        <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center text-sm font-bold">✕</button>
+      </div>
+
+      <div class="p-5 space-y-3.5 text-xs">
+        <div class="flex justify-between py-1.5 border-b border-zinc-800">
+          <span class="text-zinc-400">Solde dû</span>
+          <span id="modal-solde" class="font-bold">0 € (À jour)</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-zinc-800">
+          <span class="text-zinc-400">Catégorie / Âge</span>
+          <span id="modal-age" class="font-semibold text-white">Senior (+35)</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-zinc-800">
+          <span class="text-zinc-400">Groupe d'enseignement</span>
+          <span id="modal-groupe" class="font-semibold text-white">Compétition Hommes</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-zinc-800">
+          <span class="text-zinc-400">Compte Ten'Up</span>
+          <span id="modal-tenup-status" class="font-semibold text-emerald-400">Actif</span>
+        </div>
+
+        <!-- Boutons d'action rapide dans la modale -->
+        <div class="pt-3 grid grid-cols-3 gap-2">
+          <a id="modal-btn-call" href="#" class="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-zinc-800 hover:bg-[#E65100] text-zinc-200 hover:text-white transition group border border-zinc-700 hover:border-orange-500">
+            <span class="text-base mb-1">📞</span>
+            <span class="font-bold text-[11px]">Appeler</span>
+          </a>
+          <a id="modal-btn-sms" href="#" class="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-zinc-800 hover:bg-[#E65100] text-zinc-200 hover:text-white transition group border border-zinc-700 hover:border-orange-500">
+            <span class="text-base mb-1">💬</span>
+            <span class="font-bold text-[11px]">SMS</span>
+          </a>
+          <a id="modal-btn-email" href="#" class="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-zinc-800 hover:bg-[#E65100] text-zinc-200 hover:text-white transition group border border-zinc-700 hover:border-orange-500">
+            <span class="text-base mb-1">✉️</span>
+            <span class="font-bold text-[11px]">Email</span>
+          </a>
+        </div>
+
+        <a id="modal-btn-tenup" href="https://tenup.fft.fr" target="_blank" rel="noopener noreferrer" class="w-full mt-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#E65100] to-[#FF6D00] text-white text-center font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-950/40 hover:brightness-110">
+          <span>Ouvrir dans Ten'Up FFT</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPT LOGIQUE ET CHARGEMENT DES DONNÉES -->
+  <script>
+    // Injection des données via Google Apps Script ou Données de secours réalistes
+    let adherentsData = [];
+    let rencontresData = [];
+    let activeFilterGroup = 'all';
+
+    // Poids des classements FFT pour le tri décroissant (meilleurs en premier)
+    const rankingWeights = {
+      '-30': 450, '-15': 430, '-4/6': 410, '-2/6': 390, '0': 370,
+      '1/6': 350, '2/6': 330, '3/6': 310, '4/6': 290, '5/6': 270, '15': 250,
+      '15/1': 230, '15/2': 210, '15/3': 190, '15/4': 170, '15/5': 150, '30': 130,
+      '30/1': 110, '30/2': 90, '30/3': 70, '30/4': 50, '30/5': 30, '40': 15, 'NC': 0
+    };
+
+    function getRankWeight(rank) {
+      if (!rank) return 0;
+      const clean = rank.trim().toUpperCase().replace(/\s+/g, '');
+      if (clean.startsWith('N') && clean !== 'NC') {
+        const n = parseInt(clean.replace('N', ''), 10) || 100;
+        return 1000 - n;
+      }
+      return rankingWeights[clean] !== undefined ? rankingWeights[clean] : 0;
+    }
+
+    // Données par défaut réalistes TCM Muzillac
+    const defaultAdherents = [
+      { id: '1', nomPrenom: 'RAULT Alexandre', soldeDu: 0, telephonePortable: '0623456789', email: 'alexandre.rault.tennis@gmail.com', dernierClassTennis: '5/6', licence: '1728394 J', ageSportif: 'Senior', groupeEnseignement: 'Enseignant DE & Équipe 1', compteTenUp: 'Actif' },
+      { id: '2', nomPrenom: 'LE GUENNEC Laurent', soldeDu: 0, telephonePortable: '0612345678', email: 'l.leguennec@orange.fr', dernierClassTennis: '15/1', licence: '2849102 B', ageSportif: 'Senior (+35)', groupeEnseignement: 'Compétition Hommes 1', compteTenUp: 'Actif' },
+      { id: '3', nomPrenom: 'MAHÉ Julien', soldeDu: 35, telephonePortable: '0656789012', email: 'julien.mahe.pro@outlook.fr', dernierClassTennis: '15/2', licence: '5948302 T', ageSportif: 'Senior', groupeEnseignement: 'Compétition Hommes 1', compteTenUp: 'Actif' },
+      { id: '4', nomPrenom: 'CONAN Philippe', soldeDu: 0, telephonePortable: '0634567890', email: 'conan.philippe56@gmail.com', dernierClassTennis: '15/3', licence: '3948201 X', ageSportif: 'Senior (+45)', groupeEnseignement: 'Compétition Hommes 2', compteTenUp: 'Actif' },
+      { id: '5', nomPrenom: 'BOURDON Sophie', soldeDu: 0, telephonePortable: '0645678901', email: 'sophie.bourdon@laposte.net', dernierClassTennis: '15/4', licence: '4839201 M', ageSportif: 'Senior Dames (+35)', groupeEnseignement: 'Compétition Dames 1', compteTenUp: 'Actif' },
+      { id: '6', nomPrenom: 'LE BERRIGAUD Camille', soldeDu: 0, telephonePortable: '0667890123', email: 'camille.leberrigaud@gmail.com', dernierClassTennis: '15/5', licence: '6938204 P', ageSportif: 'Senior Dames', groupeEnseignement: 'Compétition Dames 1', compteTenUp: 'Actif' },
+      { id: '7', nomPrenom: 'KERVELLA Thomas', soldeDu: 120, telephonePortable: '0678901234', email: 'thomas.kervella56@free.fr', dernierClassTennis: '30', licence: '7294810 K', ageSportif: 'Senior', groupeEnseignement: 'Perfectionnement Adultes', compteTenUp: 'Actif' },
+      { id: '8', nomPrenom: 'MORVAN Élodie', soldeDu: 0, telephonePortable: '0689012345', email: 'elodie.morvan@wanadoo.fr', dernierClassTennis: '30/1', licence: '8392019 D', ageSportif: 'Senior Dames', groupeEnseignement: 'Compétition Dames 2', compteTenUp: 'Actif' },
+      { id: '9', nomPrenom: 'LE GALL Nicolas', soldeDu: 0, telephonePortable: '0690123456', email: 'nicolas.legall.bzh@gmail.com', dernierClassTennis: '30/2', licence: '9301928 E', ageSportif: 'Senior (+35)', groupeEnseignement: 'Loisir Adultes Mercredi', compteTenUp: 'Actif' },
+      { id: '10', nomPrenom: 'GUILLOU Yannick', soldeDu: 60, telephonePortable: '0601234567', email: 'yannick.guillou@sfr.fr', dernierClassTennis: '30/3', licence: '1029384 L', ageSportif: 'Senior (+55)', groupeEnseignement: 'Loisir Séniors Vendredi', compteTenUp: 'Actif' },
+      { id: '11', nomPrenom: 'ROLLAND Maxime', soldeDu: 0, telephonePortable: '0619283746', email: 'maxime.rolland.bzh@gmail.com', dernierClassTennis: '30/4', licence: '2938475 V', ageSportif: '17/18 ans (Junior)', groupeEnseignement: 'Pôle Espoirs Jeunes', compteTenUp: 'Actif' },
+      { id: '12', nomPrenom: 'TANGUY Chloé', soldeDu: 0, telephonePortable: '0682736455', email: 'chloe.tanguy@gmail.com', dernierClassTennis: '30/5', licence: '3847561 A', ageSportif: '15/16 ans', groupeEnseignement: 'Pôle Espoirs Jeunes', compteTenUp: 'Actif' },
+      { id: '13', nomPrenom: 'LE FLOCH David', soldeDu: 0, telephonePortable: '0674635241', email: 'david.lefloch@muzillac.bzh', dernierClassTennis: '40', licence: '4758692 W', ageSportif: 'Senior', groupeEnseignement: 'Loisir Adultes Mercredi', compteTenUp: 'Actif' },
+      { id: '14', nomPrenom: 'BOYER Clara', soldeDu: 45, telephonePortable: '0691827364', email: 'clara.boyer.56@gmail.com', dernierClassTennis: 'NC', licence: '5869703 C', ageSportif: 'Senior Dames', groupeEnseignement: 'Initiation Adultes', compteTenUp: 'Actif' },
+      { id: '15', nomPrenom: 'EVEN Lucas', soldeDu: 0, telephonePortable: '0659483726', email: 'lucas.even@outlook.com', dernierClassTennis: 'NC', licence: '6970814 H', ageSportif: '11/12 ans', groupeEnseignement: 'École de Tennis Mercredi', compteTenUp: 'Actif' }
+    ];
+
+    const defaultRencontres = [
+      { id: 'r1', dateRencontre: '01/11/2026', libelleHomologation: 'Championnat Départemental 1ère Div', categorieAgeHomologation: 'Senior Hommes', numeroEquipe: 'Équipe 1', clubAccueilNom: 'TC Muzillac 1', clubVisiteurNom: 'TC Vannes Ménimur 2', score: '4/1', nomCapitaine: 'LE GUENNEC Laurent', portableCapitaine: '0612345678', mailCapitaine: 'l.leguennec@orange.fr' },
+      { id: 'r2', dateRencontre: '08/11/2026', libelleHomologation: 'Championnat Régional Dames Div 2', categorieAgeHomologation: 'Senior Dames', numeroEquipe: 'Équipe 1', clubAccueilNom: 'TC Sarzeau 1', clubVisiteurNom: 'TC Muzillac 1', score: '2/3', nomCapitaine: 'BOURDON Sophie', portableCapitaine: '0645678901', mailCapitaine: 'sophie.bourdon@laposte.net' },
+      { id: 'r3', dateRencontre: '15/11/2026', libelleHomologation: 'Championnat Départemental 3ème Div', categorieAgeHomologation: 'Senior Hommes', numeroEquipe: 'Équipe 2', clubAccueilNom: 'TC Muzillac 2', clubVisiteurNom: 'TC Questembert 2', score: '3/2', nomCapitaine: 'CONAN Philippe', portableCapitaine: '0634567890', mailCapitaine: 'conan.philippe56@gmail.com' },
+      { id: 'r4', dateRencontre: '22/11/2026', libelleHomologation: 'Coupe du Morbihan +35', categorieAgeHomologation: '+35 Ans', numeroEquipe: 'Équipe +35', clubAccueilNom: 'TC Theix 1', clubVisiteurNom: 'TC Muzillac 1', score: 'À venir', nomCapitaine: 'MAHÉ Julien', portableCapitaine: '0656789012', mailCapitaine: 'julien.mahe.pro@outlook.fr' }
+    ];
+
+    // Initialisation
+    function initApp() {
+      // Si Google Apps Script fournit les données via scriptlet
+      try {
+        <? if (typeof initialData !== 'undefined') { ?>
+          adherentsData = <?= JSON.stringify(initialData.adherents) ?> || defaultAdherents;
+          rencontresData = <?= JSON.stringify(initialData.rencontres) ?> || defaultRencontres;
+        <? } else { ?>
+          adherentsData = defaultAdherents;
+          rencontresData = defaultRencontres;
+        <? } ?>
+      } catch(e) {
+        adherentsData = defaultAdherents;
+        rencontresData = defaultRencontres;
+      }
+
+      // Tri décroissant obligatoire par classement FFT
+      sortAdherents();
+      renderAdherents(adherentsData);
+      renderRencontres(rencontresData);
+    }
+
+    function sortAdherents() {
+      adherentsData.sort((a, b) => {
+        const wA = getRankWeight(a.dernierClassTennis);
+        const wB = getRankWeight(b.dernierClassTennis);
+        if (wB !== wA) return wB - wA;
+        return a.nomPrenom.localeCompare(b.nomPrenom, 'fr');
+      });
+    }
+
+    // Gestion de la navigation entre onglets
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-[#E65100]', 'text-white', 'shadow-md', 'shadow-orange-900/30');
+        btn.classList.add('text-zinc-400');
+      });
+
+      const activeContent = document.getElementById('tab-' + tabId + '-content');
+      const activeBtn = document.getElementById('btn-' + tabId);
+
+      if (activeContent) activeContent.classList.remove('hidden');
+      if (activeBtn) {
+        activeBtn.classList.remove('text-zinc-400');
+        activeBtn.classList.add('bg-[#E65100]', 'text-white', 'shadow-md', 'shadow-orange-900/30');
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Rendu des adhérents sous forme de fiches cliquables
+    function renderAdherents(list) {
+      const container = document.getElementById('adherents-list');
+      const countBadge = document.getElementById('badge-total-adherents');
+      if (countBadge) countBadge.textContent = list.length;
+
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="p-8 text-center bg-[#16191f] rounded-2xl border border-[#2a303c]">
+            <p class="text-zinc-400 text-sm">Aucun adhérent ne correspond à votre recherche.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map((adh, index) => {
+        const isLate = adh.soldeDu > 0;
+        const rank = adh.dernierClassTennis || 'NC';
+        const weight = getRankWeight(rank);
+        
+        let rankColor = 'text-zinc-300 border-zinc-700 bg-zinc-800/80';
+        if (weight >= 250) {
+          rankColor = 'text-[#FF6D00] border-[#E65100]/60 bg-[#E65100]/15';
+        } else if (weight >= 130) {
+          rankColor = 'text-amber-300 border-amber-600/40 bg-amber-600/15';
+        } else if (weight >= 15) {
+          rankColor = 'text-blue-300 border-blue-500/40 bg-blue-500/15';
+        }
+
+        const safeAdhJson = encodeURIComponent(JSON.stringify(adh));
+
+        return `
+          <div class="bg-[#1e222a] hover:bg-[#232832] transition-all duration-150 rounded-2xl p-4 border border-[#2a303c] shadow-md hover:border-orange-500/40 cursor-pointer" onclick="openModal('${safeAdhJson}')">
+            <div class="flex items-start justify-between gap-3">
+              <!-- Avatar & Identité -->
+              <div class="flex items-center space-x-3 min-w-0">
+                <div class="w-12 h-12 rounded-xl flex items-center justify-center font-heading font-black text-sm border ${rankColor} shrink-0 shadow-inner">
+                  ${rank}
+                </div>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h3 class="font-extrabold text-white text-sm truncate">${adh.nomPrenom}</h3>
+                    ${isLate 
+                      ? `<span class="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-400 border border-rose-500/40">Dû : ${adh.soldeDu} €</span>` 
+                      : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">À jour</span>`}
+                  </div>
+                  <p class="text-xs text-zinc-400 mt-0.5 truncate">${adh.groupeEnseignement || 'Loisir'} • ${adh.ageSportif || 'Senior'}</p>
+                  <p class="text-[11px] text-zinc-500 truncate">Licence : ${adh.licence || '-'}</p>
+                </div>
+              </div>
+
+              <!-- Action Ten'Up directe -->
+              <a href="https://tenup.fft.fr" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-orange-950/40 hover:bg-[#E65100] text-orange-400 hover:text-white border border-[#E65100]/40 text-[11px] font-bold transition flex items-center gap-1" title="Ouvrir Ten'Up">
+                <span>Ten'Up</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              </a>
+            </div>
+
+            <!-- BOUTONS D'ACTION RAPIDE (Appel, SMS, Mail) -->
+            <div class="mt-3.5 pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-2" onclick="event.stopPropagation();">
+              <a href="tel:${adh.telephonePortable}" class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#16191f] hover:bg-emerald-600/20 text-zinc-300 hover:text-emerald-400 border border-[#2a303c] text-xs font-semibold transition">
+                <span>📞</span>
+                <span>Appel</span>
+              </a>
+              <a href="sms:${adh.telephonePortable}" class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#16191f] hover:bg-sky-600/20 text-zinc-300 hover:text-sky-400 border border-[#2a303c] text-xs font-semibold transition">
+                <span>💬</span>
+                <span>SMS</span>
+              </a>
+              <a href="mailto:${adh.email}" class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#16191f] hover:bg-orange-600/20 text-zinc-300 hover:text-[#FF6D00] border border-[#2a303c] text-xs font-semibold transition">
+                <span>✉️</span>
+                <span>Mail</span>
+              </a>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Rendu des rencontres
+    function renderRencontres(list) {
+      const container = document.getElementById('rencontres-list');
+      if (!container) return;
+
+      container.innerHTML = list.map(rec => {
+        const isUpcoming = rec.score === 'À venir' || !rec.score;
+        const isHome = rec.clubAccueilNom.toLowerCase().includes('muzillac');
+
+        return `
+          <div class="bg-[#1e222a] rounded-2xl p-4 border border-[#2a303c] space-y-3 shadow-md">
+            <div class="flex items-center justify-between text-xs">
+              <span class="px-2 py-0.5 rounded-full font-bold bg-[#E65100]/20 text-[#FF6D00] border border-[#E65100]/30">
+                ${rec.numeroEquipe} • ${rec.categorieAgeHomologation}
+              </span>
+              <span class="text-zinc-400 font-medium">📅 ${rec.dateRencontre}</span>
+            </div>
+
+            <p class="text-xs text-zinc-400 font-medium">${rec.libelleHomologation}</p>
+
+            <!-- Affiche du match -->
+            <div class="bg-[#16191f] p-3 rounded-xl border border-zinc-800/80 flex items-center justify-between">
+              <div class="space-y-1 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold ${rec.clubAccueilNom.includes('Muzillac') ? 'text-[#FF6D00]' : 'text-zinc-300'}">
+                    ${rec.clubAccueilNom} ${isHome ? '(Dom.)' : ''}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold ${rec.clubVisiteurNom.includes('Muzillac') ? 'text-[#FF6D00]' : 'text-zinc-300'}">
+                    ${rec.clubVisiteurNom} ${!isHome ? '(Ext.)' : ''}
+                  </span>
+                </div>
+              </div>
+
+              <div class="text-right">
+                <span class="px-3 py-1.5 rounded-lg text-xs font-black ${isUpcoming ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}">
+                  ${rec.score || 'À venir'}
+                </span>
+              </div>
+            </div>
+
+            <!-- Capitaine & contact -->
+            <div class="flex items-center justify-between pt-2 border-t border-zinc-800 text-xs text-zinc-400">
+              <span>Capitaine : <strong class="text-white">${rec.nomCapitaine}</strong></span>
+              <div class="flex items-center gap-2">
+                <a href="tel:${rec.portableCapitaine}" class="p-1.5 rounded bg-zinc-800 hover:bg-[#E65100] text-white transition" title="Appeler le capitaine">📞</a>
+                <a href="sms:${rec.portableCapitaine}" class="p-1.5 rounded bg-zinc-800 hover:bg-[#E65100] text-white transition" title="SMS capitaine">💬</a>
+                <a href="mailto:${rec.mailCapitaine}" class="p-1.5 rounded bg-zinc-800 hover:bg-[#E65100] text-white transition" title="Email capitaine">✉️</a>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Filtrage et Recherche
+    function filterAdherents() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      let filtered = adherentsData.filter(adh => {
+        const matchesQuery = 
+          adh.nomPrenom.toLowerCase().includes(q) ||
+          adh.licence.toLowerCase().includes(q) ||
+          (adh.groupeEnseignement && adh.groupeEnseignement.toLowerCase().includes(q)) ||
+          adh.dernierClassTennis.toLowerCase().includes(q);
+
+        if (!matchesQuery) return false;
+
+        if (activeFilterGroup === 'retard') return adh.soldeDu > 0;
+        if (activeFilterGroup === 'competition') return adh.groupeEnseignement.toLowerCase().includes('compétition') || adh.groupeEnseignement.toLowerCase().includes('équipe');
+        if (activeFilterGroup === 'loisir') return adh.groupeEnseignement.toLowerCase().includes('loisir') || adh.groupeEnseignement.toLowerCase().includes('perfectionnement');
+        if (activeFilterGroup === 'jeunes') return adh.ageSportif.toLowerCase().includes('ans') || adh.ageSportif.toLowerCase().includes('junior');
+
+        return true;
+      });
+
+      renderAdherents(filtered);
+    }
+
+    function setFilterGroup(group) {
+      activeFilterGroup = group;
+      document.querySelectorAll('.filter-chip').forEach(btn => {
+        if (btn.getAttribute('data-group') === group) {
+          btn.className = 'filter-chip active px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#E65100] text-white';
+        } else {
+          btn.className = 'filter-chip px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition bg-[#1e222a] text-zinc-300 hover:text-white border border-[#2a303c]';
+        }
+      });
+      filterAdherents();
+    }
+
+    // Modale de détail de l'adhérent
+    function openModal(encodedJson) {
+      const adh = JSON.parse(decodeURIComponent(encodedJson));
+      document.getElementById('modal-name').textContent = adh.nomPrenom;
+      document.getElementById('modal-sub').textContent = 'Licence : ' + (adh.licence || 'Non renseignée');
+      document.getElementById('modal-rank-badge').textContent = adh.dernierClassTennis || 'NC';
+      
+      const soldeEl = document.getElementById('modal-solde');
+      if (adh.soldeDu > 0) {
+        soldeEl.innerHTML = `<span class="text-rose-400 font-bold">${adh.soldeDu} € (Règlement en attente)</span>`;
+      } else {
+        soldeEl.innerHTML = `<span class="text-emerald-400 font-bold">0 € (À jour)</span>`;
+      }
+
+      document.getElementById('modal-age').textContent = adh.ageSportif || '-';
+      document.getElementById('modal-groupe').textContent = adh.groupeEnseignement || 'Loisir';
+      document.getElementById('modal-tenup-status').textContent = adh.compteTenUp || 'Actif';
+
+      document.getElementById('modal-btn-call').href = 'tel:' + adh.telephonePortable;
+      document.getElementById('modal-btn-sms').href = 'sms:' + adh.telephonePortable;
+      document.getElementById('modal-btn-email').href = 'mailto:' + adh.email;
+      document.getElementById('modal-btn-tenup').href = 'https://tenup.fft.fr';
+
+      const modal = document.getElementById('modal-adherent');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('modal-adherent');
+      modal.classList.remove('flex');
+      modal.classList.add('hidden');
+    }
+
+    // Fermeture avec la touche Échap
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    // Lancement au chargement
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>

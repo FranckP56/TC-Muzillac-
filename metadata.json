@@ -1,0 +1,6 @@
+{
+  "name": "Muzillac Tennis Club (TCM)",
+  "description": "Application mobile et web du Tennis Club de Muzillac : suivi des adhérents, des rencontres par équipes et informations du club.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
