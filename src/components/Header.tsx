@@ -108,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
     setIsRoleDropdownOpen(false);
     
     // Si l'onglet en cours n'est plus accessible avec le nouveau rôle, rediriger vers 'rencontres'
-    if (newRole === 'adherent' && (activeTab === 'adherents' || activeTab === 'enseignants')) {
+    if (newRole === 'adherent' && (activeTab === 'adherents' || activeTab === 'enseignants' || activeTab === 'licencies')) {
       setActiveTab('rencontres');
     } else if (newRole === 'capitaine' && (activeTab === 'adherents' || activeTab === 'enseignants')) {
       setActiveTab('rencontres');
@@ -120,10 +120,11 @@ export const Header: React.FC<HeaderProps> = ({
   // Droits d'affichage des onglets selon les 4 fonctions définies par l'utilisateur
   const canSeeAdherents = userRole === 'bureau';
   const canSeeEnseignants = userRole === 'prof' || userRole === 'bureau';
+  const canSeeLicencies = userRole !== 'adherent'; // Masqué pour les adhérents simples, accessible capitaines, profs, bureau
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-[#12151b]/95 backdrop-blur-md border-b border-[#252b36] shadow-lg shadow-black/40">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16 sm:h-20 gap-2">
           
           {/* Logo & Titre Club */}
@@ -188,28 +189,30 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Rencontres</span>
             </button>
 
-            {/* 3. Licenciés (Club Muzillac 2027) */}
-            <button
-              onClick={() => setActiveTab('licencies')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 sm:py-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
-                activeTab === 'licencies'
-                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
-              <span className="hidden sm:inline">Licenciés</span>
-              <span className="sm:hidden">Lic.</span>
-              {typeof totalLicencies === 'number' && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
-                  activeTab === 'licencies' 
-                    ? 'bg-black/30 text-white' 
-                    : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
-                }`}>
-                  {totalLicencies}
-                </span>
-              )}
-            </button>
+            {/* 3. Licenciés (Club Muzillac 2027) - Masqué pour les adhérents */}
+            {canSeeLicencies && (
+              <button
+                onClick={() => setActiveTab('licencies')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 sm:py-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                  activeTab === 'licencies'
+                    ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span className="hidden sm:inline">Licenciés</span>
+                <span className="sm:hidden">Lic.</span>
+                {typeof totalLicencies === 'number' && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    activeTab === 'licencies' 
+                      ? 'bg-black/30 text-white' 
+                      : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                  }`}>
+                    {totalLicencies}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* 4. Enseignants (Profs & Bureau) */}
             {canSeeEnseignants && (

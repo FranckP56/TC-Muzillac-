@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Save, 
@@ -12,9 +12,12 @@ import {
   GraduationCap, 
   Shield, 
   Clock, 
-  Layers,
-  Euro,
-  Check
+  Layers, 
+  Euro, 
+  Check,
+  Tag,
+  CreditCard,
+  ExternalLink
 } from 'lucide-react';
 import { ClubInfo, Enseignant, ClubTarif } from '../types/tennis';
 
@@ -24,6 +27,22 @@ interface EditClubInfoModalProps {
   clubInfo: ClubInfo;
   onSave: (updatedInfo: ClubInfo) => void;
 }
+
+// Fonction de salubrité : corrige automatiquement les tarifs mal étiquetés 'jeune' alors qu'ils mentionnent adulte/adhésion
+const sanitizeClubTarifs = (tarifs?: ClubTarif[]): ClubTarif[] => {
+  if (!tarifs || tarifs.length === 0) return [];
+  return tarifs.map(t => {
+    if (t.categorie === 'jeune' && /adulte|senior|majeur/i.test(t.label)) {
+      return { 
+        ...t, 
+        categorie: /adh[eé]sion/i.test(t.label) && !/cours|collectif|entrain/i.test(t.label) 
+          ? 'adhesion' 
+          : 'adulte' 
+      };
+    }
+    return t;
+  });
+};
 
 export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   isOpen,
@@ -54,19 +73,45 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
           }
         ],
     installations: [...clubInfo.installations],
-    tarifs: clubInfo.tarifs && clubInfo.tarifs.length > 0
-      ? [...clubInfo.tarifs]
-      : [
-          { id: 't1', label: 'Cotisation Jeune Galaxie (1h/semaine)', montant: 135, categorie: 'jeune', description: 'Licence FFT comprise' },
-          { id: 't2', label: 'École de Tennis Jeunes (1h30/semaine)', montant: 185, categorie: 'jeune', description: 'Licence FFT + entraînements' },
-          { id: 't3', label: 'Pôle Compétition Jeunes (2 x 1h30)', montant: 260, categorie: 'competition', description: 'Préparation championnats' },
-          { id: 't4', label: 'Cours Collectifs Adultes (1h30/semaine)', montant: 215, categorie: 'adulte', description: 'Licence FFT incluse' },
-          { id: 't5', label: 'Adhésion seule / Accès courts libre', montant: 110, categorie: 'adhesion', description: 'Accès 7j/7 + badge' },
-        ],
+    tarifs: sanitizeClubTarifs(clubInfo.tarifs),
     horairesPermanence: clubInfo.horairesPermanence || 'Mercredi 14h-18h et Samedi 10h-12h au Club-house',
+    modalitesPaiement: clubInfo.modalitesPaiement || "Paiement échelonné possible par chèque et par CB via HelloAsso (directement sur Ten'Up avec le montant dans votre panier). Chèques vacances ANCV et Pass'Sport acceptés.",
   }));
 
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'bureau' | 'enseignants' | 'installations' | 'tarifs'>('enseignants');
+  // Synchronisation et assainissement automatique à l'ouverture du modal
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        ...clubInfo,
+        enseignants: clubInfo.enseignants && clubInfo.enseignants.length > 0 
+          ? [...clubInfo.enseignants] 
+          : [
+              {
+                id: 'prof-1',
+                nomPrenom: clubInfo.enseignant || 'Alexandre Rault',
+                diplome: 'Diplômé d\'État (DE)',
+                telephone: '06 12 34 56 78',
+                email: 'alexandre.rault.tennis@gmail.com',
+                description: 'Responsable pédagogique, compétition et cours adultes.',
+              },
+              {
+                id: 'prof-2',
+                nomPrenom: 'Thomas Mercier',
+                diplome: 'BPJEPS Tennis',
+                telephone: '06 98 76 54 32',
+                email: 'thomas.mercier.tennis@gmail.com',
+                description: 'Enseignant Galaxie Tennis et perfectionnement jeunes.',
+              }
+            ],
+        installations: [...clubInfo.installations],
+        tarifs: sanitizeClubTarifs(clubInfo.tarifs),
+        horairesPermanence: clubInfo.horairesPermanence || 'Mercredi 14h-18h et Samedi 10h-12h au Club-house',
+        modalitesPaiement: clubInfo.modalitesPaiement || "Paiement échelonné possible par chèque et par CB via HelloAsso (directement sur Ten'Up avec le montant dans votre panier). Chèques vacances ANCV et Pass'Sport acceptés.",
+      });
+    }
+  }, [isOpen, clubInfo]);
+
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'bureau' | 'enseignants' | 'installations' | 'tarifs'>('tarifs');
   const [successSaved, setSuccessSaved] = useState(false);
 
   // New item states
@@ -79,7 +124,8 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   const [newInstallation, setNewInstallation] = useState('');
   const [newTarifLabel, setNewTarifLabel] = useState('');
   const [newTarifMontant, setNewTarifMontant] = useState<number>(150);
-  const [newTarifCat, setNewTarifCat] = useState<'jeune' | 'adulte' | 'competition' | 'adhesion'>('jeune');
+  const [newTarifCat, setNewTarifCat] = useState<'jeune' | 'adulte' | 'competition' | 'adhesion'>('adulte');
+  const [newTarifDesc, setNewTarifDesc] = useState('');
 
   if (!isOpen) return null;
 
@@ -126,6 +172,21 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
     }));
   };
 
+  // Détection intelligente de la catégorie de tarif au fur et à mesure de la frappe
+  const handleTarifLabelChange = (val: string) => {
+    setNewTarifLabel(val);
+    const lower = val.toLowerCase();
+    if (lower.includes('adulte') || lower.includes('senior') || lower.includes('majeur')) {
+      setNewTarifCat('adulte');
+    } else if (lower.includes('adhésion') || lower.includes('adhesion') || lower.includes('libre') || lower.includes('badge')) {
+      setNewTarifCat('adhesion');
+    } else if (lower.includes('compétition') || lower.includes('competition') || lower.includes('tournoi') || lower.includes('équipe') || lower.includes('equipe')) {
+      setNewTarifCat('competition');
+    } else if (lower.includes('jeune') || lower.includes('galaxie') || lower.includes('ado') || lower.includes('enfant') || lower.includes('mini') || lower.includes('école') || lower.includes('ecole')) {
+      setNewTarifCat('jeune');
+    }
+  };
+
   const handleAddTarif = () => {
     if (!newTarifLabel.trim()) return;
     const newT: ClubTarif = {
@@ -133,12 +194,43 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
       label: newTarifLabel.trim(),
       montant: Number(newTarifMontant) || 0,
       categorie: newTarifCat,
+      description: newTarifDesc.trim() || undefined,
     };
     setFormData(prev => ({
       ...prev,
       tarifs: [...(prev.tarifs || []), newT],
     }));
     setNewTarifLabel('');
+    setNewTarifDesc('');
+    setNewTarifMontant(150);
+  };
+
+  const handleUpdateTarifCategory = (id: string, newCat: 'jeune' | 'adulte' | 'competition' | 'adhesion') => {
+    setFormData(prev => ({
+      ...prev,
+      tarifs: (prev.tarifs || []).map(t => t.id === id ? { ...t, categorie: newCat } : t),
+    }));
+  };
+
+  const handleUpdateTarifLabel = (id: string, newLabel: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tarifs: (prev.tarifs || []).map(t => t.id === id ? { ...t, label: newLabel } : t),
+    }));
+  };
+
+  const handleUpdateTarifMontant = (id: string, newMontant: number) => {
+    setFormData(prev => ({
+      ...prev,
+      tarifs: (prev.tarifs || []).map(t => t.id === id ? { ...t, montant: newMontant } : t),
+    }));
+  };
+
+  const handleUpdateTarifDescription = (id: string, newDesc: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tarifs: (prev.tarifs || []).map(t => t.id === id ? { ...t, description: newDesc } : t),
+    }));
   };
 
   const handleRemoveTarif = (id: string) => {
@@ -398,35 +490,122 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
           {/* ==================== ONGLET BUREAU ==================== */}
           {activeSubTab === 'bureau' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[11px] text-zinc-400 block mb-1">Président *</label>
-                  <input
-                    type="text"
-                    value={formData.president}
-                    onChange={(e) => setFormData({ ...formData, president: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
-                  />
+              <div className="space-y-3">
+                {/* 1. Président */}
+                <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800 space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#FF6D00] bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20">
+                    Président du club
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Nom et Prénom *</label>
+                      <input
+                        type="text"
+                        value={formData.president}
+                        onChange={(e) => setFormData({ ...formData, president: e.target.value })}
+                        placeholder="Ex: Laurent Le Guennec"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Portable</label>
+                      <input
+                        type="text"
+                        value={formData.presidentTelephone || ''}
+                        onChange={(e) => setFormData({ ...formData, presidentTelephone: e.target.value })}
+                        placeholder="Ex: 06 82 45 19 33"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={formData.presidentEmail || ''}
+                        onChange={(e) => setFormData({ ...formData, presidentEmail: e.target.value })}
+                        placeholder="Ex: president.tcmuzillac@gmail.com"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="text-[11px] text-zinc-400 block mb-1">Secrétaire *</label>
-                  <input
-                    type="text"
-                    value={formData.secretaire}
-                    onChange={(e) => setFormData({ ...formData, secretaire: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
-                  />
+                {/* 2. Secrétaire */}
+                <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800 space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                    Secrétaire
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Nom et Prénom *</label>
+                      <input
+                        type="text"
+                        value={formData.secretaire}
+                        onChange={(e) => setFormData({ ...formData, secretaire: e.target.value })}
+                        placeholder="Ex: Sophie Bourdon"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Portable</label>
+                      <input
+                        type="text"
+                        value={formData.secretaireTelephone || ''}
+                        onChange={(e) => setFormData({ ...formData, secretaireTelephone: e.target.value })}
+                        placeholder="Ex: 06 74 12 88 50"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={formData.secretaireEmail || ''}
+                        onChange={(e) => setFormData({ ...formData, secretaireEmail: e.target.value })}
+                        placeholder="Ex: secretariat.tcmuzillac@gmail.com"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="text-[11px] text-zinc-400 block mb-1">Trésorier *</label>
-                  <input
-                    type="text"
-                    value={formData.tresorier}
-                    onChange={(e) => setFormData({ ...formData, tresorier: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
-                  />
+                {/* 3. Trésorier */}
+                <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800 space-y-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                    Trésorier
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Nom et Prénom *</label>
+                      <input
+                        type="text"
+                        value={formData.tresorier}
+                        onChange={(e) => setFormData({ ...formData, tresorier: e.target.value })}
+                        placeholder="Ex: Philippe Conan"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Portable</label>
+                      <input
+                        type="text"
+                        value={formData.tresorierTelephone || ''}
+                        onChange={(e) => setFormData({ ...formData, tresorierTelephone: e.target.value })}
+                        placeholder="Ex: 06 63 90 24 17"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-400 block mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={formData.tresorierEmail || ''}
+                        onChange={(e) => setFormData({ ...formData, tresorierEmail: e.target.value })}
+                        placeholder="Ex: tresorerie.tcmuzillac@gmail.com"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -490,69 +669,244 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
           {/* ==================== ONGLET TARIFS ==================== */}
           {activeSubTab === 'tarifs' && (
             <div className="space-y-4">
-              <h3 className="font-bold text-white text-xs uppercase tracking-wider">
-                Grille des Tarifs & Cotisations ({formData.tarifs?.length || 0})
-              </h3>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-white text-xs uppercase tracking-wider">
+                    Grille des Tarifs & Cotisations ({formData.tarifs?.length || 0})
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Modifiez la pastille/catégorie de chaque formule ci-dessous ou ajoutez-en de nouvelles.
+                  </p>
+                </div>
+              </div>
 
-              <div className="space-y-2">
+              {/* Liste des tarifs existants avec modification directe de la catégorie et du montant */}
+              <div className="space-y-2.5">
                 {(formData.tarifs || []).map((t) => (
                   <div
                     key={t.id}
-                    className="p-3 bg-[#171b23] rounded-xl border border-zinc-800 flex items-center justify-between gap-3 text-xs"
+                    className="p-3 bg-[#171b23] rounded-2xl border border-zinc-800 space-y-2 text-xs transition hover:border-zinc-700"
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-white">{t.label}</span>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-black bg-zinc-800 text-zinc-300">
-                          {t.categorie}
-                        </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex-1 flex items-center gap-2">
+                        {/* Sélecteur de catégorie / pastille en ligne */}
+                        <select
+                          value={t.categorie}
+                          onChange={(e) => handleUpdateTarifCategory(t.id, e.target.value as any)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-black border outline-none cursor-pointer shrink-0 transition ${
+                            t.categorie === 'adulte'
+                              ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'
+                              : t.categorie === 'adhesion'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30'
+                              : t.categorie === 'competition'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                          }`}
+                          title="Modifier la pastille/catégorie de ce tarif"
+                        >
+                          <option value="adulte" className="bg-[#171b23] text-sky-300">● Adulte (Bleu)</option>
+                          <option value="adhesion" className="bg-[#171b23] text-purple-300">● Adhésion seule (Violet)</option>
+                          <option value="jeune" className="bg-[#171b23] text-emerald-300">● Jeune (Vert)</option>
+                          <option value="competition" className="bg-[#171b23] text-amber-300">● Compétition (Orange)</option>
+                        </select>
+
+                        {/* Intitulé éditable */}
+                        <input
+                          type="text"
+                          value={t.label}
+                          onChange={(e) => handleUpdateTarifLabel(t.id, e.target.value)}
+                          placeholder="Intitulé de la formule"
+                          className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-zinc-750 font-bold text-white text-xs focus:border-[#FF6D00] outline-none"
+                        />
                       </div>
-                      {t.description && <p className="text-[11px] text-zinc-400">{t.description}</p>}
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                        <div className="flex items-center gap-1 bg-black/40 border border-zinc-750 rounded-xl px-2.5 py-1.5">
+                          <input
+                            type="number"
+                            value={t.montant}
+                            onChange={(e) => handleUpdateTarifMontant(t.id, Number(e.target.value))}
+                            className="w-16 bg-transparent text-right font-heading font-black text-orange-400 text-xs focus:outline-none"
+                          />
+                          <span className="text-zinc-400 font-bold text-xs">€</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTarif(t.id)}
+                          className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition cursor-pointer"
+                          title="Supprimer ce tarif"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="font-heading font-black text-white text-sm">
-                        {t.montant} €
-                      </span>
-                      <button
-                        onClick={() => handleRemoveTarif(t.id)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {/* Description optionnelle */}
+                    <div>
+                      <input
+                        type="text"
+                        value={t.description || ''}
+                        onChange={(e) => handleUpdateTarifDescription(t.id, e.target.value)}
+                        placeholder="Précisions (ex: Licence FFT incluse, accès courts libre 7j/7...)"
+                        className="w-full px-3 py-1.5 rounded-xl bg-black/20 border border-zinc-800 text-zinc-400 text-[11px] focus:border-zinc-600 outline-none placeholder:text-zinc-600"
+                      />
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-800">
-                <div className="sm:col-span-2">
-                  <input
-                    type="text"
-                    value={newTarifLabel}
-                    onChange={(e) => setNewTarifLabel(e.target.value)}
-                    placeholder="Formule (ex: Adhésion seule Étudiant)"
-                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
-                  />
-                </div>
-                <div>
-                  <input
-                    type="number"
-                    value={newTarifMontant}
-                    onChange={(e) => setNewTarifMontant(Number(e.target.value))}
-                    placeholder="Montant en €"
-                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
-                  />
-                </div>
-                <div>
-                  <button
-                    type="button"
-                    onClick={handleAddTarif}
-                    className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
-                  >
+              {/* Formulaire d'ajout d'un nouveau tarif */}
+              <div className="p-4 bg-zinc-900/80 rounded-2xl border border-zinc-800 space-y-3 pt-3 mt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
                     <Plus className="w-4 h-4" />
-                    <span>Ajouter</span>
-                  </button>
+                    <span>Ajouter une nouvelle formule</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400 hidden sm:inline">
+                    La pastille s'ajuste automatiquement selon le texte saisi
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                  <div className="sm:col-span-5">
+                    <label className="text-[10px] text-zinc-400 block mb-1">Intitulé de la formule *</label>
+                    <input
+                      type="text"
+                      value={newTarifLabel}
+                      onChange={(e) => handleTarifLabelChange(e.target.value)}
+                      placeholder="Ex: Adhésion adulte, Cotisation jeune..."
+                      className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-4">
+                    <label className="text-[10px] text-zinc-400 block mb-1">Catégorie / Pastille *</label>
+                    <select
+                      value={newTarifCat}
+                      onChange={(e) => setNewTarifCat(e.target.value as any)}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs font-bold outline-none cursor-pointer ${
+                        newTarifCat === 'adulte'
+                          ? 'bg-sky-950/40 border-sky-500/50 text-sky-300'
+                          : newTarifCat === 'adhesion'
+                          ? 'bg-purple-950/40 border-purple-500/50 text-purple-300'
+                          : newTarifCat === 'competition'
+                          ? 'bg-amber-950/40 border-amber-500/50 text-amber-300'
+                          : 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+                      }`}
+                    >
+                      <option value="adulte" className="bg-[#171b23] text-sky-300">● Adulte (Pastille bleue)</option>
+                      <option value="adhesion" className="bg-[#171b23] text-purple-300">● Adhésion seule (Pastille violette)</option>
+                      <option value="jeune" className="bg-[#171b23] text-emerald-300">● Jeune (Pastille verte)</option>
+                      <option value="competition" className="bg-[#171b23] text-amber-300">● Compétition (Pastille orange)</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <label className="text-[10px] text-zinc-400 block mb-1">Montant en € *</label>
+                    <input
+                      type="number"
+                      value={newTarifMontant}
+                      onChange={(e) => setNewTarifMontant(Number(e.target.value))}
+                      placeholder="Montant en €"
+                      className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                  <div className="sm:col-span-9">
+                    <input
+                      type="text"
+                      value={newTarifDesc}
+                      onChange={(e) => setNewTarifDesc(e.target.value)}
+                      placeholder="Précisions optionnelles (ex: Licence FFT incluse, accès aux courts libres 7j/7)"
+                      className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <button
+                      type="button"
+                      onClick={handleAddTarif}
+                      className="w-full py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-orange-950/40"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Ajouter ce tarif</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ================= MODALITÉS DE RÈGLEMENT & PAIEMENT ÉCHELONNÉ ================= */}
+              <div className="p-4 bg-zinc-900/80 rounded-2xl border border-zinc-800 space-y-3 mt-4">
+                <div className="flex items-center space-x-2">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <CreditCard className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                      Modalités & Facilités de paiement
+                    </h4>
+                    <p className="text-[10px] text-zinc-400">
+                      Texte affiché sous la grille des cotisations (Paiement échelonné par chèque, CB via HelloAsso...)
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-400 block mb-1">
+                    Texte des facilités de paiement (Chèques, CB HelloAsso, échelonnement...) *
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={formData.modalitesPaiement || ''}
+                    onChange={(e) => setFormData({ ...formData, modalitesPaiement: e.target.value })}
+                    placeholder="Ex: Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés."
+                    className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none resize-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                  <div>
+                    <label className="text-[10px] text-zinc-400 block mb-1">
+                      Lien direct HelloAsso du club (optionnel)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        value={formData.helloAssoUrl || ''}
+                        onChange={(e) => setFormData({ ...formData, helloAssoUrl: e.target.value })}
+                        placeholder="https://www.helloasso.com/associations/tennis-club-muzillac"
+                        className="flex-1 px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                      />
+                      {formData.helloAssoUrl && (
+                        <a
+                          href={formData.helloAssoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-2 rounded-xl bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition shrink-0"
+                          title="Ouvrir le lien HelloAsso"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({
+                        ...prev,
+                        modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
+                        helloAssoUrl: prev.helloAssoUrl || "https://www.helloasso.com/associations/tennis-club-muzillac"
+                      }))}
+                      className="w-full py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-semibold transition cursor-pointer"
+                    >
+                      Restaurer formule standard (Chèque + HelloAsso)
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

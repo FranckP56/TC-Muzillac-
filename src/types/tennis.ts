@@ -182,13 +182,21 @@ export interface ClubInfo {
   telephone: string;
   siteWeb: string;
   president: string;
+  presidentTelephone?: string;
+  presidentEmail?: string;
   secretaire: string;
+  secretaireTelephone?: string;
+  secretaireEmail?: string;
   tresorier: string;
+  tresorierTelephone?: string;
+  tresorierEmail?: string;
   enseignant?: string;
   enseignants: Enseignant[];
   installations: string[];
   tarifs?: ClubTarif[];
   horairesPermanence?: string;
+  modalitesPaiement?: string;
+  helloAssoUrl?: string;
 }
 
 export interface EligibilityResult {

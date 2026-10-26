@@ -21,7 +21,7 @@ import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { User } from 'firebase/auth';
 import { initAuth } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
-import { Adherent, Rencontre, ClubInfo, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
+import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { 
   INITIAL_ADHERENTS, 
@@ -33,6 +33,34 @@ import {
   parseRencontresCsv
 } from './data/clubData';
 import { sortAdherentsByRankingDesc } from './utils/ranking';
+
+// Fonction de salubrité : s'assure qu'aucun tarif 'adulte' n'a la pastille 'jeune' par erreur et initialise les paiements échelonnés
+const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
+  if (!info) return info;
+  const fixedInfo = { ...info };
+  if (!fixedInfo.modalitesPaiement || !fixedInfo.modalitesPaiement.includes('HelloAsso')) {
+    fixedInfo.modalitesPaiement = "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.";
+  }
+  if (!fixedInfo.helloAssoUrl) {
+    fixedInfo.helloAssoUrl = "https://www.helloasso.com/associations/tennis-club-muzillac";
+  }
+  if (fixedInfo.tarifs && Array.isArray(fixedInfo.tarifs)) {
+    const fixedTarifs: ClubTarif[] = fixedInfo.tarifs.map((t: ClubTarif) => {
+      if (t.categorie === 'jeune' && /adulte|senior|majeur/i.test(t.label)) {
+        const fixedCat: ClubTarif['categorie'] = /adh[eé]sion/i.test(t.label) && !/cours|collectif|entrain/i.test(t.label) 
+          ? 'adhesion' 
+          : 'adulte';
+        return { 
+          ...t, 
+          categorie: fixedCat,
+        };
+      }
+      return t;
+    });
+    fixedInfo.tarifs = fixedTarifs;
+  }
+  return fixedInfo;
+};
 
 export default function App() {
   // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents'
@@ -86,12 +114,12 @@ export default function App() {
     return INITIAL_RENCONTRES;
   });
 
-  // Données officielles du club (avec 2 enseignants DE et BPJEPS, installations, tarifs)
+  // Données officielles du club (avec 2 enseignants DE et BPJEPS, installations, tarifs assainis)
   const [clubInfo, setClubInfo] = useState<ClubInfo>(() => {
     try {
       const saved = localStorage.getItem('tcm_club_info_v2');
       if (saved) {
-        return JSON.parse(saved);
+        return sanitizeLoadedTarifs(JSON.parse(saved));
       }
     } catch (e) {
       console.warn(e);
@@ -352,11 +380,12 @@ export default function App() {
     setRencontres(prev => [newMatch, ...prev]);
   };
 
-  // Sauvegarde des modifications du club (enseignants, installations, tarifs, permanences)
+  // Sauvegarde des modifications du club (enseignants, installations, tarifs assainis, permanences)
   const handleSaveClubInfo = (updatedInfo: ClubInfo) => {
-    setClubInfo(updatedInfo);
+    const sanitized = sanitizeLoadedTarifs(updatedInfo);
+    setClubInfo(sanitized);
     try {
-      localStorage.setItem('tcm_club_info_v2', JSON.stringify(updatedInfo));
+      localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
     } catch (e) {
       console.warn(e);
     }
@@ -386,7 +415,7 @@ export default function App() {
       />
 
       {/* 2. CONTENU PRINCIPAL (ESPACEMENT SOUS LA NAV FIXE) */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 pt-24 sm:pt-28 pb-16">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-24 sm:pt-28 pb-16">
         
         {/* Onglet 'Rencontres' (Accessible à tous, avec boutons de composition pour Capitaines et Bureau) */}
         {activeTab === 'rencontres' && (
@@ -402,8 +431,8 @@ export default function App() {
           />
         )}
 
-        {/* Onglet 'Licenciés' (Officiels FFT 2027 Muzillac Tennis Club - Colonnes X & AB) */}
-        {activeTab === 'licencies' && (
+        {/* Onglet 'Licenciés' (Officiels FFT 2027 Muzillac Tennis Club - Masqué pour les simples adhérents) */}
+        {activeTab === 'licencies' && userRole !== 'adherent' && (
           <LicenciesTab
             adherents={adherents}
             userRole={userRole}
@@ -563,7 +592,7 @@ export default function App() {
 
       {/* 4. FOOTER DISCRET DU CLUB */}
       <footer className="border-t border-[#1e232d] bg-[#090b0e] py-6 px-4 text-center text-xs text-zinc-500">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
             <span className="font-heading font-black text-white text-sm">Muzillac Tennis Club (TCM)</span>
             <span>•</span>

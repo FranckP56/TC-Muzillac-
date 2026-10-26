@@ -15,11 +15,12 @@ import {
   Upload, 
   RefreshCw,
   Copy,
-  Check
+  Check,
+  MessageSquare
 } from 'lucide-react';
 import { ClubInfo } from '../types/tennis';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
-import { GraduationCap, Euro, Edit3, Building } from 'lucide-react';
+import { GraduationCap, Euro, Edit3, Building, CreditCard } from 'lucide-react';
 
 interface InfosClubTabProps {
   clubInfo: ClubInfo;
@@ -230,19 +231,135 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             </button>
           </div>
 
-          {/* Liste des contacts bureau */}
-          <div className="space-y-2 text-xs text-zinc-300">
-            <div className="flex justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400">Président</span>
-              <span className="font-bold text-white">{clubInfo.president}</span>
+          {/* Liste des contacts du bureau avec portable et mail */}
+          <div className="space-y-2.5">
+            {/* 1. Président */}
+            <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800/80 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#FF6D00] bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20">
+                  Président
+                </span>
+                <span className="font-heading font-black text-white text-xs sm:text-sm">
+                  {clubInfo.president}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80 text-[11px] flex-wrap justify-between">
+                {clubInfo.presidentTelephone && (
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={`tel:${clubInfo.presidentTelephone}`}
+                      className="flex items-center gap-1 text-zinc-300 hover:text-emerald-400 font-medium transition"
+                      title="Appeler le président"
+                    >
+                      <Phone className="w-3 h-3 text-emerald-400" />
+                      <span>{clubInfo.presidentTelephone}</span>
+                    </a>
+                    <a
+                      href={`sms:${clubInfo.presidentTelephone}`}
+                      className="px-1.5 py-0.2 rounded text-[10px] bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition font-bold"
+                      title="Envoyer un SMS"
+                    >
+                      SMS
+                    </a>
+                  </div>
+                )}
+                {clubInfo.presidentEmail && (
+                  <a
+                    href={`mailto:${clubInfo.presidentEmail}`}
+                    className="flex items-center gap-1 text-zinc-300 hover:text-orange-400 font-medium transition truncate max-w-[210px]"
+                    title="Envoyer un email au président"
+                  >
+                    <Mail className="w-3 h-3 text-orange-400 shrink-0" />
+                    <span className="truncate">{clubInfo.presidentEmail}</span>
+                  </a>
+                )}
+              </div>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400">Secrétaire</span>
-              <span className="font-bold text-white">{clubInfo.secretaire}</span>
+
+            {/* 2. Secrétaire */}
+            <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800/80 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                  Secrétaire
+                </span>
+                <span className="font-heading font-black text-white text-xs sm:text-sm">
+                  {clubInfo.secretaire}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80 text-[11px] flex-wrap justify-between">
+                {clubInfo.secretaireTelephone && (
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={`tel:${clubInfo.secretaireTelephone}`}
+                      className="flex items-center gap-1 text-zinc-300 hover:text-emerald-400 font-medium transition"
+                      title="Appeler la secrétaire"
+                    >
+                      <Phone className="w-3 h-3 text-emerald-400" />
+                      <span>{clubInfo.secretaireTelephone}</span>
+                    </a>
+                    <a
+                      href={`sms:${clubInfo.secretaireTelephone}`}
+                      className="px-1.5 py-0.2 rounded text-[10px] bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition font-bold"
+                      title="Envoyer un SMS"
+                    >
+                      SMS
+                    </a>
+                  </div>
+                )}
+                {clubInfo.secretaireEmail && (
+                  <a
+                    href={`mailto:${clubInfo.secretaireEmail}`}
+                    className="flex items-center gap-1 text-zinc-300 hover:text-purple-400 font-medium transition truncate max-w-[210px]"
+                    title="Envoyer un email à la secrétaire"
+                  >
+                    <Mail className="w-3 h-3 text-purple-400 shrink-0" />
+                    <span className="truncate">{clubInfo.secretaireEmail}</span>
+                  </a>
+                )}
+              </div>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400">Trésorier</span>
-              <span className="font-bold text-white">{clubInfo.tresorier}</span>
+
+            {/* 3. Trésorier */}
+            <div className="p-3 bg-[#11141a] rounded-2xl border border-zinc-800/80 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                  Trésorier
+                </span>
+                <span className="font-heading font-black text-white text-xs sm:text-sm">
+                  {clubInfo.tresorier}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80 text-[11px] flex-wrap justify-between">
+                {clubInfo.tresorierTelephone && (
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={`tel:${clubInfo.tresorierTelephone}`}
+                      className="flex items-center gap-1 text-zinc-300 hover:text-emerald-400 font-medium transition"
+                      title="Appeler le trésorier"
+                    >
+                      <Phone className="w-3 h-3 text-emerald-400" />
+                      <span>{clubInfo.tresorierTelephone}</span>
+                    </a>
+                    <a
+                      href={`sms:${clubInfo.tresorierTelephone}`}
+                      className="px-1.5 py-0.2 rounded text-[10px] bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 transition font-bold"
+                      title="Envoyer un SMS"
+                    >
+                      SMS
+                    </a>
+                  </div>
+                )}
+                {clubInfo.tresorierEmail && (
+                  <a
+                    href={`mailto:${clubInfo.tresorierEmail}`}
+                    className="flex items-center gap-1 text-zinc-300 hover:text-emerald-400 font-medium transition truncate max-w-[210px]"
+                    title="Envoyer un email au trésorier"
+                  >
+                    <Mail className="w-3 h-3 text-emerald-400 shrink-0" />
+                    <span className="truncate">{clubInfo.tresorierEmail}</span>
+                  </a>
+                )}
+              </div>
             </div>
           </div>
 
@@ -314,10 +431,29 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             {(clubInfo.tarifs || []).map((t) => (
               <div
                 key={t.id}
-                className="p-2.5 bg-[#11141a] rounded-xl border border-zinc-800/80 flex items-center justify-between"
+                className="p-2.5 bg-[#11141a] rounded-xl border border-zinc-800/80 flex items-center justify-between gap-2"
               >
-                <div>
-                  <span className="font-bold text-white">{t.label}</span>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-white">{t.label}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border uppercase tracking-wider ${
+                      t.categorie === 'adulte'
+                        ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                        : t.categorie === 'adhesion'
+                        ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                        : t.categorie === 'competition'
+                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {t.categorie === 'adulte' 
+                        ? 'Adulte' 
+                        : t.categorie === 'adhesion' 
+                        ? 'Adhésion' 
+                        : t.categorie === 'competition' 
+                        ? 'Compétition' 
+                        : 'Jeune'}
+                    </span>
+                  </div>
                   {t.description && <p className="text-[10px] text-zinc-400">{t.description}</p>}
                 </div>
                 <span className="font-heading font-black text-[#FF6D00] text-sm shrink-0">
@@ -327,8 +463,32 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             ))}
           </div>
 
-          <div className="pt-2 border-t border-[#232934] text-[11px] text-zinc-400">
-            Paiement échelonné possible, chèques vacances ANCV et Pass'Sport acceptés.
+          {/* Modalités & Facilités de paiement (Échelonnement, Chèque, HelloAsso via Ten'Up, ANCV) */}
+          <div className="pt-3 border-t border-[#232934] space-y-2.5">
+            <div className="flex items-start gap-2">
+              <CreditCard className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-2 flex-1">
+                <p className="text-xs text-zinc-300 leading-relaxed font-medium">
+                  {clubInfo.modalitesPaiement || "Paiement échelonné possible par chèque et par CB via HelloAsso (directement sur Ten'Up avec le montant dans votre panier). Chèques vacances ANCV et Pass'Sport acceptés."}
+                </p>
+
+                {/* Badges des moyens de règlement acceptés */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700/80">
+                    ✉️ Chèque échelonné
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    💳 CB via HelloAsso sur Ten'Up
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                    🎾 Panier Ten'Up
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                    🎟️ ANCV & Pass'Sport
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

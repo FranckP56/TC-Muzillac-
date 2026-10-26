@@ -18,8 +18,14 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   telephone: '02 97 41 67 80',
   siteWeb: 'https://tennis-club-muzillac.fr',
   president: 'Laurent Le Guennec',
+  presidentTelephone: '06 82 45 19 33',
+  presidentEmail: 'president.tcmuzillac@gmail.com',
   secretaire: 'Sophie Bourdon',
+  secretaireTelephone: '06 74 12 88 50',
+  secretaireEmail: 'secretariat.tcmuzillac@gmail.com',
   tresorier: 'Philippe Conan',
+  tresorierTelephone: '06 63 90 24 17',
+  tresorierEmail: 'tresorerie.tcmuzillac@gmail.com',
   enseignant: 'Alexandre Rault (Diplômé d\'État)',
   enseignants: [
     {
@@ -54,6 +60,8 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
     { id: 't5', label: 'Adhésion seule / Accès courts libre', montant: 110, categorie: 'adhesion', description: 'Accès 7j/7 + badge' },
   ],
   horairesPermanence: 'Mercredi 14h-18h et Samedi 10h-12h au Club-house',
+  modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
+  helloAssoUrl: "https://www.helloasso.com/associations/tennis-club-muzillac",
 };
 
 /**

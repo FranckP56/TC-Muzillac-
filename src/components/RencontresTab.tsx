@@ -367,8 +367,8 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
       </div>
 
-      {/* Liste des fiches de rencontre */}
-      <div className="space-y-4">
+      {/* ==================== GRILLE DES RENCONTRES DISPOSÉE PAR 3 ==================== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredRencontres.length > 0 ? (
           filteredRencontres.map((r) => {
             const isUpcoming = !r.score || r.score === 'À venir';
@@ -407,7 +407,6 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             // Nombre de réponses au sondage
             const dispoResponses = r.disponibilites || [];
             const dispoCount = dispoResponses.filter(d => d.statut === 'disponible').length;
-            const indispoCount = dispoResponses.filter(d => d.statut === 'indisponible').length;
             
             // Calcul indicatif du score
             let isWin = false;
@@ -430,17 +429,60 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             return (
               <div 
                 key={r.id}
-                className="bg-[#171b22] border border-[#272e3b] hover:border-[#E65100]/50 rounded-3xl p-4 sm:p-5 transition-all shadow-md space-y-4"
+                className="bg-[#161a22] hover:bg-[#191f2a] border border-[#272e3b] hover:border-[#E65100]/50 rounded-3xl p-4 transition-all shadow-md flex flex-col justify-between space-y-3.5 group"
               >
-                {/* En-tête de la rencontre */}
-                <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
-                      {r.numeroEquipe}
+                <div className="space-y-3">
+                  {/* Ligne 1 : Équipe, Catégorie, Sexe & Domicile/Déplacement */}
+                  <div className="flex items-start justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40 text-xs">
+                        {r.numeroEquipe}
+                      </span>
+                      <span className={`font-black text-[10px] px-2 py-0.5 rounded border ${
+                        r.sexeHomologation === 'Dames' 
+                          ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' 
+                          : r.sexeHomologation === 'Mixte' 
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' 
+                            : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                      }`}>
+                        {r.sexeHomologation === 'Dames' ? 'Dames' : r.sexeHomologation === 'Messieurs' ? 'Messieurs' : 'Mixte'}
+                      </span>
+                      <span className="font-bold text-white px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px]">
+                        {r.categorieAgeHomologation}
+                      </span>
+                      {r.journee && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-zinc-800 text-zinc-300 border border-zinc-700">
+                          {r.journee}
+                        </span>
+                      )}
+                    </div>
+
+                    <span className={`px-2 py-0.5 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                      isHome 
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
+                        : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                    }`}>
+                      {isHome ? '🏠 Domicile' : '🚗 Déplacement'}
+                    </span>
+                  </div>
+
+                  {/* Ligne 2 : Date & Format officiel FFT */}
+                  <div className="flex items-center justify-between gap-1.5 text-xs flex-wrap">
+                    <span className="text-zinc-300 flex items-center gap-1.5 font-semibold bg-[#12151b] px-2.5 py-1 rounded-xl border border-zinc-800 text-[11px]">
+                      <Calendar className="w-3.5 h-3.5 text-orange-400" />
+                      <span>{normalizedDate}</span>
+                      {dateValidation.dayName && (
+                        <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
+                          dateValidation.isValidDay
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {dateValidation.dayName}
+                        </span>
+                      )}
                     </span>
 
-                    {/* Badge Format Officiel FFT / Bretagne par Division */}
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
                       formatInfo.numDoubles === 2
                         ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                         : formatInfo.isSeniorsPlus
@@ -452,445 +494,292 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                               : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                     }`}>
                       {formatInfo.numSingles}S + {formatInfo.numDoubles}D
-                      {formatInfo.doubleWeightStrict ? ' (Poids D1 ≥ D2)' : ''}
                       {formatInfo.divisionLabel ? ` • ${formatInfo.divisionLabel}` : ''}
                     </span>
-
-                    {r.journee && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-zinc-800 text-zinc-300 border border-zinc-700">
-                        {r.journee}
-                      </span>
-                    )}
-                    <span className="font-bold text-white px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-xs">
-                      {r.categorieAgeHomologation}
-                    </span>
-                    <span className={`font-black text-xs px-2 py-0.5 rounded border ${
-                      r.sexeHomologation === 'Dames' 
-                        ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' 
-                        : r.sexeHomologation === 'Mixte' 
-                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' 
-                          : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                    }`}>
-                      {r.sexeHomologation === 'Dames' ? 'Dames (F)' : r.sexeHomologation === 'Messieurs' ? 'Messieurs (H)' : 'Mixte'}
-                    </span>
-                    {(r.division || r.poule) && (
-                      <span className="text-[11px] text-zinc-400 font-medium">
-                        {r.division} {r.poule ? `• ${r.poule}` : ''}
-                      </span>
-                    )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-300 flex items-center gap-1.5 font-semibold bg-[#12151b] px-2.5 py-1 rounded-xl border border-zinc-800">
-                      <Calendar className="w-3.5 h-3.5 text-orange-400" />
-                      <span>{normalizedDate}</span>
-                      {dateValidation.dayName && (
-                        <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
-                          dateValidation.isValidDay
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-amber-500/20 text-amber-300'
+                  {/* Ligne 3 : Confrontation & Score */}
+                  <div className="bg-[#11141a] p-3 rounded-2xl border border-[#232934] flex items-center justify-between gap-3">
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-black truncate ${
+                          r.clubAccueilNom.toLowerCase().includes('muzillac')
+                            ? 'text-[#FF6D00]'
+                            : 'text-zinc-200'
                         }`}>
-                          {dateValidation.dayName}
+                          {r.clubAccueilNom}
+                        </span>
+                        {isHome && (
+                          <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Dom</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-black truncate ${
+                          r.clubVisiteurNom.toLowerCase().includes('muzillac')
+                            ? 'text-[#FF6D00]'
+                            : 'text-zinc-200'
+                        }`}>
+                          {r.clubVisiteurNom}
+                        </span>
+                        {!isHome && (
+                          <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Ext</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Badge Score */}
+                    <div className="shrink-0 text-center">
+                      <div className={`px-2.5 py-1 rounded-xl text-xs font-heading font-black border ${
+                        isUpcoming 
+                          ? 'bg-[#1b2029] text-zinc-400 border-zinc-700' 
+                          : isWin 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40' 
+                            : isLoss 
+                              ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      }`}>
+                        {r.score || 'À venir'}
+                      </div>
+                      {!isUpcoming && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider block mt-0.5 text-zinc-400">
+                          {r.vainqueur ? r.vainqueur : isWin ? 'Victoire TCM' : isLoss ? 'Défaite' : 'Score'}
                         </span>
                       )}
-                    </span>
-                    <span className={`px-2 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider ${
-                      isHome 
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
-                        : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
-                    }`}>
-                      {isHome ? '🏠 Domicile' : '🚗 Déplacement'}
-                    </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Logistique TCM : Choix des horaires, Lieu & Nombre de courts */}
-                <div className="flex flex-col gap-2.5 text-xs bg-[#12151b]/80 p-3 rounded-2xl border border-zinc-800/80">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-                    
-                    {/* Choix des horaires pour la rencontre */}
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
-                        <Clock className="w-3.5 h-3.5 text-orange-400" />
-                        <span className="text-zinc-400">À suivre dès :</span>
+                  {/* Ligne 4 : Logistique TCM (Horaire rapide, Lieu, Rotations) */}
+                  <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
+                        <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                        <span className="text-zinc-400">Horaire :</span>
                         <strong className="text-white font-mono">{matchHour}</strong>
                       </div>
 
-                      {/* Sélecteur rapide d'horaire (9h ou 14h) */}
+                      {/* Sélecteur rapide 9h00 / 14h00 */}
                       {onUpdateMatchHour && (
-                        <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-xl border border-zinc-700/80">
+                        <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-lg border border-zinc-700/80">
                           <button
                             onClick={() => onUpdateMatchHour(r.id, '09:00')}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
                               matchHour === '09:00' 
                                 ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
                                 : 'text-zinc-400 hover:text-white'
                             }`}
-                            title="Fixer l'horaire de lancement à 9h00 (Matin)"
+                            title="Fixer à 9h00"
                           >
-                            9h00
+                            9h
                           </button>
                           <button
                             onClick={() => onUpdateMatchHour(r.id, '14:00')}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
                               matchHour === '14:00' 
                                 ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
                                 : 'text-zinc-400 hover:text-white'
                             }`}
-                            title="Fixer l'horaire de lancement à 14h00 (Après-midi)"
+                            title="Fixer à 14h00"
                           >
-                            14h00
+                            14h
                           </button>
                         </div>
                       )}
+                    </div>
 
-                      <span className="text-zinc-600">•</span>
-
-                      <span className="text-zinc-400 flex items-center gap-1 font-medium">
-                        <MapPin className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                        <span>Lieu :</span>
-                        <strong className="text-white truncate max-w-xs" title={effectiveVenue}>
+                    <div className="text-[11px] text-zinc-400 flex items-center justify-between gap-1.5">
+                      <span className="flex items-center gap-1 min-w-0">
+                        <MapPin className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <strong className="text-white truncate" title={effectiveVenue}>
                           {effectiveVenue}
                         </strong>
                       </span>
-
-                      <span className="text-zinc-600">•</span>
-
-                      <span className="text-zinc-400 font-medium">
-                        <span>Courts : </span>
-                        <strong className="text-white">
-                          {r.composition?.nombreCourts ? `${r.composition.nombreCourts} courts` : (isHome ? '2 courts résine' : '2 courts')}
-                        </strong>
+                      <span className="shrink-0 text-[10px] text-zinc-400 font-mono">
+                        {r.composition?.nombreCourts ? `${r.composition.nombreCourts} courts` : '2 courts'}
                       </span>
                     </div>
 
-                    <div className="text-[11px] text-zinc-400 font-medium shrink-0 flex items-center gap-2">
-                      <span className="text-[10px] text-zinc-500 font-mono">Jeudi 20h : Choix visiteur</span>
-                      <span>{dateValidation.alternationMessage}</span>
-                    </div>
-                  </div>
-
-                  {/* Aperçu des créneaux de rotation */}
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 bg-black/40 px-2.5 py-1.5 rounded-xl overflow-x-auto">
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    {/* Aperçu rotations */}
+                    <div className="text-[10px] text-zinc-300 bg-black/40 px-2 py-1 rounded-lg flex items-center gap-1.5 overflow-hidden">
                       <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                      <span className="text-zinc-400 shrink-0 font-medium">Rotations à suivre :</span>
                       <span className="font-mono text-orange-200 truncate">
-                        {schedulePlan.rotations.map(rot => `${rot.timeSlot} [${rot.matches.map(m => m.matchLabel).join(', ')}]`).join(' • ')}
+                        {schedulePlan.rotations.map(rot => `${rot.timeSlot} [${rot.matches.map(m => m.matchLabel).join(',')}]`).join(' • ')}
                       </span>
-                    </div>
-
-                    {schedulePlan.fatigueRisk?.hasRisk && (
-                      <span className="shrink-0 text-[10px] px-2 py-0.2 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1" title={schedulePlan.fatigueRisk.message}>
-                        <AlertTriangle className="w-3 h-3 text-amber-400" />
-                        <span>{schedulePlan.fatigueRisk.playerName} (Double &amp; dernier simple)</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Confrontation & Score */}
-                <div className="bg-[#11141a] p-3.5 sm:p-4 rounded-2xl border border-[#232934] flex items-center justify-between gap-4">
-                  
-                  {/* Clubs */}
-                  <div className="space-y-2 flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs sm:text-sm font-black truncate ${
-                        r.clubAccueilNom.toLowerCase().includes('muzillac')
-                          ? 'text-[#FF6D00]'
-                          : 'text-zinc-200'
-                      }`}>
-                        {r.clubAccueilNom}
-                      </span>
-                      {isHome && (
-                        <span className="text-[10px] text-zinc-500 uppercase font-bold shrink-0 ml-2">Dom</span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs sm:text-sm font-black truncate ${
-                        r.clubVisiteurNom.toLowerCase().includes('muzillac')
-                          ? 'text-[#FF6D00]'
-                          : 'text-zinc-200'
-                      }`}>
-                        {r.clubVisiteurNom}
-                      </span>
-                      {!isHome && (
-                        <span className="text-[10px] text-zinc-500 uppercase font-bold shrink-0 ml-2">Ext</span>
-                      )}
                     </div>
                   </div>
 
-                  {/* Badge Score */}
-                  <div className="shrink-0 text-center">
-                    <div className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-heading font-black border ${
-                      isUpcoming 
-                        ? 'bg-[#1b2029] text-zinc-400 border-zinc-700' 
-                        : isWin 
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40' 
-                          : isLoss 
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
-                            : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    }`}>
-                      {r.score || 'À venir'}
-                    </div>
-                    {!isUpcoming && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider block mt-1 text-zinc-400">
-                        {r.vainqueur ? `Vainqueur : ${r.vainqueur}` : isWin ? 'Victoire TCM' : isLoss ? 'Défaite' : 'Score final'}
-                      </span>
-                    )}
-                  </div>
-
-                </div>
-
-                {/* ==================== MODULE COMPOSITION CAPITAINE & SONDAGE ==================== */}
-                <div className="p-3.5 bg-[#13161c] rounded-2xl border border-[#232934] space-y-3">
-                  
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center space-x-2.5">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-                        compStatus.hasIssue 
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' 
-                          : compStatus.isValidated 
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
-                            : 'bg-orange-500/15 text-[#FF6D00] border border-orange-500/30'
-                      }`}>
-                        <ClipboardList className="w-4 h-4" />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-extrabold text-white text-xs">Composition d'équipe :</span>
-                          {compStatus.doubleWeightIssue ? (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
-                              <ShieldAlert className="w-3 h-3" />
-                              Infraction : Poids Double 1 &lt; Double 2
-                            </span>
-                          ) : compStatus.hasIssue ? (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
-                              <ShieldAlert className="w-3 h-3" />
-                              Alerte FFT : Joueur inéligible
-                            </span>
-                          ) : compStatus.isValidated ? (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Validée FFT ({compStatus.count}/{compStatus.required} simples)
-                            </span>
-                          ) : compStatus.count > 0 ? (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                              En cours ({compStatus.count}/{compStatus.required} simples)
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-zinc-500">Non renseignée ({compStatus.required} simples requis)</span>
-                          )}
-
-                          {formatInfo.type === 'seniors_regional' && r.composition?.poidsDoublesValide && (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                              <Scale className="w-3 h-3" />
-                              Poids D1 &ge; D2 conforme
-                            </span>
-                          )}
-
-                          {r.composition?.frozenPlayers && r.composition.frozenPlayers.length > 0 && (
-                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-orange-500/15 text-[#FF6D00] border border-orange-500/30 flex items-center gap-1" title="Données et classements gelés">
-                              <Lock className="w-3 h-3 text-[#FF6D00]" />
-                              Données_appli Figé
-                            </span>
-                          )}
+                  {/* Ligne 5 : Module Composition & Sondage */}
+                  <div className="p-3 bg-[#13161c] rounded-2xl border border-[#232934] space-y-2.5">
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className="flex items-center space-x-1.5">
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold shrink-0 ${
+                          compStatus.hasIssue 
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' 
+                            : compStatus.isValidated 
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
+                              : 'bg-orange-500/15 text-[#FF6D00] border border-orange-500/30'
+                        }`}>
+                          <ClipboardList className="w-3 h-3" />
                         </div>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">
-                          {compStatus.isValidated 
-                            ? 'Feuille de match officielle validée pour cette journée' 
-                            : compStatus.count > 0 
-                              ? `${compStatus.count} joueur(s) renseigné(s) sur ${compStatus.required} simples`
-                              : 'À saisir par le capitaine de l\'équipe'}
-                        </p>
+                        <span className="font-bold text-white text-[11px]">Équipe :</span>
                       </div>
+
+                      {compStatus.doubleWeightIssue ? (
+                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                          Poids D1 &lt; D2
+                        </span>
+                      ) : compStatus.hasIssue ? (
+                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                          Inéligible
+                        </span>
+                      ) : compStatus.isValidated ? (
+                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          Validée FFT
+                        </span>
+                      ) : compStatus.count > 0 ? (
+                        <span className="text-[9px] px-2 py-0.2 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          En cours ({compStatus.count}/{compStatus.required})
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-zinc-500">Non renseignée</span>
+                      )}
                     </div>
 
-                    {/* Boutons d'action : Sondage des disponibilités & Composition */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                    {/* 2 Boutons d'action adaptés à la disposition par 3 */}
+                    <div className="grid grid-cols-2 gap-2">
                       {onOpenSondageModal && (
                         <button
                           onClick={() => onOpenSondageModal(r)}
-                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                          className={`px-2 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
                             dispoCount > 0
                               ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300 hover:text-white'
                               : 'bg-[#1b202a] hover:bg-[#232936] border-zinc-700 text-zinc-300 hover:text-white'
                           }`}
-                          title="Consulter et saisir les disponibilités des joueurs pour ce match"
+                          title="Sondage des disponibilités des joueurs"
                         >
-                          <ClipboardCheck className="w-3.5 h-3.5 text-orange-400" />
-                          <span>
-                            Sondage Dispos {dispoResponses.length > 0 ? `(${dispoCount} dispo${dispoCount > 1 ? 's' : ''})` : ''}
+                          <ClipboardCheck className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                          <span className="truncate">
+                            Sondage {dispoCount > 0 ? `(${dispoCount})` : ''}
                           </span>
                         </button>
                       )}
 
                       <button
                         onClick={() => onOpenCompositionModal(r)}
-                        className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer hover:brightness-110"
+                        className={`px-2 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-[11px] font-bold transition flex items-center justify-center gap-1 shadow-sm cursor-pointer hover:brightness-110 ${
+                          !onOpenSondageModal ? 'col-span-2' : ''
+                        }`}
                       >
-                        <span>
-                          {userRole === 'adherent'
-                            ? 'Consulter la composition'
-                            : compStatus.isValidated
-                              ? 'Modifier la feuille'
-                              : 'Composer l\'équipe'}
+                        <span className="truncate">
+                          {userRole === 'adherent' ? 'Voir l\'équipe' : compStatus.isValidated ? 'Modifier' : 'Composer'}
                         </span>
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
                       </button>
                     </div>
-                  </div>
 
-                  {/* ==================== JOUEURS ENREGISTRÉS PAR LE CAPITAINE ==================== */}
-                  {compStatus.count > 0 && (
-                    <div className="pt-2 border-t border-zinc-800/80 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Users className="w-3.5 h-3.5" />
-                          <span>Joueurs enregistrés par le capitaine :</span>
-                        </span>
-                        <button
-                          onClick={() => toggleTeamDetails(r.id)}
-                          className="text-[10px] font-bold text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>{isDetailsOpen ? 'Masquer' : 'Afficher détails'}</span>
-                          <ChevronDown className={`w-3 h-3 transition-transform ${isDetailsOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                      </div>
-
-                      {/* Grille des joueurs saisis */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-[11px]">
-                        {registeredSingles.map(({ slot, player }) => (
-                          <div 
-                            key={slot}
-                            className={`p-2 rounded-xl border flex flex-col justify-between ${
-                              player 
-                                ? 'bg-black/40 border-zinc-700/80' 
-                                : 'bg-black/20 border-zinc-800/40 text-zinc-500'
-                            }`}
+                    {/* Joueurs enregistrés par le capitaine */}
+                    {compStatus.count > 0 && (
+                      <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            <span>Joueurs ({compStatus.count}) :</span>
+                          </span>
+                          <button
+                            onClick={() => toggleTeamDetails(r.id)}
+                            className="text-[9px] font-bold text-zinc-400 hover:text-white flex items-center gap-0.5 cursor-pointer"
                           >
-                            <span className="text-[10px] font-black uppercase text-zinc-400">
-                              Simple {slot}
-                            </span>
-                            <span className="font-bold text-white truncate mt-0.5">
-                              {player ? player.nomPrenom : 'Non désigné'}
-                            </span>
-                            <span className="font-mono text-orange-300 font-bold text-[10px]">
-                              {player ? player.dernierClassTennis : '-'}
-                            </span>
-                          </div>
-                        ))}
+                            <span>{isDetailsOpen ? 'Réduire' : 'Détails'}</span>
+                            <ChevronDown className={`w-3 h-3 transition-transform ${isDetailsOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
 
-                        {/* Doubles */}
-                        {registeredDouble1 && (
-                          <div className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 col-span-2 sm:col-span-1">
-                            <span className="text-[10px] font-black uppercase text-purple-300">
-                              Double 1
-                            </span>
-                            <p className="font-bold text-white truncate mt-0.5">
-                              {registeredDouble1.p1?.nomPrenom} &amp; {registeredDouble1.p2?.nomPrenom}
-                            </p>
-                            <span className="font-mono text-purple-300 text-[10px]">
-                              [{registeredDouble1.p1?.dernierClassTennis || '-'} / {registeredDouble1.p2?.dernierClassTennis || '-'}]
-                            </span>
-                          </div>
-                        )}
+                        {/* Grille compacte des joueurs */}
+                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                          {registeredSingles.filter(s => isDetailsOpen || s.player).map(({ slot, player }) => (
+                            <div 
+                              key={slot}
+                              className={`p-1.5 rounded-lg border flex flex-col justify-between ${
+                                player 
+                                  ? 'bg-black/40 border-zinc-700/80' 
+                                  : 'bg-black/20 border-zinc-800/40 text-zinc-500'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-black text-zinc-400 uppercase text-[9px]">S{slot}</span>
+                                <span className="font-mono text-orange-300 font-bold text-[9px]">{player ? player.dernierClassTennis : '-'}</span>
+                              </div>
+                              <span className="font-bold text-white truncate mt-0.5">{player ? player.nomPrenom : 'Non désigné'}</span>
+                            </div>
+                          ))}
 
-                        {registeredDouble2 && (
-                          <div className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 col-span-2 sm:col-span-1">
-                            <span className="text-[10px] font-black uppercase text-purple-300">
-                              Double 2
-                            </span>
-                            <p className="font-bold text-white truncate mt-0.5">
-                              {registeredDouble2.p1?.nomPrenom} &amp; {registeredDouble2.p2?.nomPrenom}
-                            </p>
-                            <span className="font-mono text-purple-300 text-[10px]">
-                              [{registeredDouble2.p1?.dernierClassTennis || '-'} / {registeredDouble2.p2?.dernierClassTennis || '-'}]
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                          {registeredDouble1 && (
+                            <div className="p-1.5 rounded-lg bg-purple-950/20 border border-purple-500/30 col-span-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-purple-300">Double 1</span>
+                                <span className="font-mono text-purple-300 text-[9px]">
+                                  [{registeredDouble1.p1?.dernierClassTennis || '-'} / {registeredDouble1.p2?.dernierClassTennis || '-'}]
+                                </span>
+                              </div>
+                              <p className="font-bold text-white truncate text-[10px] mt-0.5">
+                                {registeredDouble1.p1?.nomPrenom} &amp; {registeredDouble1.p2?.nomPrenom}
+                              </p>
+                            </div>
+                          )}
 
-                </div>
-
-                {/* Capitaine TCM & Adversaire & Contacts */}
-                <div className="pt-2 border-t border-[#232934] flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                  
-                  {/* Capitaine TCM */}
-                  <div className="flex items-center space-x-2 text-zinc-400">
-                    <UserCheck className="w-3.5 h-3.5 text-[#FF6D00]" />
-                    <span>Capitaine TCM :</span>
-                    <strong className="text-white">
-                      {r.prenomCapitaine ? `${r.prenomCapitaine} ${r.nomCapitaine}` : (r.nomCapitaine || 'Non désigné')}
-                    </strong>
-                    {r.portableCapitaine && (
-                      <div className="inline-flex items-center space-x-1 ml-2">
-                        <a
-                          href={`tel:${r.portableCapitaine}`}
-                          className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-2 text-[10px] font-bold"
-                          title="Appeler le capitaine TCM"
-                        >
-                          <Phone className="w-3 h-3" />
-                          <span>Appel</span>
-                        </a>
-                        <a
-                          href={`sms:${r.portableCapitaine}`}
-                          className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-2 text-[10px] font-bold"
-                          title="SMS au capitaine TCM"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                          <span>SMS</span>
-                        </a>
+                          {registeredDouble2 && (
+                            <div className="p-1.5 rounded-lg bg-purple-950/20 border border-purple-500/30 col-span-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[9px] font-black uppercase text-purple-300">Double 2</span>
+                                <span className="font-mono text-purple-300 text-[9px]">
+                                  [{registeredDouble2.p1?.dernierClassTennis || '-'} / {registeredDouble2.p2?.dernierClassTennis || '-'}]
+                                </span>
+                              </div>
+                              <p className="font-bold text-white truncate text-[10px] mt-0.5">
+                                {registeredDouble2.p1?.nomPrenom} &amp; {registeredDouble2.p2?.nomPrenom}
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
+                </div>
 
-                  {/* Capitaine Adverse */}
-                  {r.nomCapitaineAdverse && (
-                    <div className="flex items-center space-x-2 text-zinc-400">
-                      <span className="text-zinc-500">Capitaine adverse :</span>
-                      <strong className="text-zinc-200">
-                        {r.prenomCapitaineAdverse ? `${r.prenomCapitaineAdverse} ${r.nomCapitaineAdverse}` : r.nomCapitaineAdverse}
-                      </strong>
-                      {r.portableCapitaineAdverse && (
-                        <div className="inline-flex items-center space-x-1 ml-1">
-                          <a
-                            href={`tel:${r.portableCapitaineAdverse}`}
-                            className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-2 text-[10px] font-bold"
-                            title="Appeler le capitaine adverse"
-                          >
-                            <Phone className="w-3 h-3" />
-                          </a>
-                          <a
-                            href={`sms:${r.portableCapitaineAdverse}`}
-                            className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-2 text-[10px] font-bold"
-                            title="SMS au capitaine adverse"
-                          >
-                            <MessageSquare className="w-3 h-3" />
-                          </a>
-                        </div>
-                      )}
+                {/* Pied de carte : Capitaine TCM & Contact */}
+                <div className="pt-2 border-t border-[#232934] flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
+                    <UserCheck className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
+                    <strong className="text-white text-[11px] truncate" title={r.nomCapitaine ? `${r.prenomCapitaine || ''} ${r.nomCapitaine}` : 'Capitaine TCM'}>
+                      {r.prenomCapitaine ? `${r.prenomCapitaine} ${r.nomCapitaine}` : (r.nomCapitaine || 'Non désigné')}
+                    </strong>
+                  </div>
+
+                  {r.portableCapitaine && (
+                    <div className="inline-flex items-center space-x-1 shrink-0">
+                      <a
+                        href={`tel:${r.portableCapitaine}`}
+                        className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                        title="Appeler le capitaine TCM"
+                      >
+                        <Phone className="w-3 h-3" />
+                      </a>
+                      <a
+                        href={`sms:${r.portableCapitaine}`}
+                        className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                        title="SMS au capitaine TCM"
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                      </a>
                     </div>
                   )}
-
-                  {/* Juge-arbitre */}
-                  {r.jugeArbitreNom && (
-                    <div className="text-[11px] text-zinc-500">
-                      JA : <strong className="text-zinc-400">{r.jugeArbitreNom} {r.jugeArbitrePrenom || ''}</strong>
-                    </div>
-                  )}
-
                 </div>
 
               </div>
             );
           })
         ) : (
-          <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37]">
+          <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37] col-span-full">
             <Trophy className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
             <h3 className="font-heading font-black text-white text-base">Aucune rencontre trouvée</h3>
             <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
