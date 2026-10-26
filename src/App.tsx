@@ -33,6 +33,7 @@ import {
   parseRencontresCsv
 } from './data/clubData';
 import { sortAdherentsByRankingDesc } from './utils/ranking';
+import { Analytics } from '@vercel/analytics/react';
 
 // Fonction de salubrité : s'assure qu'aucun tarif 'adulte' n'a la pastille 'jeune' par erreur et initialise les paiements échelonnés
 const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
@@ -625,6 +626,9 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
 
     </div>
   );
