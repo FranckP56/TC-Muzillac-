@@ -1,7 +1,8 @@
 // src/services/sheetParsers.ts
 
 /**
- * Parser de données typé et robuste pour le TCM Muzillac
+ * Parser de données typé et universel pour le TCM Muzillac
+ * Version de secours hautement compatible avec les composants d'origine
  */
 
 export interface Adherent {
@@ -10,6 +11,8 @@ export interface Adherent {
   solde: number;
   groupe: string;
   classement: string;
+  // Propriétés secondaires pour compatibilité ascendante
+  [key: string]: any;
 }
 
 export interface Rencontre {
@@ -22,6 +25,8 @@ export interface Rencontre {
   clubVisiteur: string;
   score: string;
   niveau: string;
+  // Propriétés secondaires pour compatibilité ascendante
+  [key: string]: any;
 }
 
 /**
@@ -32,8 +37,8 @@ function normalizeHeader(header: string): string {
     .toLowerCase()
     .trim()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Enlève tous les accents
-    .replace(/[^a-z0-9]/g, "");     // Ne garde que les lettres et chiffres
+    .replace(/[\u0300-\u036f]/g, "") // Supprime les accents
+    .replace(/[^a-z0-9]/g, "");     // Ne garde que lettres et chiffres
 }
 
 /**
@@ -42,6 +47,7 @@ function normalizeHeader(header: string): string {
 export function parseRencontresTab(rows: any[][]): Rencontre[] {
   if (!rows || rows.length <= 1) return [];
 
+  // Extraction et normalisation de la ligne d'en-tête
   const rawHeaders = rows[0];
   const normalizedHeaders = rawHeaders.map(h => normalizeHeader(String(h)));
 
@@ -60,7 +66,8 @@ export function parseRencontresTab(rows: any[][]): Rencontre[] {
     const row = rows[i];
     if (idxDate === -1 || !row[idxDate]) continue;
 
-    rencontres.push({
+    // Construction de l'objet de base compatible
+    const matchObj: Rencontre = {
       id_match: i,
       date: row[idxDate],
       homologation: idxHomol !== -1 ? row[idxHomol] : "Championnat",
@@ -70,7 +77,17 @@ export function parseRencontresTab(rows: any[][]): Rencontre[] {
       clubVisiteur: idxVisiteur !== -1 ? row[idxVisiteur] : "Adversaire",
       score: idxScore !== -1 ? row[idxScore] : "A venir",
       niveau: idxNiveau !== -1 ? String(row[idxNiveau]).toLowerCase() : "départemental"
+    };
+
+    // FILET DE SÉCURITÉ : On réinjecte aussi TOUTES les colonnes brutes indexées par leur nom normalisé
+    // Cela permet aux anciens composants de retrouver instantanément leurs clés (ex: match.datedelarencontre)
+    normalizedHeaders.forEach((headerName, index) => {
+      if (headerName && row[index] !== undefined) {
+        (matchObj as any)[headerName] = row[index];
+      }
     });
+
+    rencontres.push(matchObj);
   }
 
   return rencontres;
@@ -96,13 +113,22 @@ export function parseAdherentsTab(rows: any[][]): Adherent[] {
     const row = rows[i];
     if (idxNom === -1 || !row[idxNom]) continue;
 
-    adherents.push({
+    const adherentObj: Adherent = {
       id_ligne: i,
       nomPrenom: row[idxNom],
       solde: idxSolde !== -1 ? Number(String(row[idxSolde]).replace(',', '.')) : 0,
       groupe: idxGroupe !== -1 ? row[idxGroupe] : "Aucun",
       classement: idxClass !== -1 ? row[idxClass] : "NC"
+    };
+
+    // On réinjecte également toutes les colonnes brutes nettoyées pour la rétrocompatibilité (ex: player.telephoneportable)
+    normalizedHeaders.forEach((headerName, index) => {
+      if (headerName && row[index] !== undefined) {
+        (adherentObj as any)[headerName] = row[index];
+      }
     });
+
+    adherents.push(adherentObj);
   }
 
   return adherents;
