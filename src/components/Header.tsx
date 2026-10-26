@@ -14,19 +14,21 @@ import {
   ChevronDown,
   UserCheck,
   User,
-  Check
+  Check,
+  ShieldCheck
 } from 'lucide-react';
 import { UserRole } from '../types/tennis';
 
 interface HeaderProps {
-  activeTab: 'infos' | 'adherents' | 'rencontres' | 'enseignants';
-  setActiveTab: (tab: 'infos' | 'adherents' | 'rencontres' | 'enseignants') => void;
+  activeTab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants';
+  setActiveTab: (tab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants') => void;
   userRole: UserRole;
   setUserRole: (role: UserRole) => void;
   onOpenScriptModal: () => void;
   onOpenGsheetModal?: () => void;
   onOpenGoogleSyncModal?: () => void;
   totalAdherents: number;
+  totalLicencies?: number;
   onRefreshFromFile?: () => Promise<void> | void;
   isRefreshing?: boolean;
   isGoogleConnected?: boolean;
@@ -42,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGsheetModal,
   onOpenGoogleSyncModal,
   totalAdherents,
+  totalLicencies,
   onRefreshFromFile,
   isRefreshing = false,
   isGoogleConnected = false,
@@ -185,14 +188,37 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Rencontres</span>
             </button>
 
-            {/* 3. Enseignants (Profs & Bureau) */}
+            {/* 3. Licenciés (Club Muzillac 2027) */}
+            <button
+              onClick={() => setActiveTab('licencies')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 sm:py-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'licencies'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span className="hidden sm:inline">Licenciés</span>
+              <span className="sm:hidden">Lic.</span>
+              {typeof totalLicencies === 'number' && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                  activeTab === 'licencies' 
+                    ? 'bg-black/30 text-white' 
+                    : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                }`}>
+                  {totalLicencies}
+                </span>
+              )}
+            </button>
+
+            {/* 4. Enseignants (Profs & Bureau) */}
             {canSeeEnseignants && (
               <button
                 onClick={() => setActiveTab('enseignants')}
                 className={`flex items-center space-x-1.5 px-3 py-1.5 sm:py-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
                   activeTab === 'enseignants'
                     ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
                 }`}
               >
                 <GraduationCap className="w-4 h-4 shrink-0 text-purple-400" />
@@ -201,7 +227,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 4. Adhérents (Bureau uniquement) */}
+            {/* 5. Adhérents (Bureau uniquement) */}
             {canSeeAdherents && (
               <button
                 onClick={() => setActiveTab('adherents')}

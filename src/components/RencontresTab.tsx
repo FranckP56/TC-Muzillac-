@@ -8,7 +8,6 @@ import {
   Mail, 
   Clock, 
   CheckCircle2, 
-  Plus, 
   Shield, 
   UserCheck, 
   ClipboardList, 
@@ -17,43 +16,46 @@ import {
   ChevronRight,
   ChevronDown,
   AlertTriangle,
-  TrendingUp,
   RefreshCw,
-  FileSpreadsheet,
   Lock,
   Info,
-  Scale
+  Scale,
+  ClipboardCheck,
+  Users,
+  Award
 } from 'lucide-react';
 import { Rencontre, Adherent, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility } from '../utils/fftEligibility';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
 import { getCompetitionFormat, validateMatchDateAndSchedule } from '../utils/competitionFormats';
 import { getAdverseClubFullAddress, computeMatchRotationSchedule } from '../utils/matchScheduling';
+import { normalizeDateString } from '../utils/dateUtils';
 
 interface RencontresTabProps {
   rencontres: Rencontre[];
   adherents: Adherent[];
-  onOpenNewMatchModal: () => void;
   onOpenCompositionModal: (rencontre: Rencontre) => void;
-  onOpenGsheetModal?: (tab?: 'mapping' | 'import_adherents' | 'import_rencontres' | 'soldes') => void;
-  onOpenGoogleSyncModal?: () => void;
-  isGoogleConnected?: boolean;
+  onOpenSondageModal?: (rencontre: Rencontre) => void;
+  onUpdateMatchHour?: (rencontreId: string, hour: string) => void;
   userRole?: UserRole;
+  onRefreshData?: () => void;
+  isAutoSyncing?: boolean;
 }
 
 export const RencontresTab: React.FC<RencontresTabProps> = ({
   rencontres,
   adherents,
-  onOpenNewMatchModal,
   onOpenCompositionModal,
-  onOpenGsheetModal,
-  onOpenGoogleSyncModal,
-  isGoogleConnected,
+  onOpenSondageModal,
+  onUpdateMatchHour,
   userRole = 'bureau',
+  onRefreshData,
+  isAutoSyncing = false,
 }) => {
   const [filterTeam, setFilterTeam] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'upcoming' | 'finished'>('all');
   const [showRulesGuide, setShowRulesGuide] = useState<boolean>(false);
+  const [expandedTeamDetails, setExpandedTeamDetails] = useState<Record<string, boolean>>({});
 
   // Dictionnaire des adhérents pour lookup rapide
   const adherentsById = useMemo(() => {
@@ -114,10 +116,17 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     };
   };
 
+  const toggleTeamDetails = (matchId: string) => {
+    setExpandedTeamDetails(prev => ({
+      ...prev,
+      [matchId]: !prev[matchId]
+    }));
+  };
+
   return (
     <div className="space-y-6">
       
-      {/* En-tête de section avec rappel FFT 2027 */}
+      {/* En-tête de section avec synchronisation automatique FFT et Données_appli */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="flex items-center space-x-2">
@@ -130,44 +139,27 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
           </div>
           <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5">
             <Shield className="w-3.5 h-3.5 text-[#FF6D00]" />
-            <span>Championnats Interclubs • Module de composition & éligibilité FFT Millésime 2027</span>
+            <span>Championnats Interclubs • Calendrier FFT officiel &amp; Gestion des compositions</span>
           </p>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2">
-          {onOpenGoogleSyncModal && (
+        {/* Badge de synchronisation automatique FFT & Données_appli */}
+        <div className="flex items-center gap-2">
+          <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Export FFT &amp; Données_appli synchronisés</span>
+          </div>
+
+          {onRefreshData && (
             <button
-              onClick={onOpenGoogleSyncModal}
-              className={`inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer ${
-                isGoogleConnected
-                  ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300 hover:text-white'
-                  : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400 text-white'
-              }`}
-              title="Accéder directement au fichier Données_appli sans import/export CSV"
+              onClick={onRefreshData}
+              disabled={isAutoSyncing}
+              className="p-2 rounded-xl bg-[#181d26] hover:bg-[#222938] text-zinc-300 hover:text-white border border-[#2b3547] transition cursor-pointer shadow-sm disabled:opacity-50"
+              title="Rafraîchir les rencontres"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>{isGoogleConnected ? 'Données_appli Connecté' : 'Connecter Données_appli (sans CSV)'}</span>
+              <RefreshCw className={`w-4 h-4 ${isAutoSyncing ? 'animate-spin text-orange-400' : ''}`} />
             </button>
           )}
-
-          {onOpenGsheetModal && (
-            <button
-              onClick={() => onOpenGsheetModal('import_rencontres')}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-orange-950/40 hover:bg-orange-900/50 border border-orange-500/40 text-orange-300 hover:text-orange-200 text-xs font-bold transition shadow-sm cursor-pointer"
-              title="Cartographie des 41 colonnes Rencontres"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-orange-400" />
-              <span>Colonnes Rencontres</span>
-            </button>
-          )}
-
-          <button
-            onClick={onOpenNewMatchModal}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-[#1d222c] hover:bg-[#272d3a] border border-[#2d3443] text-zinc-200 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer"
-          >
-            <Plus className="w-4 h-4 text-[#FF6D00]" />
-            <span>Ajouter une rencontre</span>
-          </button>
         </div>
       </div>
 
@@ -178,14 +170,14 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
         return (
           <div className="space-y-3">
             <div className="p-3.5 bg-gradient-to-r from-[#141820] to-[#12151c] rounded-2xl border border-orange-500/20 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-              <div className="flex items-start space-x-3">
-                <div className="w-8 h-8 rounded-xl bg-orange-500/15 border border-orange-500/30 text-[#FF6D00] flex items-center justify-center shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-xl bg-orange-500/15 text-[#FF6D00] flex items-center justify-center font-bold shrink-0">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-heading font-black text-white text-xs sm:text-sm">
-                      Cycle des Rencontres & Classements FFT
+                    <span className="font-heading font-black text-white text-xs">
+                      Cycle Officiel FFT 2027 :
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-300 border border-blue-500/30">
                       Mise à jour résultats : Chaque Lundi
@@ -204,7 +196,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   className="px-3 py-1.5 rounded-xl bg-[#1c222e] hover:bg-[#252d3d] border border-zinc-700 hover:border-orange-500/40 text-orange-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <Info className="w-3.5 h-3.5 text-[#FF6D00]" />
-                  <span>Règles Formats & Logistique</span>
+                  <span>Règles Formats &amp; Logistique</span>
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showRulesGuide ? 'rotate-180' : ''}`} />
                 </button>
                 <span className="px-2 py-1 rounded-xl bg-black/40 border border-zinc-800 text-zinc-300">
@@ -220,10 +212,10 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   <div className="flex items-center space-x-2">
                     <Scale className="w-4 h-4 text-[#FF6D00]" />
                     <span className="font-heading font-black text-white text-sm">
-                      Règles Officielles des Championnats par Équipes & Logistique TCM
+                      Règles Officielles des Championnats par Équipes &amp; Logistique TCM
                     </span>
                   </div>
-                  <span className="text-[10px] text-zinc-400">Ligue de Bretagne & Comité 56 Morbihan</span>
+                  <span className="text-[10px] text-zinc-400">Ligue de Bretagne &amp; Comité 56 Morbihan</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -231,7 +223,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
                     <div className="flex items-center gap-1.5 text-orange-400 font-bold">
                       <Calendar className="w-3.5 h-3.5" />
-                      <span>1. Calendrier & Alternance</span>
+                      <span>1. Calendrier &amp; Alternance</span>
                     </div>
                     <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
                       <li><strong>Seniors+ (+35, +45...)</strong> : Hommes et Femmes jouent le <em>même week-end</em> (dimanche). Pas de championnat jeunes.</li>
@@ -253,7 +245,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         <ul className="list-disc list-inside space-y-0.5 text-[10px]">
                           <li><strong>Pré-Régionale</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
                           <li><strong>Division D1</strong> : 4 simples + 1 double</li>
-                          <li><strong>Divisions D2 & D3</strong> : 3 simples + 1 double</li>
+                          <li><strong>Divisions D2 &amp; D3</strong> : 3 simples + 1 double</li>
                         </ul>
                       </div>
                       <div>
@@ -261,7 +253,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         <ul className="list-disc list-inside space-y-0.5 text-[10px]">
                           <li><strong>Pré-Régionale</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
                           <li><strong>Division D1 (2027)</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
-                          <li><strong>Divisions D2 & D3</strong> : 5 simples + 1 double</li>
+                          <li><strong>Divisions D2 &amp; D3</strong> : 5 simples + 1 double</li>
                         </ul>
                       </div>
                     </div>
@@ -274,17 +266,17 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       <span>3. Ordre des parties</span>
                     </div>
                     <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
-                      <li><strong>Déroulement à suivre</strong> : Rencontres en continu à partir de 09H ou 14H (plus de convocation horaire match par match).</li>
-                      <li><strong>Jeudi 20H00</strong> : L’ordre est proposé par le capitaine qui se déplace avant le jeudi 20h précédant la rencontre.</li>
+                      <li><strong>Déroulement à suivre</strong> : Rencontres en continu dès 09H ou 14H (plus de convocation horaire match par match).</li>
+                      <li><strong>Jeudi 20H00</strong> : L’ordre est proposé par le capitaine qui se déplace avant jeudi 20h.</li>
                       <li><strong>En cas de désaccord</strong> :
                         <ul className="list-none pl-1 space-y-0.5 text-[10px] text-zinc-400">
-                          <li>• <em>Pré-Régional (F & H)</em> : 4-2, 3-1, doubles (sur 2 courts) OU 4-2, D2, 3-1, D1 sur 1 court (2S / 1D / 2S / 1D).</li>
+                          <li>• <em>Pré-Régional</em> : 4-2, 3-1, doubles (sur 2 courts) OU 4-2, D2, 3-1, D1 sur 1 court (2S / 1D / 2S / 1D).</li>
                           <li>• <em>Hommes D1 / D2 / D3</em> : 4-3-2-1-5 - double (sur 2 courts, le double en même temps que le dernier simple).</li>
                           <li>• <em>Femmes D2 / D3</em> : 1-2-3 - double.</li>
                         </ul>
                       </li>
-                      <li><strong>Repos des doubles</strong> : Éviter de placer les joueurs de double en dernier simple (droit d'attendre la fin de son match).</li>
-                      <li><strong>2 terrains de surfaces différentes</strong> : Le capitaine qui reçoit propose au visiteur de choisir le terrain pour chaque simple (ex: 4 & 2 sur résine, 3 & 1 sur omnisport).</li>
+                      <li><strong>Repos des doubles</strong> : Éviter de placer les joueurs de double en dernier simple.</li>
+                      <li><strong>2 terrains de surfaces différentes</strong> : Le capitaine qui reçoit propose au visiteur de choisir le terrain pour chaque simple.</li>
                     </ul>
                   </div>
 
@@ -295,10 +287,10 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       <span>4. Circulation des joueurs</span>
                     </div>
                     <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
-                      <li><strong className="text-emerald-300">Règle du N-1 (Forfait)</strong> : Permet de pallier un forfait de dernière minute (veille/avant-veille) sans changer toutes les équipes. Le remplaçant joue en dernière position.</li>
-                      <li><strong>Condition N-1</strong> : L’avant-dernier joueur de l'équipe supérieure doit avoir un <em>classement &ge; au N°1 de l’équipe en dessous</em> (ex: A: 15/2, 15/4, 15/4, 30/4 remplaçant valide car 15/4 &ge; 15/5 de B).</li>
-                      <li><strong>Barrages (Phases finales)</strong> : Minimum <strong className="text-amber-300">3 rencontres jouées</strong> à ce niveau pour être autorisé à jouer en barrage.</li>
-                      <li><strong>Gel des classements</strong> : Si l'équipe supérieure ne joue pas (ou gagne par forfait), ses 4 ou 5 classements sont <strong className="text-rose-300">gelés</strong> pour la journée.</li>
+                      <li><strong className="text-emerald-300">Règle du N-1 (Forfait)</strong> : Permet de pallier un forfait de dernière minute sans changer toutes les équipes. Le remplaçant joue en dernière position.</li>
+                      <li><strong>Condition N-1</strong> : L’avant-dernier joueur de l'équipe supérieure doit avoir un <em>classement &ge; au N°1 de l’équipe en dessous</em> (ex: 15/4 &ge; 15/5).</li>
+                      <li><strong>Barrages (Phases finales)</strong> : Minimum <strong className="text-amber-300">3 rencontres jouées</strong> à ce niveau.</li>
+                      <li><strong>Gel des classements</strong> : Si l'équipe supérieure ne joue pas (ou forfait), ses 4 ou 5 classements sont <strong className="text-rose-300">gelés</strong> pour la journée.</li>
                     </ul>
                   </div>
                 </div>
@@ -382,15 +374,42 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             const isUpcoming = !r.score || r.score === 'À venir';
             const isHome = r.clubAccueilNom.toLowerCase().includes('muzillac');
             const formatInfo = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
-            const dateValidation = validateMatchDateAndSchedule(r.dateRencontre, formatInfo, r.sexeHomologation);
+            const normalizedDate = normalizeDateString(r.dateRencontre);
+            const dateValidation = validateMatchDateAndSchedule(normalizedDate, formatInfo, r.sexeHomologation);
             const compStatus = getCompositionStatus(r);
             const adverseAddressInfo = getAdverseClubFullAddress(r);
             const effectiveVenue = r.composition?.lieuRencontre || (isHome ? 'Clos des Moines (TCM)' : adverseAddressInfo.venueLabel);
             const matchHour = r.composition?.heureDebut || '14:00';
             const matchCourts = r.composition?.nombreCourts || 2;
             const schedulePlan = computeMatchRotationSchedule(matchHour, matchCourts, formatInfo, r.composition, adherentsById);
+            const isDetailsOpen = !!expandedTeamDetails[r.id];
+
+            // Récupération des joueurs de la composition
+            const comp = r.composition;
+            const registeredSingles: { slot: number; player?: Adherent }[] = [];
+            if (comp) {
+              for (let s = 1; s <= formatInfo.numSingles; s++) {
+                const pid = (comp as any)[`simple${s}Id`];
+                registeredSingles.push({
+                  slot: s,
+                  player: pid ? adherentsById.get(pid) : undefined
+                });
+              }
+            }
+
+            const registeredDouble1 = comp?.double1Player1Id && comp?.double1Player2Id
+              ? { p1: adherentsById.get(comp.double1Player1Id), p2: adherentsById.get(comp.double1Player2Id) }
+              : null;
+            const registeredDouble2 = comp?.double2Player1Id && comp?.double2Player2Id
+              ? { p1: adherentsById.get(comp.double2Player1Id), p2: adherentsById.get(comp.double2Player2Id) }
+              : null;
+
+            // Nombre de réponses au sondage
+            const dispoResponses = r.disponibilites || [];
+            const dispoCount = dispoResponses.filter(d => d.statut === 'disponible').length;
+            const indispoCount = dispoResponses.filter(d => d.statut === 'indisponible').length;
             
-            // Calcul indicatif du résultat si le score est sous la forme X/Y
+            // Calcul indicatif du score
             let isWin = false;
             let isLoss = false;
             if (!isUpcoming && r.score.includes('/')) {
@@ -413,7 +432,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                 key={r.id}
                 className="bg-[#171b22] border border-[#272e3b] hover:border-[#E65100]/50 rounded-3xl p-4 sm:p-5 transition-all shadow-md space-y-4"
               >
-                {/* En-tête de la rencontre avec Homologation, Sexe, Catégorie, Division & Poule */}
+                {/* En-tête de la rencontre */}
                 <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
@@ -464,7 +483,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-zinc-300 flex items-center gap-1.5 font-semibold bg-[#12151b] px-2.5 py-1 rounded-xl border border-zinc-800">
                       <Calendar className="w-3.5 h-3.5 text-orange-400" />
-                      <span>{r.dateRencontre}</span>
+                      <span>{normalizedDate}</span>
                       {dateValidation.dayName && (
                         <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
                           dateValidation.isValidDay
@@ -485,17 +504,45 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   </div>
                 </div>
 
-                {/* Logistique TCM : Heure de démarrage, Lieu & Nombre de courts */}
-                <div className="flex flex-col gap-2 text-xs bg-[#12151b]/80 p-2.5 rounded-xl border border-zinc-800/80">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-zinc-400 flex items-center gap-1 font-medium">
-                        <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                        <span>À suivre dès :</span>
-                        <strong className="text-white">
-                          {r.composition?.heureDebut || '14:00 (ou 09:00)'}
-                        </strong>
-                      </span>
+                {/* Logistique TCM : Choix des horaires, Lieu & Nombre de courts */}
+                <div className="flex flex-col gap-2.5 text-xs bg-[#12151b]/80 p-3 rounded-2xl border border-zinc-800/80">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                    
+                    {/* Choix des horaires pour la rencontre */}
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
+                        <Clock className="w-3.5 h-3.5 text-orange-400" />
+                        <span className="text-zinc-400">À suivre dès :</span>
+                        <strong className="text-white font-mono">{matchHour}</strong>
+                      </div>
+
+                      {/* Sélecteur rapide d'horaire (9h ou 14h) */}
+                      {onUpdateMatchHour && (
+                        <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-xl border border-zinc-700/80">
+                          <button
+                            onClick={() => onUpdateMatchHour(r.id, '09:00')}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              matchHour === '09:00' 
+                                ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                            title="Fixer l'horaire de lancement à 9h00 (Matin)"
+                          >
+                            9h00
+                          </button>
+                          <button
+                            onClick={() => onUpdateMatchHour(r.id, '14:00')}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                              matchHour === '14:00' 
+                                ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                            title="Fixer l'horaire de lancement à 14h00 (Après-midi)"
+                          >
+                            14h00
+                          </button>
+                        </div>
+                      )}
 
                       <span className="text-zinc-600">•</span>
 
@@ -524,10 +571,10 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   </div>
 
                   {/* Aperçu des créneaux de rotation */}
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 bg-black/40 px-2 py-1 rounded-lg overflow-x-auto">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-300 bg-black/40 px-2.5 py-1.5 rounded-xl overflow-x-auto">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                      <span className="text-zinc-400 shrink-0 font-medium">À suivre :</span>
+                      <span className="text-zinc-400 shrink-0 font-medium">Rotations à suivre :</span>
                       <span className="font-mono text-orange-200 truncate">
                         {schedulePlan.rotations.map(rot => `${rot.timeSlot} [${rot.matches.map(m => m.matchLabel).join(', ')}]`).join(' • ')}
                       </span>
@@ -540,19 +587,6 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       </span>
                     )}
                   </div>
-                </div>
-
-                {/* Libellé homologation FFT & Installation */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-                  <p className="text-zinc-400 font-medium">
-                    {r.libelleHomologation || 'Championnat Interclubs'}
-                  </p>
-                  {(r.adresse1Installation || r.villeInstallation) && (
-                    <p className="text-zinc-500 text-[11px] flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-zinc-400 shrink-0" />
-                      <span>{r.adresse1Installation ? `${r.adresse1Installation}, ` : ''}{r.villeInstallation || ''}</span>
-                    </p>
-                  )}
                 </div>
 
                 {/* Confrontation & Score */}
@@ -609,86 +643,178 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
                 </div>
 
-                {/* ==================== MODULE COMPOSITION CAPITAINE & ÉLIGIBILITÉ ==================== */}
-                <div className="p-3 bg-[#13161c] rounded-2xl border border-[#232934] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center space-x-2.5">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
-                      compStatus.hasIssue 
-                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' 
-                        : compStatus.isValidated 
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
-                          : 'bg-orange-500/15 text-[#FF6D00] border border-orange-500/30'
-                    }`}>
-                      <ClipboardList className="w-4 h-4" />
+                {/* ==================== MODULE COMPOSITION CAPITAINE & SONDAGE ==================== */}
+                <div className="p-3.5 bg-[#13161c] rounded-2xl border border-[#232934] space-y-3">
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                        compStatus.hasIssue 
+                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' 
+                          : compStatus.isValidated 
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
+                            : 'bg-orange-500/15 text-[#FF6D00] border border-orange-500/30'
+                      }`}>
+                        <ClipboardList className="w-4 h-4" />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-white text-xs">Composition d'équipe :</span>
+                          {compStatus.doubleWeightIssue ? (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3" />
+                              Infraction : Poids Double 1 &lt; Double 2
+                            </span>
+                          ) : compStatus.hasIssue ? (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3" />
+                              Alerte FFT : Joueur inéligible
+                            </span>
+                          ) : compStatus.isValidated ? (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Validée FFT ({compStatus.count}/{compStatus.required} simples)
+                            </span>
+                          ) : compStatus.count > 0 ? (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              En cours ({compStatus.count}/{compStatus.required} simples)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-zinc-500">Non renseignée ({compStatus.required} simples requis)</span>
+                          )}
+
+                          {formatInfo.type === 'seniors_regional' && r.composition?.poidsDoublesValide && (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                              <Scale className="w-3 h-3" />
+                              Poids D1 &ge; D2 conforme
+                            </span>
+                          )}
+
+                          {r.composition?.frozenPlayers && r.composition.frozenPlayers.length > 0 && (
+                            <span className="text-[10px] px-2 py-0.2 rounded font-black bg-orange-500/15 text-[#FF6D00] border border-orange-500/30 flex items-center gap-1" title="Données et classements gelés">
+                              <Lock className="w-3 h-3 text-[#FF6D00]" />
+                              Données_appli Figé
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          {compStatus.isValidated 
+                            ? 'Feuille de match officielle validée pour cette journée' 
+                            : compStatus.count > 0 
+                              ? `${compStatus.count} joueur(s) renseigné(s) sur ${compStatus.required} simples`
+                              : 'À saisir par le capitaine de l\'équipe'}
+                        </p>
+                      </div>
                     </div>
 
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-extrabold text-white text-xs">Composition d'équipe :</span>
-                        {compStatus.doubleWeightIssue ? (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
-                            <ShieldAlert className="w-3 h-3" />
-                            Infraction : Poids Double 1 &lt; Double 2
+                    {/* Boutons d'action : Sondage des disponibilités & Composition */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {onOpenSondageModal && (
+                        <button
+                          onClick={() => onOpenSondageModal(r)}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                            dispoCount > 0
+                              ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300 hover:text-white'
+                              : 'bg-[#1b202a] hover:bg-[#232936] border-zinc-700 text-zinc-300 hover:text-white'
+                          }`}
+                          title="Consulter et saisir les disponibilités des joueurs pour ce match"
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5 text-orange-400" />
+                          <span>
+                            Sondage Dispos {dispoResponses.length > 0 ? `(${dispoCount} dispo${dispoCount > 1 ? 's' : ''})` : ''}
                           </span>
-                        ) : compStatus.hasIssue ? (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
-                            <ShieldAlert className="w-3 h-3" />
-                            Alerte FFT : Joueur inéligible
-                          </span>
-                        ) : compStatus.isValidated ? (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Validée FFT ({compStatus.count}/{compStatus.required} simples)
-                          </span>
-                        ) : compStatus.count > 0 ? (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                            En cours ({compStatus.count}/{compStatus.required} simples)
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-zinc-500">Non renseignée ({compStatus.required} simples requis)</span>
-                        )}
+                        </button>
+                      )}
 
-                        {formatInfo.type === 'seniors_regional' && r.composition?.poidsDoublesValide && (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                            <Scale className="w-3 h-3" />
-                            Poids D1 &ge; D2 conforme
-                          </span>
-                        )}
-
-                        {r.composition?.frozenPlayers && r.composition.frozenPlayers.length > 0 && (
-                          <span className="text-[10px] px-2 py-0.2 rounded font-black bg-orange-500/15 text-[#FF6D00] border border-orange-500/30 flex items-center gap-1" title="Données et classements des joueurs gelés à la date du match dans Données_appli">
-                            <Lock className="w-3 h-3 text-[#FF6D00]" />
-                            Données_appli Figé
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        {r.composition?.frozenPlayers && r.composition.frozenPlayers.length > 0 ? (
-                          <span className="text-orange-300">
-                            Joueurs gelés : {r.composition.frozenPlayers.map(p => `${p.nomPrenom} (${p.classementGele})`).join(', ')}
-                          </span>
-                        ) : compStatus.isValidated ? (
-                          'Feuille de match conforme au Millésime 2027' 
-                        ) : (
-                          'Vérification Licence C/W, Sexe et barème 2027'
-                        )}
-                      </p>
+                      <button
+                        onClick={() => onOpenCompositionModal(r)}
+                        className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer hover:brightness-110"
+                      >
+                        <span>
+                          {userRole === 'adherent'
+                            ? 'Consulter la composition'
+                            : compStatus.isValidated
+                              ? 'Modifier la feuille'
+                              : 'Composer l\'équipe'}
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => onOpenCompositionModal(r)}
-                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#BF360C]/20 to-[#E65100]/20 hover:from-[#BF360C] hover:to-[#E65100] text-orange-400 hover:text-white border border-[#E65100]/40 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer self-start sm:self-auto"
-                  >
-                    <span>
-                      {userRole === 'adherent'
-                        ? 'Consulter la composition'
-                        : compStatus.isValidated
-                          ? 'Modifier la feuille'
-                          : 'Composer l\'équipe'}
-                    </span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+                  {/* ==================== JOUEURS ENREGISTRÉS PAR LE CAPITAINE ==================== */}
+                  {compStatus.count > 0 && (
+                    <div className="pt-2 border-t border-zinc-800/80 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Joueurs enregistrés par le capitaine :</span>
+                        </span>
+                        <button
+                          onClick={() => toggleTeamDetails(r.id)}
+                          className="text-[10px] font-bold text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>{isDetailsOpen ? 'Masquer' : 'Afficher détails'}</span>
+                          <ChevronDown className={`w-3 h-3 transition-transform ${isDetailsOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+
+                      {/* Grille des joueurs saisis */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-[11px]">
+                        {registeredSingles.map(({ slot, player }) => (
+                          <div 
+                            key={slot}
+                            className={`p-2 rounded-xl border flex flex-col justify-between ${
+                              player 
+                                ? 'bg-black/40 border-zinc-700/80' 
+                                : 'bg-black/20 border-zinc-800/40 text-zinc-500'
+                            }`}
+                          >
+                            <span className="text-[10px] font-black uppercase text-zinc-400">
+                              Simple {slot}
+                            </span>
+                            <span className="font-bold text-white truncate mt-0.5">
+                              {player ? player.nomPrenom : 'Non désigné'}
+                            </span>
+                            <span className="font-mono text-orange-300 font-bold text-[10px]">
+                              {player ? player.dernierClassTennis : '-'}
+                            </span>
+                          </div>
+                        ))}
+
+                        {/* Doubles */}
+                        {registeredDouble1 && (
+                          <div className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 col-span-2 sm:col-span-1">
+                            <span className="text-[10px] font-black uppercase text-purple-300">
+                              Double 1
+                            </span>
+                            <p className="font-bold text-white truncate mt-0.5">
+                              {registeredDouble1.p1?.nomPrenom} &amp; {registeredDouble1.p2?.nomPrenom}
+                            </p>
+                            <span className="font-mono text-purple-300 text-[10px]">
+                              [{registeredDouble1.p1?.dernierClassTennis || '-'} / {registeredDouble1.p2?.dernierClassTennis || '-'}]
+                            </span>
+                          </div>
+                        )}
+
+                        {registeredDouble2 && (
+                          <div className="p-2 rounded-xl bg-purple-950/20 border border-purple-500/30 col-span-2 sm:col-span-1">
+                            <span className="text-[10px] font-black uppercase text-purple-300">
+                              Double 2
+                            </span>
+                            <p className="font-bold text-white truncate mt-0.5">
+                              {registeredDouble2.p1?.nomPrenom} &amp; {registeredDouble2.p2?.nomPrenom}
+                            </p>
+                            <span className="font-mono text-purple-300 text-[10px]">
+                              [{registeredDouble2.p1?.dernierClassTennis || '-'} / {registeredDouble2.p2?.dernierClassTennis || '-'}]
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 {/* Capitaine TCM & Adversaire & Contacts */}

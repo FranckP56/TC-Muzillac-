@@ -1,6 +1,7 @@
 import { Rencontre, Adherent, MatchComposition } from '../types/tennis';
 import { getRankingWeight } from './ranking';
 import { getRequiredSex } from './fftEligibility';
+import { normalizeDateString } from './dateUtils';
 
 export type CompetitionCategoryType = 
   | 'seniors_regional'
@@ -420,7 +421,8 @@ export function validateMatchDateAndSchedule(
   alternationMessage: string;
   warning?: string;
 } {
-  if (!dateStr || !dateStr.includes('/')) {
+  const normalizedDate = normalizeDateString(dateStr);
+  if (!normalizedDate || !normalizedDate.includes('/')) {
     return {
       isValidDay: true,
       dayName: 'Date non renseignée',
@@ -430,7 +432,7 @@ export function validateMatchDateAndSchedule(
     };
   }
 
-  const parts = dateStr.split('/');
+  const parts = normalizedDate.split('/');
   if (parts.length < 3) {
     return {
       isValidDay: true,

@@ -1,4 +1,6 @@
 import { Adherent, Rencontre, SexeHomologation } from '../types/tennis';
+import { normalizeDateString } from '../utils/dateUtils';
+export { normalizeDateString };
 
 /**
  * Normalise une clé d'en-tête pour matching insensible à la casse et aux accents
@@ -69,7 +71,7 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
     rawCiv.includes('dame')
   ) ? 'Madame' : 'Monsieur';
 
-  const dateNaissance = String(cols[idxDateNaiss >= 0 ? idxDateNaiss : 6] || '').trim();
+  const dateNaissance = normalizeDateString(cols[idxDateNaiss >= 0 ? idxDateNaiss : 6]);
   const licence = String(cols[idxLicence >= 0 ? idxLicence : 22] || '').trim();
   const millesime = String(cols[idxMillesime >= 0 ? idxMillesime : 23] || '').trim();
 
@@ -143,7 +145,8 @@ export function parseRencontreRow(cols: any[], rawHeaders: string[], rowIndex: n
   const rawCatAge = getVal(["categorie d'age de l'homologation", 'categorie', 'age'], 3) || 'Seniors';
 
   const numeroEquipe = getVal(["numero de l'equipe", 'equipe'], 6) || `Équipe ${rowIndex}`;
-  const dateRencontre = getVal(['date de la rencontre', 'date'], 7) || 'Date à définir';
+  const rawDate = getVal(['date de la rencontre', 'date'], 7);
+  const dateRencontre = rawDate ? normalizeDateString(rawDate) : 'Date à définir';
 
   return {
     id: `match-${rowIndex}-${dateRencontre.replace(/\//g, '')}-${numeroEquipe.replace(/\s+/g, '')}`,

@@ -45,10 +45,12 @@ import {
 import { ConfirmSaveCompositionModal } from './ConfirmSaveCompositionModal';
 import { saveCompositionToSheet } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
+import { isLicencieMuzillac2027 } from '../utils/licencies';
 
 interface CompositionModalProps {
   rencontre: Rencontre | null;
   adherents: Adherent[];
+  allRencontres?: Rencontre[];
   isOpen: boolean;
   onClose: () => void;
   onSaveComposition: (rencontreId: string, composition: MatchComposition) => void;
@@ -71,6 +73,7 @@ type SlotKey =
 export const CompositionModal: React.FC<CompositionModalProps> = ({
   rencontre,
   adherents,
+  allRencontres,
   isOpen,
   onClose,
   onSaveComposition,
@@ -203,6 +206,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   // Candidats éligibles pour CETTE rencontre :
   // RÈGLE ABSOLUE FFT : On ne propose JAMAIS d'hommes pour une épreuve Dames, ni de femmes pour une épreuve Messieurs
+  // RÈGLE TCM : Les joueurs à affecter sont prioritairement les licenciés 2027 du club (cols X & AB)
   const playersWithEligibility = useMemo(() => {
     return adherents
       .filter(adh => {
@@ -212,16 +216,39 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       })
       .map(adh => {
         const eligibility = checkFFT2027Eligibility(adh, rencontre);
+        const isLicencie = isLicencieMuzillac2027(adh);
+        const dispo = (rencontre.disponibilites || []).find(d => d.adherentId === adh.id);
         return {
           adherent: adh,
           eligibility,
           meta: getRankingMeta(adh.dernierClassTennis),
           weight: getRankingWeight(adh.dernierClassTennis),
+          isLicencie,
+          dispo,
         };
       })
       .sort((a, b) => {
+        // 1. Licencié 2027 TCM en priorité
+        if (a.isLicencie && !b.isLicencie) return -1;
+        if (!a.isLicencie && b.isLicencie) return 1;
+
+        // 2. Éligibilité FFT
         if (a.eligibility.isEligible && !b.eligibility.isEligible) return -1;
         if (!a.eligibility.isEligible && b.eligibility.isEligible) return 1;
+
+        // 3. Statut sondage de disponibilité (Dispo > Incertain > Non répondu > Indispo)
+        const getScore = (d?: typeof a.dispo) => {
+          if (!d) return 0;
+          if (d.statut === 'disponible') return 2;
+          if (d.statut === 'incertain') return 1;
+          if (d.statut === 'indisponible') return -2;
+          return 0;
+        };
+        const scoreA = getScore(a.dispo);
+        const scoreB = getScore(b.dispo);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+
+        // 4. Classement FFT décroissant
         return b.weight - a.weight;
       });
   }, [adherents, rencontre, reqSex]);
@@ -1124,7 +1151,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
                 {playersWithEligibility
                   .filter(item => !filterEligibleOnly || item.eligibility.isEligible)
-                  .map(({ adherent, eligibility }) => {
+                  .map(({ adherent, eligibility, isLicencie, dispo }) => {
                     const isAlreadySelected = selectedPlayerIds.includes(adherent.id);
 
                     return (
@@ -1147,13 +1174,31 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                           </div>
 
                           <div>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                               <span className="font-heading font-black text-white text-xs sm:text-sm">
                                 {adherent.nomPrenom}
                               </span>
                               <span className="px-2 py-0.2 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold">
                                 {adherent.dernierClassTennis}
                               </span>
+                              {isLicencie && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                                  Licencié 2027 TCM
+                                </span>
+                              )}
+                              {dispo && (
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                                  dispo.statut === 'disponible'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : dispo.statut === 'incertain'
+                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                }`}>
+                                  {dispo.statut === 'disponible' 
+                                    ? `🟢 Dispo (${dispo.preferenceJeu === 'simple_et_double' ? 'S+D' : dispo.preferenceJeu === 'simple_seul' ? 'S' : 'D'})`
+                                    : dispo.statut === 'incertain' ? '🟡 Incertain' : '🔴 Indispo'}
+                                </span>
+                              )}
                               {isAlreadySelected && (
                                 <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-orange-500 text-white">
                                   Déjà assigné
@@ -1161,8 +1206,8 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                               )}
                             </div>
 
-                            <p className="text-[11px] text-zinc-400 flex items-center gap-1.5">
-                              <span>Licence {adherent.millesimeLicence || '2027'}</span>
+                            <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                              <span>Licence {adherent.licence} ({adherent.millesimeLicence || '2027'})</span>
                               <span>•</span>
                               <span>{adherent.civilite === 'Monsieur' ? 'Homme' : 'Femme'}</span>
                               <span>•</span>

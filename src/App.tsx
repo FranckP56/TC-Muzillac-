@@ -3,23 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header } from './components/Header';
 import { AdherentsTab } from './components/AdherentsTab';
 import { RencontresTab } from './components/RencontresTab';
 import { InfosClubTab } from './components/InfosClubTab';
 import { EnseignantsTab } from './components/EnseignantsTab';
+import { LicenciesTab } from './components/LicenciesTab';
 import { AdherentModal } from './components/AdherentModal';
 import { AppsScriptModal } from './components/AppsScriptModal';
 import { NewMemberModal } from './components/NewMemberModal';
 import { NewMatchModal } from './components/NewMatchModal';
 import { CompositionModal } from './components/CompositionModal';
+import { SondageDisponibilitesModal } from './components/SondageDisponibilitesModal';
 import { GsheetDataModal } from './components/GsheetDataModal';
 import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { User } from 'firebase/auth';
 import { initAuth } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
-import { Adherent, Rencontre, ClubInfo, MatchComposition, UserRole } from './types/tennis';
+import { Adherent, Rencontre, ClubInfo, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
+import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { 
   INITIAL_ADHERENTS, 
   INITIAL_RENCONTRES, 
@@ -32,8 +35,8 @@ import {
 import { sortAdherentsByRankingDesc } from './utils/ranking';
 
 export default function App() {
-  // Navigation avec les 4 onglets : 'Infos Club', 'Rencontres', 'Enseignants', 'Adhérents'
-  const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'enseignants'>('rencontres');
+  // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents'
+  const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants'>('rencontres');
 
   // Rôle et permissions (4 fonctions demandées : adhérents, capitaines, profs, membres du bureau)
   const [userRole, setUserRole] = useState<UserRole>(() => {
@@ -99,6 +102,7 @@ export default function App() {
   // Modales
   const [selectedAdherent, setSelectedAdherent] = useState<Adherent | null>(null);
   const [selectedRencontreForComposition, setSelectedRencontreForComposition] = useState<Rencontre | null>(null);
+  const [selectedRencontreForSondage, setSelectedRencontreForSondage] = useState<Rencontre | null>(null);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
   const [isGsheetModalOpen, setIsGsheetModalOpen] = useState(false);
   const [gsheetModalDefaultTab, setGsheetModalDefaultTab] = useState<'mapping' | 'soldes' | 'sync'>('mapping');
@@ -307,6 +311,37 @@ export default function App() {
     }
   };
 
+  // Modification de l'horaire d'une rencontre (9h00, 14h00 ou personnalisé)
+  const handleUpdateMatchHour = (rencontreId: string, hour: string) => {
+    setRencontres(prev => prev.map(r => {
+      if (r.id === rencontreId) {
+        return { ...r, heure: hour };
+      }
+      return r;
+    }));
+  };
+
+  // Enregistrement des réponses de disponibilité des joueurs pour une rencontre
+  const handleUpdateDisponibilites = (rencontreId: string, dispos: JoueurDisponibilite[]) => {
+    setRencontres(prev => prev.map(r => {
+      if (r.id === rencontreId) {
+        return { ...r, disponibilites: dispos };
+      }
+      return r;
+    }));
+    if (selectedRencontreForSondage && selectedRencontreForSondage.id === rencontreId) {
+      setSelectedRencontreForSondage(prev => prev ? { ...prev, disponibilites: dispos } : null);
+    }
+    if (selectedRencontreForComposition && selectedRencontreForComposition.id === rencontreId) {
+      setSelectedRencontreForComposition(prev => prev ? { ...prev, disponibilites: dispos } : null);
+    }
+  };
+
+  // Licenciés 2027 officiels du club (Colonnes X = '2027' et AB = 'MUZILLAC TENNIS CLUB')
+  const licencies2027 = useMemo(() => {
+    return filterLicenciesMuzillac2027(adherents);
+  }, [adherents]);
+
   // Ajout d'un nouvel adhérent
   const handleAddMember = (newMember: Adherent) => {
     setAdherents(prev => sortAdherentsByRankingDesc([newMember, ...prev]));
@@ -345,6 +380,7 @@ export default function App() {
         isGoogleConnected={!!googleUser}
         googleUserEmail={googleUser?.email}
         totalAdherents={adherents.length}
+        totalLicencies={licencies2027.length}
         onRefreshFromFile={() => handleLoadFromRealFile(false)}
         isRefreshing={isLoadingFile}
       />
@@ -357,15 +393,22 @@ export default function App() {
           <RencontresTab
             rencontres={rencontres}
             adherents={adherents}
-            onOpenNewMatchModal={() => setIsNewMatchModalOpen(true)}
             onOpenCompositionModal={(r) => setSelectedRencontreForComposition(r)}
-            onOpenGsheetModal={(tab) => {
-              setGsheetModalDefaultTab(tab === 'soldes' ? 'soldes' : 'mapping');
-              setIsGsheetModalOpen(true);
-            }}
-            onOpenGoogleSyncModal={() => setIsGoogleSyncModalOpen(true)}
-            isGoogleConnected={!!googleUser}
+            onOpenSondageModal={(r) => setSelectedRencontreForSondage(r)}
+            onUpdateMatchHour={handleUpdateMatchHour}
             userRole={userRole}
+            onRefreshData={() => handleLoadFromRealFile(false)}
+            isAutoSyncing={isLoadingFile}
+          />
+        )}
+
+        {/* Onglet 'Licenciés' (Officiels FFT 2027 Muzillac Tennis Club - Colonnes X & AB) */}
+        {activeTab === 'licencies' && (
+          <LicenciesTab
+            adherents={adherents}
+            userRole={userRole}
+            onSelectAdherent={(adh) => setSelectedAdherent(adh)}
+            onNavigateToRencontres={() => setActiveTab('rencontres')}
           />
         )}
 
@@ -438,6 +481,19 @@ export default function App() {
         selectedSpreadsheetId={selectedSpreadsheetId}
         spreadsheetName={spreadsheetName}
         onOpenGoogleSyncModal={() => setIsGoogleSyncModalOpen(true)}
+      />
+
+      {/* Sondage des disponibilités des joueurs (SMS/WhatsApp, jour, heure, Simple/Double) */}
+      <SondageDisponibilitesModal
+        rencontre={selectedRencontreForSondage}
+        adherents={adherents}
+        isOpen={!!selectedRencontreForSondage}
+        onClose={() => setSelectedRencontreForSondage(null)}
+        onUpdateDisponibilites={handleUpdateDisponibilites}
+        onOpenComposition={(r) => {
+          setSelectedRencontreForSondage(null);
+          setSelectedRencontreForComposition(r);
+        }}
       />
 
       {/* Synchronisation Directe Google Sheets (Données_appli) sans CSV */}

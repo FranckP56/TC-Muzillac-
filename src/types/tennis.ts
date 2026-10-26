@@ -3,6 +3,21 @@ export type SexeHomologation = 'Messieurs' | 'Dames' | 'Mixte';
 export type TypeLicence = 'C' | 'W' | 'D' | 'S' | 'Non renouvelée' | string;
 export type SoldeStatut = 'du' | 'a_regulariser' | 'a_jour';
 
+export type DisponibiliteStatut = 'disponible' | 'indisponible' | 'incertain';
+export type PreferenceJeu = 'simple_et_double' | 'simple_seul' | 'double_seul';
+export type CreneauPrefere = 'journee' | 'matin_9h' | 'apres_midi_14h';
+
+export interface JoueurDisponibilite {
+  adherentId: string;
+  nomPrenom: string;
+  classement?: string;
+  statut: DisponibiliteStatut;
+  preferenceJeu: PreferenceJeu;
+  creneauPrefere: CreneauPrefere;
+  commentaire?: string;
+  dateReponse?: string;
+}
+
 export interface Adherent {
   id: string;
   nomPrenom: string;
@@ -122,6 +137,7 @@ export interface Rencontre {
   codePostalInstallation?: string; // Code postal installation
   villeInstallation?: string; // Ville installation
   composition?: MatchComposition;
+  disponibilites?: JoueurDisponibilite[];
 }
 
 export type UserRole = 'adherent' | 'capitaine' | 'prof' | 'bureau';
