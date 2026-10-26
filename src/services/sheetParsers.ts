@@ -1,8 +1,31 @@
 // src/services/sheetParsers.ts
 
 /**
+ * Parser de données typé et robuste pour le TCM Muzillac
+ */
+
+export interface Adherent {
+  id_ligne: number;
+  nomPrenom: string;
+  solde: number;
+  groupe: string;
+  classement: string;
+}
+
+export interface Rencontre {
+  id_match: number;
+  date: string;
+  homologation: string;
+  categorieAge: string;
+  numeroEquipe: string;
+  clubAccueil: string;
+  clubVisiteur: string;
+  score: string;
+  niveau: string;
+}
+
+/**
  * Fonction de nettoyage universelle pour les en-têtes complexes d'ADOC/FFT
- * Supprime les espaces, les majuscules, les accents et les caractères spéciaux
  */
 function normalizeHeader(header: string): string {
   return header
@@ -10,20 +33,18 @@ function normalizeHeader(header: string): string {
     .trim()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // Enlève tous les accents
-    .replace(/[^a-z0-9]/g, "");     // Ne garde strictement que les lettres et chiffres
+    .replace(/[^a-z0-9]/g, "");     // Ne garde que les lettres et chiffres
 }
 
 /**
  * Parser pour l'onglet Rencontres (Structure ADOC FFT)
  */
-export function parseRencontresTab(rows: any[][]): any[] {
-  if (rows.length <= 1) return [];
+export function parseRencontresTab(rows: any[][]): Rencontre[] {
+  if (!rows || rows.length <= 1) return [];
 
-  // On extrait et normalise la première ligne (les en-têtes)
   const rawHeaders = rows[0];
   const normalizedHeaders = rawHeaders.map(h => normalizeHeader(String(h)));
 
-  // Recherche des index via les en-têtes normalisés
   const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date"));
   const idxHomol = normalizedHeaders.findIndex(h => h.includes("libelledelehomologation") || h.includes("homol"));
   const idxCat = normalizedHeaders.findIndex(h => h.includes("categoriedagedelehomologation") || h.includes("cat"));
@@ -33,11 +54,10 @@ export function parseRencontresTab(rows: any[][]): any[] {
   const idxScore = normalizedHeaders.findIndex(h => h.includes("score"));
   const idxNiveau = normalizedHeaders.findIndex(h => h.includes("niveaudelehomologation") || h.includes("niveau"));
 
-  const rencontres: any[] = [];
+  const rencontres: Rencontre[] = [];
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    // Sécurité : si la ligne n'a pas de date, on l'ignore
     if (idxDate === -1 || !row[idxDate]) continue;
 
     rencontres.push({
@@ -59,8 +79,8 @@ export function parseRencontresTab(rows: any[][]): any[] {
 /**
  * Parser pour l'onglet Adhérents
  */
-export function parseAdherentsTab(rows: any[][]): any[] {
-  if (rows.length <= 1) return [];
+export function parseAdherentsTab(rows: any[][]): Adherent[] {
+  if (!rows || rows.length <= 1) return [];
 
   const rawHeaders = rows[0];
   const normalizedHeaders = rawHeaders.map(h => normalizeHeader(String(h)));
@@ -70,7 +90,7 @@ export function parseAdherentsTab(rows: any[][]): any[] {
   const idxGroupe = normalizedHeaders.findIndex(h => h.includes("groupeenseignement") || h.includes("groupe"));
   const idxClass = normalizedHeaders.findIndex(h => h.includes("dernierclasstennis") || h.includes("class"));
 
-  const adherents: any[] = [];
+  const adherents: Adherent[] = [];
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -79,7 +99,7 @@ export function parseAdherentsTab(rows: any[][]): any[] {
     adherents.push({
       id_ligne: i,
       nomPrenom: row[idxNom],
-      solde: idxSolde !== -1 ? Number(String(row[idxSolde]).replace(',', '.')) : 0, // Gère les décimales à la française
+      solde: idxSolde !== -1 ? Number(String(row[idxSolde]).replace(',', '.')) : 0,
       groupe: idxGroupe !== -1 ? row[idxGroupe] : "Aucun",
       classement: idxClass !== -1 ? row[idxClass] : "NC"
     });
