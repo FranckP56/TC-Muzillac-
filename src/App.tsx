@@ -25,8 +25,6 @@ import {
   INITIAL_ADHERENTS, 
   INITIAL_RENCONTRES, 
   INITIAL_CLUB_INFO, 
-  REAL_DATA_FILE_URL, 
-  REAL_RENCONTRES_FILE_URL,
   parseAdherentsCsv,
   parseRencontresCsv
 } from './data/clubData';
@@ -215,6 +213,7 @@ export default function App() {
         {activeTab === 'infos' && (
           <InfosClubTab clubInfo={clubInfo} userRole={userRole} onOpenEditModal={() => setIsEditClubModalOpen(true)} />
         )}
+        
         {activeTab === 'rencontres' && (
           <RencontresTab 
             rencontres={rencontres} 
@@ -226,15 +225,18 @@ export default function App() {
             isAutoSyncing={isLoadingFile}
           />
         )}
+        
         {activeTab === 'licencies' && <LicenciesTab />}
+        
         {activeTab === 'enseignants' && (
           <EnseignantsTab adherents={adherents} userRole={userRole} />
         )}
+        
         {activeTab === 'adherents' && (
           <AdherentsTab 
             adherents={adherents} 
-userRole={userRole}
-onSelectAdherent={setSelectedAdherent}
+            userRole={userRole} 
+            onSelectAdherent={setSelectedAdherent}
 onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
 />
 )}
