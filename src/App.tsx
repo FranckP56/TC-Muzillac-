@@ -170,52 +170,57 @@ export default function App() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
 
-  // Fonction de lecture systématique sans cache du fichier local officiel Données_appli
+    // Fonction de lecture systématique corrigée sans cache pour le TCM Muzillac
   const handleLoadFromRealFile = async (isInitial = false) => {
     setIsLoadingFile(true);
     setFileLoadError(null);
     try {
-      // 1. Chargement sans cache des adhérents
-      const res = await fetch(`${REAL_DATA_FILE_URL}?t=${Date.now()}`, { cache: 'no-store' });
+      // 1. Chargement forcé des Adhérents sans cache
+      const res = await fetch(`${REAL_DATA_FILE_URL}&nocache=${Date.now()}`, { 
+        method: "GET",
+        headers: { "Cache-Control": "no-cache, no-store" },
+        cache: "no-store" 
+      });
+      
       if (res.ok) {
         const text = await res.text();
         if (text && text.trim().length > 0) {
           const parsed = parseAdherentsCsv(text);
-          if (parsed.length > 0) {
+          if (parsed && parsed.length > 0) {
             const sorted = sortAdherentsByRankingDesc(parsed);
             setAdherents(sorted);
             localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
           }
         }
+      } else {
+        console.warn("Échec de chargement des adhérents via l'URL Google.");
       }
 
-      // 2. Vérification présence éventuelle d'un fichier réel pour Rencontres
-      try {
-        const resRec = await fetch(`${REAL_RENCONTRES_FILE_URL}?t=${Date.now()}`, { cache: 'no-store' });
-        if (resRec.ok) {
-          const textRec = await resRec.text();
-          if (textRec && textRec.trim().length > 0) {
-            const parsedRec = parseRencontresCsv(textRec);
-            if (parsedRec.length > 0) {
-              setRencontres(parsedRec);
-              localStorage.setItem('tcm_rencontres_v3', JSON.stringify(parsedRec));
-            }
+      // 2. Chargement forcé des 85 Rencontres sans cache
+      const resRec = await fetch(`${REAL_RENCONTRES_FILE_URL}&nocache=${Date.now()}`, { 
+        method: "GET",
+        headers: { "Cache-Control": "no-cache, no-store" },
+        cache: "no-store" 
+      });
+      
+      if (resRec.ok) {
+        const textRec = await resRec.text();
+        if (textRec && textRec.trim().length > 0) {
+          const parsedRec = parseRencontresCsv(textRec);
+          if (parsedRec && parsedRec.length > 0) {
+            setRencontres(parsedRec);
+            localStorage.setItem('tcm_rencontres_v3', JSON.stringify(parsedRec));
+            setLastSyncTime(new Date().toLocaleDateString('fr-FR') + ' à ' + new Date().toLocaleTimeString('fr-FR'));
+            localStorage.setItem('tcm_last_sync_v2', new Date().toLocaleDateString('fr-FR') + ' à ' + new Date().toLocaleTimeString('fr-FR'));
           }
         }
-      } catch {
-        // Optionnel si le fichier n'est pas encore téléversé séparément
+      } else {
+        console.warn("Échec de chargement des rencontres via l'URL Google.");
       }
 
-      const now = new Date().toLocaleTimeString('fr-FR', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      setLastSyncTime(now);
-      localStorage.setItem('tcm_last_sync_v2', now);
-    } catch (err: any) {
-      console.warn('Erreur lecture directe Données_appli:', err);
-      setFileLoadError(err.message || 'Erreur inconnue');
+    } catch (error: any) {
+      console.error("Erreur de synchronisation directe Google Sheets :", error);
+      setFileLoadError(error.message || "Erreur de connexion aux serveurs Google");
     } finally {
       setIsLoadingFile(false);
     }
