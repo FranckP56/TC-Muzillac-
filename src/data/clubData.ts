@@ -6,9 +6,8 @@ const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
-// Valeurs de secours sûres pour éviter le crash au chargement initial
 export const INITIAL_ADHERENTS: Adherent[] = [
-  { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
+  { id: "adh-init", nomPrenom: "Chargement de la base club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
 
 export const INITIAL_RENCONTRES: Rencontre[] = [
@@ -36,7 +35,6 @@ export const INITIAL_RENCONTRES: Rencontre[] = [
 export const GSHEET_ADHERENTS_HEADERS = ["Nom Prénom", "Solde", "Téléphone Portable", "Email", "Dernier class. tennis", "Licence", "Groupe enseignement", "Date Naiss.", "Civilité"];
 export const GSHEET_RENCONTRES_HEADERS = ["Date de la rencontre", "Libellé de l'homologation", "Catégorie d'âge de l'homologation", "Numéro de l'équipe", "Club d'accueil nom", "Club visiteur nom", "Score", "Niveau de l'homologation", "Nom capitaine"];
 
-// 🛡️ INCLUSION DE L'ARRAY INSTALLATIONS POUR FAIRE SAUTER LE SOUCI DE L'ITERABLE
 export const INITIAL_CLUB_INFO: ClubInfo = {
   nom: "Tennis Club Muzillac",
   adresse: "Complexe sportif du Chêne Rond, Rue du Stade, 56190 Muzillac",
@@ -48,14 +46,14 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   installations: [
     { id: "inst-1", nom: "Courts extérieurs", type: "Quick" },
     { id: "inst-2", nom: "Salle omnisports", type: "Résine" }
-  ], // Sécurité : évite l'erreur "not iterable"
+  ],
   modalitesPaiement: "Paiement échelonné possible par chèque et CB via HelloAsso.",
   helloAssoUrl: "https://helloasso.com"
 } as any;
 
-function normalizeHeader(header: any): string {
-  if (!header) return "";
-  return String(header).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+function cleanHeaderCell(val: any): string {
+  if (!val) return "";
+  return String(val).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
 function csvToArray(text: string): string[][] {
@@ -92,13 +90,15 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
+  // Normalisation tolérante de la ligne d'en-tête
+  const headers = rows[0].map(h => cleanHeaderCell(h));
   
-  const idxNom = normalizedHeaders.findIndex(h => h && (h.includes("nomprenom") || h.includes("nom")));
-  const idxSolde = normalizedHeaders.findIndex(h => h && (h.includes("solde") || h.includes("due")));
-  const idxGroupe = normalizedHeaders.findIndex(h => h && (h.includes("groupeenseignement") || h.includes("groupe")));
-  const idxClass = normalizedHeaders.findIndex(h => h && (h.includes("dernierclasstennis") || h.includes("class")));
-  const idxLicence = normalizedHeaders.findIndex(h => h && h.includes("licence"));
+  // Recherche ultra-flexible des colonnes (gère "nom prenom", "nom", "prenom")
+  const idxNom = headers.findIndex(h => h.includes("nom"));
+  const idxSolde = headers.findIndex(h => h.includes("solde") || h.includes("due") || h.includes("compta"));
+  const idxGroupe = headers.findIndex(h => h.includes("groupe") || h.includes("enseig"));
+  const idxClass = headers.findIndex(h => h.includes("class") || h.includes("rang"));
+  const idxLicence = headers.findIndex(h => h.includes("licence"));
 
   const list: Adherent[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -106,17 +106,21 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
     if (!row || idxNom === -1 || !row[idxNom]) continue;
     
     const adherentObj: any = {
-      id: `adh-${i}`,
-      nomPrenom: row[idxNom] || "Adhérent inconnu",
+      id: idxLicence !== -1 && row[idxLicence] ? String(row[idxLicence]).trim() : `adh-${i}`,
+      nomPrenom: row[idxNom],
       solde: idxSolde !== -1 && row[idxSolde] ? Number(row[idxSolde].replace(',', '.')) || 0 : 0,
       groupe: idxGroupe !== -1 ? row[idxGroupe] || "Aucun" : "Aucun",
       classement: idxClass !== -1 ? row[idxClass] || "NC" : "NC",
       licence: idxLicence !== -1 ? row[idxLicence] || "" : ""
     };
     
-    normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) { adherentObj[headerName] = row[index] || ""; }
+    // Injection des propriétés secondaires attendues par l'export des Licenciés
+    headers.forEach((headerName, index) => {
+      if (headerName && row[index] !== undefined) {
+        adherentObj[headerName] = row[index];
+      }
     });
+
     list.push(adherentObj as Adherent);
   }
   return list;
@@ -126,16 +130,16 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
+  const headers = rows[0].map(h => cleanHeaderCell(h));
   
-  const idxDate = normalizedHeaders.findIndex(h => h && (h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre")));
-  const idxHomol = normalizedHeaders.findIndex(h => h && (h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation")));
-  const idxCat = normalizedHeaders.findIndex(h => h && (h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation")));
-  const idxEquipe = normalizedHeaders.findIndex(h => h && (h.includes("numerodelequipe") || h.includes("equipe") || h.includes("numeroequipe")));
-  const idxAccueil = normalizedHeaders.findIndex(h => h && (h.includes("clubdaccueilnom") || h.includes("accueil") || h.includes("clubaccueilnom")));
-  const idxVisiteur = normalizedHeaders.findIndex(h => h && (h.includes("clubvisiteurnom") || h.includes("visiteur") || h.includes("clubvisiteur")));
-  const idxScore = normalizedHeaders.findIndex(h => h && h.includes("score"));
-  const idxNiveau = normalizedHeaders.findIndex(h => h && (h.includes("niveaudelehomologation") || h.includes("niveau") || h.includes("niveauhomologation")));
+  const idxDate = headers.findIndex(h => h.includes("date"));
+  const idxHomol = headers.findIndex(h => h.includes("homol") || h.includes("libelle"));
+  const idxCat = headers.findIndex(h => h.includes("cat") || h.includes("age"));
+  const idxEquipe = headers.findIndex(h => h.includes("equipe") || h.includes("num"));
+  const idxAccueil = headers.findIndex(h => h.includes("acc") || h.includes("dom"));
+  const idxVisiteur = headers.findIndex(h => h.includes("vis") || h.includes("ext"));
+  const idxScore = headers.findIndex(h => h.includes("score"));
+  const idxNiveau = headers.findIndex(h => h.includes("niv") || h.includes("div"));
 
   const list: Rencontre[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -147,19 +151,21 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
     const matchObj: any = {
       id: `rec-${i}`,
       id_match: i,
-      date: row[idxDate] || "Date inconnue",
-      homologation: idxHomol !== -1 ? row[idxHomol] || "Championnat" : "Championnat",
-      categorieAge: idxCat !== -1 ? row[idxCat] || "Senior" : "Senior",
+      date: row[idxDate],
+      homologation: idxHomol !== -1 ? row[idxHomol] : "Championnat",
+      categorieAge: idxCat !== -1 ? row[idxCat] : "Senior",
       numeroEquipe: cleanEquipeNumber,
-      clubAccueil: idxAccueil !== -1 ? row[idxAccueil] || "TC Muzillac" : "TC Muzillac",
-      clubVisiteur: idxVisiteur !== -1 ? row[idxVisiteur] || "Adversaire" : "Adversaire",
-      score: idxScore !== -1 ? row[idxScore] || "À venir" : "À venir",
-      niveau: idxNiveau !== -1 ? String(row[idxNiveau] || "Départemental") : "Départemental",
+      clubAccueil: idxAccueil !== -1 ? row[idxAccueil] : "TC Muzillac",
+      clubVisiteur: idxVisiteur !== -1 ? row[idxVisiteur] : "Adversaire",
+      score: idxScore !== -1 ? row[idxScore] : "À venir",
+      niveau: idxNiveau !== -1 ? String(row[idxNiveau]) : "Départemental",
       composition: null
     };
 
-    normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) { matchObj[headerName] = row[index] || ""; }
+    headers.forEach((headerName, index) => {
+      if (headerName && row[index] !== undefined) {
+        matchObj[headerName] = row[index];
+      }
     });
 
     matchObj.niveauHomologation = matchObj.niveau;
