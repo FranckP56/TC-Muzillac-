@@ -2,38 +2,33 @@
 
 import { Adherent, Rencontre, ClubInfo } from '../types/tennis';
 
-// Liens d'exports directs CSV de votre Google Sheet (évite le cache Vercel)
 const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
-export const INITIAL_ADHERENTS: Adherent[] = [];
-export const INITIAL_RENCONTRES: Rencontre[] = [];
-
-// En-têtes attendus par GsheetDataModal.tsx pour le mapping visuel des colonnes
-export const GSHEET_ADHERENTS_HEADERS = [
-  "Nom Prénom", 
-  "Solde", 
-  "Téléphone Portable", 
-  "Email", 
-  "Dernier class. tennis", 
-  "Licence", 
-  "Groupe enseignement", 
-  "Date Naiss.", 
-  "Civilité"
+// 🛡️ VALEURS PAR DÉFAUT POUR ÉVITER L'ÉCRAN VIDE
+export const INITIAL_ADHERENTS: Adherent[] = [
+  { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
 
-export const GSHEET_RENCONTRES_HEADERS = [
-  "Date de la rencontre", 
-  "Libellé de l'homologation", 
-  "Catégorie d'âge de l'homologation", 
-  "Numéro de l'équipe", 
-  "Club d'accueil nom", 
-  "Club visiteur nom", 
-  "Score", 
-  "Niveau de l'homologation",
-  "Nom capitaine"
+export const INITIAL_RENCONTRES: Rencontre[] = [
+  {
+    id: "init-match",
+    id_match: 0,
+    date: "En cours",
+    homologation: "Chargement des championnats...",
+    categorieAge: "Senior",
+    numeroEquipe: "1",
+    clubAccueil: "TCM Muzillac",
+    clubVisiteur: "Club",
+    score: "À venir",
+    niveau: "Départemental",
+    composition: null as any
+  }
 ];
+
+export const GSHEET_ADHERENTS_HEADERS = ["Nom Prénom", "Solde", "Téléphone Portable", "Email", "Dernier class. tennis", "Licence", "Groupe enseignement", "Date Naiss.", "Civilité"];
+export const GSHEET_RENCONTRES_HEADERS = ["Date de la rencontre", "Libellé de l'homologation", "Catégorie d'âge de l'homologation", "Numéro de l'équipe", "Club d'accueil nom", "Club visiteur nom", "Score", "Niveau de l'homologation", "Nom capitaine"];
 
 export const INITIAL_CLUB_INFO: ClubInfo = {
   nom: "Tennis Club Muzillac",
@@ -47,21 +42,10 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   helloAssoUrl: "https://helloasso.com"
 };
 
-/**
- * Fonction de nettoyage universelle pour les en-têtes complexes d'ADOC
- */
 function normalizeHeader(header: string): string {
-  return header
-    .toLowerCase()
-    .trim()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
+  return header.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
-/**
- * Parseur CSV universel
- */
 function csvToArray(text: string): string[][] {
   if (!text) return [];
   const lines = text.split(/\r\n|\n/);
@@ -73,13 +57,9 @@ function csvToArray(text: string): string[][] {
     });
 }
 
-/**
- * Parseur de l'onglet Adhérents
- */
 export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
   if (rows.length <= 1) return [];
-
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   const idxNom = normalizedHeaders.findIndex(h => h.includes("nomprenom") || h.includes("nom"));
   const idxSolde = normalizedHeaders.findIndex(h => h.includes("solde") || h.includes("due"));
@@ -91,7 +71,6 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (idxNom === -1 || !row[idxNom]) continue;
-
     const adherentObj: any = {
       id: `adh-${i}`,
       nomPrenom: row[idxNom],
@@ -100,25 +79,17 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
       classement: idxClass !== -1 ? row[idxClass] : "NC",
       licence: idxLicence !== -1 ? row[idxLicence] : ""
     };
-
     normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) {
-        adherentObj[headerName] = row[index];
-      }
+      if (headerName && row[index] !== undefined) { adherentObj[headerName] = row[index]; }
     });
-
     list.push(adherentObj as Adherent);
   }
   return list;
 }
 
-/**
- * Parseur de l'onglet Rencontres (Structure ADOC FFT)
- */
 export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
   if (rows.length <= 1) return [];
-
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
   const idxHomol = normalizedHeaders.findIndex(h => h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
@@ -133,12 +104,12 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (idxDate === -1 || !row[idxDate]) continue;
-
     let rawEq = idxEquipe !== -1 ? String(row[idxEquipe]) : "1";
     let cleanEquipeNumber = rawEq.replace(/[^0-9]/g, "").trim() || rawEq;
 
     const matchObj: any = {
       id: `rec-${i}`,
+      id_match: i,
       date: row[idxDate],
       homologation: idxHomol !== -1 ? row[idxHomol] : "Championnat",
       categorieAge: idxCat !== -1 ? row[idxCat] : "Senior",
@@ -151,12 +122,9 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
     };
 
     normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) {
-        matchObj[headerName] = row[index];
-      }
+      if (headerName && row[index] !== undefined) { matchObj[headerName] = row[index]; }
     });
 
-    // Correspondance des variables d'origine pour RencontresTab
     matchObj.niveauHomologation = matchObj.niveau;
     matchObj.libelleHomologation = matchObj.homologation;
     matchObj.categorieAgeHomologation = matchObj.categorieAge;
