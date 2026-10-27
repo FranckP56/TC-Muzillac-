@@ -114,7 +114,7 @@ export default function App() {
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => localStorage.getItem('tcm_last_sync_v2'));
 
-  const handleLoadFromRealFile = async (isInitial = false) => {
+  const handleLoadFromRealFile = async () => {
     setIsLoadingFile(true);
     setFileLoadError(null);
     try {
@@ -169,7 +169,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    handleLoadFromRealFile(true);
+    handleLoadFromRealFile();
   }, []);
 
   return (
@@ -226,14 +226,14 @@ export default function App() {
       {selectedRencontreForComposition && (
         <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />
       )}
-{selectedRencontreForSondage && (
-<SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
-)}
-<AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
-<GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
-<NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
-<NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
-<EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
+      {selectedRencontreForSondage && (
+        <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
+      )}
+        <AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
+        <GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
+        <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
+        <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
+        <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
 
-);
+  );
 }
