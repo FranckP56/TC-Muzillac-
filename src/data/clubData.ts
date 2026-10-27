@@ -3,8 +3,8 @@
 import { Adherent, Rencontre, ClubInfo } from '../types/tennis';
 
 const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
-export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
-export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
+export const REAL_DATA_FILE_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
+export const REAL_RENCONTRES_FILE_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
 export const INITIAL_ADHERENTS: Adherent[] = [
   { id: "adh-init", nomPrenom: "Chargement de la base club...", solde: 0, groupe: "Aucun", classement: "NC" }
@@ -32,8 +32,29 @@ export const INITIAL_RENCONTRES: Rencontre[] = [
   }
 ];
 
-export const GSHEET_ADHERENTS_HEADERS = ["Nom Prénom", "Solde", "Téléphone Portable", "Email", "Dernier class. tennis", "Licence", "Groupe enseignement", "Date Naiss.", "Civilité"];
-export const GSHEET_RENCONTRES_HEADERS = ["Date de la rencontre", "Libellé de l'homologation", "Catégorie d'âge de l'homologation", "Numéro de l'équipe", "Club d'accueil nom", "Club visiteur nom", "Score", "Niveau de l'homologation", "Nom capitaine"];
+export const GSHEET_ADHERENTS_HEADERS = [
+  "Nom Prénom", 
+  "Solde", 
+  "Téléphone Portable", 
+  "Email", 
+  "Dernier class. tennis", 
+  "Licence", 
+  "Groupe enseignement", 
+  "Date Naiss.", 
+  "Civilité"
+];
+
+export const GSHEET_RENCONTRES_HEADERS = [
+  "Date de la rencontre", 
+  "Libellé de l'homologation", 
+  "Catégorie d'âge de l'homologation", 
+  "Numéro de l'équipe", 
+  "Club d'accueil nom", 
+  "Club visiteur nom", 
+  "Score", 
+  "Niveau de l'homologation", 
+  "Nom capitaine"
+];
 
 export const INITIAL_CLUB_INFO: ClubInfo = {
   nom: "Tennis Club Muzillac",
@@ -53,7 +74,12 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
 
 function cleanHeaderCell(val: any): string {
   if (!val) return "";
-  return String(val).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  return String(val)
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function csvToArray(text: string): string[][] {
@@ -72,7 +98,12 @@ function csvToArray(text: string): string[][] {
     for (let j = 0; j < line.length; j++) {
       const char = line[j];
       if (char === '"') {
-        inQuotes = !inQuotes;
+        if (inQuotes && line[j + 1] === '"') {
+          currentCell += '"';
+          j++; // Ignorer le guillemet échappé
+        } else {
+          inQuotes = !inQuotes;
+        }
       } else if (char === ',' && !inQuotes) {
         row.push(currentCell.trim());
         currentCell = "";
