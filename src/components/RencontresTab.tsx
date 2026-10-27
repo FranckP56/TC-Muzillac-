@@ -125,6 +125,12 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
   return (
     <div className="space-y-6">
+
+ {/* ZONE DE DIAGNOSTIC TEMPORAIRE */}
+      <div className="p-4 bg-zinc-900 border border-red-500/40 rounded-2xl text-xs font-mono text-zinc-400 overflow-auto max-h-40">
+        📊 Diagnostic TCM : {rencontres.length} rencontres reçues. 
+        Brut : {JSON.stringify(rencontres.slice(0, 1))}
+      </div>
       
       {/* En-tête de section avec synchronisation automatique FFT et Données_appli */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
