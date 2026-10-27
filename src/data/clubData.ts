@@ -6,7 +6,7 @@ const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
-// 🛡️ VALEURS PAR DÉFAUT POUR ÉVITER L'ÉCRAN VIDE
+// Valeurs d'initialisation pour éviter l'écran blanc au tout premier chargement
 export const INITIAL_ADHERENTS: Adherent[] = [
   { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
@@ -43,7 +43,7 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
 };
 
 function normalizeHeader(header: string): string {
-  return header.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  return String(header).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
 function csvToArray(text: string): string[][] {
@@ -59,8 +59,11 @@ function csvToArray(text: string): string[][] {
 
 export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
-  if (rows.length <= 1) return [];
+  if (!rows || rows.length <= 1) return [];
+  
+  // Extraction et normalisation correcte de la première ligne (ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
+  
   const idxNom = normalizedHeaders.findIndex(h => h.includes("nomprenom") || h.includes("nom"));
   const idxSolde = normalizedHeaders.findIndex(h => h.includes("solde") || h.includes("due"));
   const idxGroupe = normalizedHeaders.findIndex(h => h.includes("groupeenseignement") || h.includes("groupe"));
@@ -74,7 +77,7 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
     const adherentObj: any = {
       id: `adh-${i}`,
       nomPrenom: row[idxNom],
-      solde: idxSolde !== -1 ? Number(row[idxSolde].replace(',', '.')) || 0 : 0,
+      solde: idxSolde !== -1 && row[idxSolde] ? Number(row[idxSolde].replace(',', '.')) || 0 : 0,
       groupe: idxGroupe !== -1 ? row[idxGroupe] : "Aucun",
       classement: idxClass !== -1 ? row[idxClass] : "NC",
       licence: idxLicence !== -1 ? row[idxLicence] : ""
@@ -89,8 +92,11 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
 
 export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
-  if (rows.length <= 1) return [];
+  if (!rows || rows.length <= 1) return [];
+  
+  // Extraction et normalisation de la première ligne (ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
+  
   const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
   const idxHomol = normalizedHeaders.findIndex(h => h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
   const idxCat = normalizedHeaders.findIndex(h => h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation"));
