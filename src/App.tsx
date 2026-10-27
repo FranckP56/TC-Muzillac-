@@ -114,7 +114,6 @@ export default function App() {
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => localStorage.getItem('tcm_last_sync_v2'));
 
-  // 🛡️ FEUILLE DE PLANIFICATION ET LOGISTIQUE SÉCURISÉE EN DIRECT
   const handleLoadFromRealFile = async (isInitial = false) => {
     setIsLoadingFile(true);
     setFileLoadError(null);
