@@ -56,10 +56,6 @@ const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
   return fixedInfo;
 };
 
-/**
- * 🛠️ STRATÉGIE D'ISOLATION : La fonction réseau est placée en dehors du composant App.
- * Ses accolades ne peuvent plus interférer avec l'arborescence React.
- */
 async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; rencontres: Rencontre[] } | null> {
   try {
     const currentTimestamp = Date.now();
@@ -67,7 +63,6 @@ async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; 
     let adherentsResultats: Adherent[] = [];
     let rencontresResultats: Rencontre[] = [];
     
-    // 1. Appel Adhérents
     const cleanAdherentsUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Adherents&nocache=${currentTimestamp}`;
     const res = await fetch(cleanAdherentsUrl, { 
       method: "GET",
@@ -85,7 +80,6 @@ async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; 
       }
     }
 
-    // 2. Appel Rencontres (Vos 85 Matchs)
     const cleanRencontresUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Rencontres&nocache=${currentTimestamp}`;
     const resRec = await fetch(cleanRencontresUrl, { 
       method: "GET",
@@ -233,29 +227,31 @@ export default function App() {
           />
         )}
         {activeTab === 'licencies' && <LicenciesTab />}
-        {activeTab === 'enseignants' && }
+        {activeTab === 'enseignants' && (
+          <EnseignantsTab adherents={adherents} userRole={userRole} />
+        )}
         {activeTab === 'adherents' && (
-      <AdherentsTab
-        adherents={adherents}
-        userRole={userRole}
-        onSelectAdherent={setSelectedAdherent}
-        onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
-    />
-  )}
-        {selectedAdherent && (
-      <AdherentModal adherent={selectedAdherent} onClose={() => setSelectedAdherent(null)} userRole={userRole} />
-  )}
-        {selectedRencontreForComposition && (
-      <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />
-  )}
-        {selectedRencontreForSondage && (
-      <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
-  )}
-      <AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
-      <GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
-      <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
-      <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
-      <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
+          <AdherentsTab 
+            adherents={adherents} 
+userRole={userRole}
+onSelectAdherent={setSelectedAdherent}
+onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
+/>
+)}
+{selectedAdherent && (
+<AdherentModal adherent={selectedAdherent} onClose={() => setSelectedAdherent(null)} userRole={userRole} />
+)}
+{selectedRencontreForComposition && (
+<CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />
+)}
+{selectedRencontreForSondage && (
+<SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
+)}
+<AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
+<GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
+<NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
+<NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
+<EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
 
 );
 }
