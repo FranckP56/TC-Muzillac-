@@ -6,6 +6,7 @@ const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
+// Valeurs de secours sûres pour éviter le crash au chargement initial
 export const INITIAL_ADHERENTS: Adherent[] = [
   { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
@@ -15,14 +16,21 @@ export const INITIAL_RENCONTRES: Rencontre[] = [
     id: "init-match",
     id_match: 0,
     date: "En cours",
-    homologation: "Chargement des championnats...",
+    homologation: "Chargement...",
     categorieAge: "Senior",
     numeroEquipe: "1",
-    clubAccueil: "TCM Muzillac",
+    clubAccueil: "TC Muzillac 1",
     clubVisiteur: "Club",
     score: "À venir",
     niveau: "Départemental",
-    composition: null as any
+    composition: null as any,
+    // 🛡️ RAJOUT DES CLÉS EXACTES DEMANDÉES PAR LE FILTRE EN CAS DE REQUÊTE INITIALE
+    clubAccueilNom: "TC Muzillac",
+    clubVisiteurNom: "Club",
+    dateRencontre: "En cours",
+    libelleHomologation: "Chargement...",
+    categorieAgeHomologation: "Senior",
+    niveauHomologation: "Départemental"
   }
 ];
 
@@ -31,7 +39,7 @@ export const GSHEET_RENCONTRES_HEADERS = ["Date de la rencontre", "Libellé de l
 
 export const INITIAL_CLUB_INFO: ClubInfo = {
   nom: "Tennis Club Muzillac",
-  adresse: "Complexe sportif du Chêne Rond, Rue du Stade, 56190 Muzillac",
+  adresse: "Complexe sportif du Clos des Moines, 56190 Muzillac",
   enseignants: [
     { nom: "Enseignant 1 (DE)", qualification: "Diplômé d'État" },
     { nom: "Enseignant 2 (BPJEPS)", qualification: "Moniteur CQP" }
@@ -42,7 +50,6 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
 };
 
 function normalizeHeader(header: any): string {
-  // Option 2 appliquée ici : Valeur de secours par défaut si l'en-tête est absent
   if (!header) return "";
   return String(header).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
@@ -79,11 +86,9 @@ function csvToArray(text: string): string[][] {
 
 export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
-  if (!rows || rows.length <= 1 || !rows[0]) return [];
+  if (!rows || rows.length <= 1) return [];
   
-  // Application de l'Option 2 & 3 : On isole et sécurise le tableau des en-têtes
-  const firstRow = rows[0];
-  const normalizedHeaders = firstRow.map((h: any) => normalizeHeader(h || ""));
+  const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
   
   const idxNom = normalizedHeaders.findIndex(h => h && h.includes("nomprenom") || h.includes("nom"));
   const idxSolde = normalizedHeaders.findIndex(h => h && h.includes("solde") || h.includes("due"));
@@ -115,11 +120,9 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
 
 export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
-  if (!rows || rows.length <= 1 || !rows[0]) return [];
+  if (!rows || rows.length <= 1) return [];
   
-  // Application de l'Option 2 & 3 : On isole et sécurise le tableau des en-têtes
-  const firstRow = rows[0];
-  const normalizedHeaders = firstRow.map((h: any) => normalizeHeader(h || ""));
+  const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
   
   const idxDate = normalizedHeaders.findIndex(h => h && h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
   const idxHomol = normalizedHeaders.findIndex(h => h && h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
