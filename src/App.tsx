@@ -58,7 +58,7 @@ async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; 
     let adherentsResultats: Adherent[] = [];
     let rencontresResultats: Rencontre[] = [];
     
-    const cleanAdherentsUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Adherents&nocache=${currentTimestamp}`;
+    const cleanAdherentsUrl = `https://docs.google.com/spreadsheets/d/${targetSheetId}/gviz/tq?tqx=out:csv&sheet=Adherents&nocache=${currentTimestamp}`;
     const res = await fetch(cleanAdherentsUrl, { method: "GET", headers: { "Cache-Control": "no-cache, no-store" }, cache: "no-store" });
     
     if (res.ok) {
@@ -69,7 +69,7 @@ async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; 
       }
     }
 
-    const cleanRencontresUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Rencontres&nocache=${currentTimestamp}`;
+    const cleanRencontresUrl = `https://docs.google.com/spreadsheets/d/${targetSheetId}/gviz/tq?tqx=out:csv&sheet=Rencontres&nocache=${currentTimestamp}`;
     const resRec = await fetch(cleanRencontresUrl, { method: "GET", headers: { "Cache-Control": "no-cache, no-store" }, cache: "no-store" });
     
     if (resRec.ok) {
@@ -165,7 +165,6 @@ export default function App() {
     handleLoadFromRealFile();
   }, []);
 
-  // Extraction logique linéaire du panneau principal pour éliminer les jetons inattendus
   let blocContenuPrincipal = null;
   if (activeTab === 'infos') {
     blocContenuPrincipal = <InfosClubTab clubInfo={clubInfo} userRole={userRole} onOpenEditModal={() => setIsEditClubModalOpen(true)} />;
@@ -194,14 +193,13 @@ export default function App() {
       </main>
 
       {selectedAdherent && <AdherentModal adherent={selectedAdherent} onClose={() => setSelectedAdherent(null)} userRole={userRole} />}
-{selectedRencontreForComposition && <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />}
-{selectedRencontreForSondage && <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />}
-<AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
-<GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
-<NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
-<NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
-<EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
-
-);
+      {selectedRencontreForComposition && <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />}
+      {selectedRencontreForSondage && <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />}
+      <AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
+      <GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
+      <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
+      <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
+      <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
+    </div>
+  );
 }
-      
