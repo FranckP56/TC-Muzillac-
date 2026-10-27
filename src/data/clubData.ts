@@ -24,8 +24,7 @@ export const INITIAL_RENCONTRES: Rencontre[] = [
     score: "À venir",
     niveau: "Départemental",
     composition: null as any,
-    // 🛡️ RAJOUT DES CLÉS EXACTES DEMANDÉES PAR LE FILTRE EN CAS DE REQUÊTE INITIALE
-    clubAccueilNom: "TC Muzillac",
+    clubAccueilNom: "TC Muzillac 1",
     clubVisiteurNom: "Club",
     dateRencontre: "En cours",
     libelleHomologation: "Chargement...",
@@ -37,17 +36,22 @@ export const INITIAL_RENCONTRES: Rencontre[] = [
 export const GSHEET_ADHERENTS_HEADERS = ["Nom Prénom", "Solde", "Téléphone Portable", "Email", "Dernier class. tennis", "Licence", "Groupe enseignement", "Date Naiss.", "Civilité"];
 export const GSHEET_RENCONTRES_HEADERS = ["Date de la rencontre", "Libellé de l'homologation", "Catégorie d'âge de l'homologation", "Numéro de l'équipe", "Club d'accueil nom", "Club visiteur nom", "Score", "Niveau de l'homologation", "Nom capitaine"];
 
+// 🛡️ INCLUSION DE L'ARRAY INSTALLATIONS POUR FAIRE SAUTER LE SOUCI DE L'ITERABLE
 export const INITIAL_CLUB_INFO: ClubInfo = {
   nom: "Tennis Club Muzillac",
-  adresse: "Complexe sportif du Clos des Moines, 56190 Muzillac",
+  adresse: "Complexe sportif du Chêne Rond, Rue du Stade, 56190 Muzillac",
   enseignants: [
     { nom: "Enseignant 1 (DE)", qualification: "Diplômé d'État" },
     { nom: "Enseignant 2 (BPJEPS)", qualification: "Moniteur CQP" }
   ],
   tarifs: [],
+  installations: [
+    { id: "inst-1", nom: "Courts extérieurs", type: "Quick" },
+    { id: "inst-2", nom: "Salle omnisports", type: "Résine" }
+  ], // Sécurité : évite l'erreur "not iterable"
   modalitesPaiement: "Paiement échelonné possible par chèque et CB via HelloAsso.",
   helloAssoUrl: "https://helloasso.com"
-};
+} as any;
 
 function normalizeHeader(header: any): string {
   if (!header) return "";
@@ -90,10 +94,10 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   
   const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
   
-  const idxNom = normalizedHeaders.findIndex(h => h && h.includes("nomprenom") || h.includes("nom"));
-  const idxSolde = normalizedHeaders.findIndex(h => h && h.includes("solde") || h.includes("due"));
-  const idxGroupe = normalizedHeaders.findIndex(h => h && h.includes("groupeenseignement") || h.includes("groupe"));
-  const idxClass = normalizedHeaders.findIndex(h => h && h.includes("dernierclasstennis") || h.includes("class"));
+  const idxNom = normalizedHeaders.findIndex(h => h && (h.includes("nomprenom") || h.includes("nom")));
+  const idxSolde = normalizedHeaders.findIndex(h => h && (h.includes("solde") || h.includes("due")));
+  const idxGroupe = normalizedHeaders.findIndex(h => h && (h.includes("groupeenseignement") || h.includes("groupe")));
+  const idxClass = normalizedHeaders.findIndex(h => h && (h.includes("dernierclasstennis") || h.includes("class")));
   const idxLicence = normalizedHeaders.findIndex(h => h && h.includes("licence"));
 
   const list: Adherent[] = [];
@@ -124,14 +128,14 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   
   const normalizedHeaders = rows[0].map((h: any) => normalizeHeader(h || ""));
   
-  const idxDate = normalizedHeaders.findIndex(h => h && h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
-  const idxHomol = normalizedHeaders.findIndex(h => h && h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
-  const idxCat = normalizedHeaders.findIndex(h => h && h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation"));
-  const idxEquipe = normalizedHeaders.findIndex(h => h && h.includes("numerodelequipe") || h.includes("equipe") || h.includes("numeroequipe"));
-  const idxAccueil = normalizedHeaders.findIndex(h => h && h.includes("clubdaccueilnom") || h.includes("accueil") || h.includes("clubaccueilnom"));
-  const idxVisiteur = normalizedHeaders.findIndex(h => h && h.includes("clubvisiteurnom") || h.includes("visiteur") || h.includes("clubvisiteur"));
+  const idxDate = normalizedHeaders.findIndex(h => h && (h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre")));
+  const idxHomol = normalizedHeaders.findIndex(h => h && (h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation")));
+  const idxCat = normalizedHeaders.findIndex(h => h && (h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation")));
+  const idxEquipe = normalizedHeaders.findIndex(h => h && (h.includes("numerodelequipe") || h.includes("equipe") || h.includes("numeroequipe")));
+  const idxAccueil = normalizedHeaders.findIndex(h => h && (h.includes("clubdaccueilnom") || h.includes("accueil") || h.includes("clubaccueilnom")));
+  const idxVisiteur = normalizedHeaders.findIndex(h => h && (h.includes("clubvisiteurnom") || h.includes("visiteur") || h.includes("clubvisiteur")));
   const idxScore = normalizedHeaders.findIndex(h => h && h.includes("score"));
-  const idxNiveau = normalizedHeaders.findIndex(h => h && h.includes("niveaudelehomologation") || h.includes("niveau") || h.includes("niveauhomologation"));
+  const idxNiveau = normalizedHeaders.findIndex(h => h && (h.includes("niveaudelehomologation") || h.includes("niveau") || h.includes("niveauhomologation")));
 
   const list: Rencontre[] = [];
   for (let i = 1; i < rows.length; i++) {
