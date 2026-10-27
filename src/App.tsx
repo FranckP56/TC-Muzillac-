@@ -56,6 +56,60 @@ const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
   return fixedInfo;
 };
 
+/**
+ * 🛠️ STRATÉGIE D'ISOLATION : La fonction réseau est placée en dehors du composant App.
+ * Ses accolades ne peuvent plus interférer avec l'arborescence React.
+ */
+async function executerTelechargementGSheet(): Promise<{ adherents: Adherent[]; rencontres: Rencontre[] } | null> {
+  try {
+    const currentTimestamp = Date.now();
+    const targetSheetId = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
+    let adherentsResultats: Adherent[] = [];
+    let rencontresResultats: Rencontre[] = [];
+    
+    // 1. Appel Adhérents
+    const cleanAdherentsUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Adherents&nocache=${currentTimestamp}`;
+    const res = await fetch(cleanAdherentsUrl, { 
+      method: "GET",
+      headers: { "Cache-Control": "no-cache, no-store" },
+      cache: "no-store" 
+    });
+    
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().length > 0) {
+        const parsed = parseAdherentsCsv(text);
+        if (parsed && parsed.length > 0) {
+          adherentsResultats = sortAdherentsByRankingDesc(parsed);
+        }
+      }
+    }
+
+    // 2. Appel Rencontres (Vos 85 Matchs)
+    const cleanRencontresUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Rencontres&nocache=${currentTimestamp}`;
+    const resRec = await fetch(cleanRencontresUrl, { 
+      method: "GET",
+      headers: { "Cache-Control": "no-cache, no-store" },
+      cache: "no-store" 
+    });
+    
+    if (resRec.ok) {
+      const textRec = await resRec.text();
+      if (textRec && textRec.trim().length > 0) {
+        const parsedRec = parseRencontresCsv(textRec);
+        if (parsedRec && parsedRec.length > 0) {
+          rencontresResultats = parsedRec;
+        }
+      }
+    }
+
+    return { adherents: adherentsResultats, rencontres: rencontresResultats };
+  } catch (error) {
+    console.error("Erreur réseau isolée :", error);
+    return null;
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants'>('rencontres');
   const [userRole, setUserRole] = useState<UserRole>(() => {
@@ -117,55 +171,25 @@ export default function App() {
   const handleLoadFromRealFile = async () => {
     setIsLoadingFile(true);
     setFileLoadError(null);
-    try {
-      const currentTimestamp = Date.now();
-      const targetSheetId = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
-      
-      const cleanAdherentsUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Adherents&nocache=${currentTimestamp}`;
-      const res = await fetch(cleanAdherentsUrl, { 
-        method: "GET",
-        headers: { "Cache-Control": "no-cache, no-store" },
-        cache: "no-store" 
-      });
-      
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.trim().length > 0) {
-          const parsed = parseAdherentsCsv(text);
-          if (parsed && parsed.length > 0) {
-            const sorted = sortAdherentsByRankingDesc(parsed);
-            setAdherents(sorted);
-            localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
-          }
-        }
+    
+    const donneesTelechargees = await executerTelechargementGSheet();
+    
+    if (donneesTelechargees) {
+      if (donneesTelechargees.adherents.length > 0) {
+        setAdherents(donneesTelechargees.adherents);
+        localStorage.setItem('tcm_adherents_v2', JSON.stringify(donneesTelechargees.adherents));
       }
-
-      const cleanRencontresUrl = `https://google.com{targetSheetId}/gviz/tq?tqx=out:csv&sheet=Rencontres&nocache=${currentTimestamp}`;
-      const resRec = await fetch(cleanRencontresUrl, { 
-        method: "GET",
-        headers: { "Cache-Control": "no-cache, no-store" },
-        cache: "no-store" 
-      });
-      
-      if (resRec.ok) {
-        const textRec = await resRec.text();
-        if (textRec && textRec.trim().length > 0) {
-          const parsedRec = parseRencontresCsv(textRec);
-          if (parsedRec && parsedRec.length > 0) {
-            setRencontres(parsedRec);
-            localStorage.setItem('tcm_rencontres_v3', JSON.stringify(parsedRec));
-            const syncStr = new Date().toLocaleDateString('fr-FR') + ' à ' + new Date().toLocaleTimeString('fr-FR');
-            setLastSyncTime(syncStr);
-            localStorage.setItem('tcm_last_sync_v2', syncStr);
-          }
-        }
+      if (donneesTelechargees.rencontres.length > 0) {
+        setRencontres(donneesTelechargees.rencontres);
+        localStorage.setItem('tcm_rencontres_v3', JSON.stringify(donneesTelechargees.rencontres));
+        const syncStr = new Date().toLocaleDateString('fr-FR') + ' à ' + new Date().toLocaleTimeString('fr-FR');
+        setLastSyncTime(syncStr);
+        localStorage.setItem('tcm_last_sync_v2', syncStr);
       }
-    } catch (error: any) {
-      console.error("Erreur de synchronisation Google Sheets :", error);
-      setFileLoadError(error.message || "Erreur de connexion aux serveurs Google");
-    } finally {
-      setIsLoadingFile(false);
+    } else {
+      setFileLoadError("Erreur d'accès aux tables de la Google Sheet.");
     }
+    setIsLoadingFile(false);
   };
 
   useEffect(() => {
@@ -209,30 +233,29 @@ export default function App() {
           />
         )}
         {activeTab === 'licencies' && <LicenciesTab />}
-        {activeTab === 'enseignants' && <EnseignantsTab adherents={adherents} userRole={userRole} />}
+        {activeTab === 'enseignants' && }
         {activeTab === 'adherents' && (
-          <AdherentsTab 
-            adherents={adherents} 
-            userRole={userRole} 
-            onSelectAdherent={setSelectedAdherent}
-            onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
-          />
-        )}
-      </main>
+      <AdherentsTab
+        adherents={adherents}
+        userRole={userRole}
+        onSelectAdherent={setSelectedAdherent}
+        onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
+    />
+  )}
+        {selectedAdherent && (
+      <AdherentModal adherent={selectedAdherent} onClose={() => setSelectedAdherent(null)} userRole={userRole} />
+  )}
+        {selectedRencontreForComposition && (
+      <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />
+  )}
+        {selectedRencontreForSondage && (
+      <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
+  )}
+      <AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
+      <GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
+      <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
+      <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
+      <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
 
-      {selectedAdherent && (
-        <AdherentModal adherent={selectedAdherent} onClose={() => setSelectedAdherent(null)} userRole={userRole} />
-      )}
-      {selectedRencontreForComposition && (
-        <CompositionModal rencontre={selectedRencontreForComposition} adherents={adherents} onClose={() => setSelectedRencontreForComposition(null)} />
-      )}
-      {selectedRencontreForSondage && (
-        <SondageDisponibilitesModal rencontre={selectedRencontreForSondage} adherents={adherents} onClose={() => setSelectedRencontreForSondage(null)} />
-      )}
-        <AppsScriptModal isOpen={isScriptModalOpen} onClose={() => setIsScriptModalOpen(false)} />
-        <GsheetDataModal isOpen={isGsheetModalOpen} onClose={() => setIsGsheetModalOpen(false)} defaultTab="sync" adherents={adherents} rencontres={rencontres} />
-        <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
-        <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
-        <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
-  );
+);
 }
