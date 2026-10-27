@@ -234,6 +234,5 @@ export default function App() {
         <NewMemberModal isOpen={isNewMemberModalOpen} onClose={() => setIsNewMemberModalOpen(false)} onAddMember={(m) => setAdherents(prev => sortAdherentsByRankingDesc([...prev, m]))} />
         <NewMatchModal isOpen={isNewMatchModalOpen} onClose={() => setIsNewMatchModalOpen(false)} onAddMatch={(m) => setRencontres(prev => [...prev, m])} />
         <EditClubInfoModal isOpen={isEditClubModalOpen} onClose={() => setIsEditClubModalOpen(false)} clubInfo={clubInfo} onSave={setClubInfo} />
-
   );
 }
