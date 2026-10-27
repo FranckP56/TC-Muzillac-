@@ -6,7 +6,7 @@ const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
-// Valeurs d'initialisation pour éviter l'écran blanc au tout premier chargement
+// Valeurs de secours sûres pour éviter le crash au chargement initial
 export const INITIAL_ADHERENTS: Adherent[] = [
   { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
@@ -61,7 +61,7 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  // Extraction et normalisation correcte de la première ligne (ligne des titres)
+  // Correction de l'index : On mappe uniquement la ligne 0 (la ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   
   const idxNom = normalizedHeaders.findIndex(h => h.includes("nomprenom") || h.includes("nom"));
@@ -94,7 +94,7 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  // Extraction et normalisation de la première ligne (ligne des titres)
+  // Correction de l'index : On mappe uniquement la ligne 0 (la ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   
   const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
