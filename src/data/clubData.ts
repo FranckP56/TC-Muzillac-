@@ -42,7 +42,9 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   helloAssoUrl: "https://helloasso.com"
 };
 
-function normalizeHeader(header: string): string {
+// 🛡️ SÉCURISATION MAXIMALE CONTRE LE TOUPPERCASE / TOLOWERCASE SUR UN CHAMP UNDEFINED
+function normalizeHeader(header: any): string {
+  if (header === undefined || header === null) return "";
   return String(header).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
@@ -50,10 +52,10 @@ function csvToArray(text: string): string[][] {
   if (!text) return [];
   const lines = text.split(/\r\n|\n/);
   return lines
-    .filter(line => line.trim() !== "")
+    .filter(line => line && line.trim() !== "")
     .map(line => {
       const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-      return matches.map(val => val.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+      return matches.map(val => (val || '').replace(/^"|"$/g, '').replace(/""/g, '"').trim());
     });
 }
 
@@ -61,7 +63,7 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  // Correction de l'index : On mappe uniquement la ligne 0 (la ligne des titres)
+  // Normalisation sécurisée de la ligne 0 (la ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   
   const idxNom = normalizedHeaders.findIndex(h => h.includes("nomprenom") || h.includes("nom"));
@@ -73,7 +75,7 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
   const list: Adherent[] = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (idxNom === -1 || !row[idxNom]) continue;
+    if (!row || idxNom === -1 || !row[idxNom]) continue;
     const adherentObj: any = {
       id: `adh-${i}`,
       nomPrenom: row[idxNom],
@@ -94,7 +96,7 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
   if (!rows || rows.length <= 1) return [];
   
-  // Correction de l'index : On mappe uniquement la ligne 0 (la ligne des titres)
+  // Normalisation sécurisée de la ligne 0 (la ligne des titres)
   const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
   
   const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
@@ -109,7 +111,7 @@ export function parseRencontresCsv(csvText: string): Rencontre[] {
   const list: Rencontre[] = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (idxDate === -1 || !row[idxDate]) continue;
+    if (!row || idxDate === -1 || !row[idxDate]) continue;
     let rawEq = idxEquipe !== -1 ? String(row[idxEquipe]) : "1";
     let cleanEquipeNumber = rawEq.replace(/[^0-9]/g, "").trim() || rawEq;
 
