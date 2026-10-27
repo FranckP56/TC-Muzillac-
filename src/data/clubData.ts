@@ -6,7 +6,6 @@ const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
 export const REAL_DATA_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Adherents`;
 export const REAL_RENCONTRES_FILE_URL = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rencontres`;
 
-// Valeurs de secours sûres pour éviter le crash au chargement initial
 export const INITIAL_ADHERENTS: Adherent[] = [
   { id: "init-1", nomPrenom: "Chargement du club...", solde: 0, groupe: "Aucun", classement: "NC" }
 ];
@@ -42,50 +41,72 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   helloAssoUrl: "https://helloasso.com"
 };
 
-// 🛡️ SÉCURISATION MAXIMALE CONTRE LE TOUPPERCASE / TOLOWERCASE SUR UN CHAMP UNDEFINED
 function normalizeHeader(header: any): string {
-  if (header === undefined || header === null) return "";
+  // Option 2 appliquée ici : Valeur de secours par défaut si l'en-tête est absent
+  if (!header) return "";
   return String(header).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 }
 
 function csvToArray(text: string): string[][] {
   if (!text) return [];
   const lines = text.split(/\r\n|\n/);
-  return lines
-    .filter(line => line && line.trim() !== "")
-    .map(line => {
-      const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-      return matches.map(val => (val || '').replace(/^"|"$/g, '').replace(/""/g, '"').trim());
-    });
+  const result: string[][] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const row: string[] = [];
+    let inQuotes = false;
+    let currentCell = "";
+
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        row.push(currentCell.trim());
+        currentCell = "";
+      } else {
+        currentCell += char;
+      }
+    }
+    row.push(currentCell.trim());
+    result.push(row);
+  }
+  return result;
 }
 
 export function parseAdherentsCsv(csvText: string): Adherent[] {
   const rows = csvToArray(csvText);
-  if (!rows || rows.length <= 1) return [];
+  if (!rows || rows.length <= 1 || !rows[0]) return [];
   
-  // Normalisation sécurisée de la ligne 0 (la ligne des titres)
-  const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
+  // Application de l'Option 2 & 3 : On isole et sécurise le tableau des en-têtes
+  const firstRow = rows[0];
+  const normalizedHeaders = firstRow.map((h: any) => normalizeHeader(h || ""));
   
-  const idxNom = normalizedHeaders.findIndex(h => h.includes("nomprenom") || h.includes("nom"));
-  const idxSolde = normalizedHeaders.findIndex(h => h.includes("solde") || h.includes("due"));
-  const idxGroupe = normalizedHeaders.findIndex(h => h.includes("groupeenseignement") || h.includes("groupe"));
-  const idxClass = normalizedHeaders.findIndex(h => h.includes("dernierclasstennis") || h.includes("class"));
-  const idxLicence = normalizedHeaders.findIndex(h => h.includes("licence"));
+  const idxNom = normalizedHeaders.findIndex(h => h && h.includes("nomprenom") || h.includes("nom"));
+  const idxSolde = normalizedHeaders.findIndex(h => h && h.includes("solde") || h.includes("due"));
+  const idxGroupe = normalizedHeaders.findIndex(h => h && h.includes("groupeenseignement") || h.includes("groupe"));
+  const idxClass = normalizedHeaders.findIndex(h => h && h.includes("dernierclasstennis") || h.includes("class"));
+  const idxLicence = normalizedHeaders.findIndex(h => h && h.includes("licence"));
 
   const list: Adherent[] = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || idxNom === -1 || !row[idxNom]) continue;
+    
     const adherentObj: any = {
       id: `adh-${i}`,
-      nomPrenom: row[idxNom],
+      nomPrenom: row[idxNom] || "Adhérent inconnu",
       solde: idxSolde !== -1 && row[idxSolde] ? Number(row[idxSolde].replace(',', '.')) || 0 : 0,
-      groupe: idxGroupe !== -1 ? row[idxGroupe] : "Aucun",
-      classement: idxClass !== -1 ? row[idxClass] : "NC",
-      licence: idxLicence !== -1 ? row[idxLicence] : ""
+      groupe: idxGroupe !== -1 ? row[idxGroupe] || "Aucun" : "Aucun",
+      classement: idxClass !== -1 ? row[idxClass] || "NC" : "NC",
+      licence: idxLicence !== -1 ? row[idxLicence] || "" : ""
     };
+    
     normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) { adherentObj[headerName] = row[index]; }
+      if (headerName && row[index] !== undefined) { adherentObj[headerName] = row[index] || ""; }
     });
     list.push(adherentObj as Adherent);
   }
@@ -94,43 +115,44 @@ export function parseAdherentsCsv(csvText: string): Adherent[] {
 
 export function parseRencontresCsv(csvText: string): Rencontre[] {
   const rows = csvToArray(csvText);
-  if (!rows || rows.length <= 1) return [];
+  if (!rows || rows.length <= 1 || !rows[0]) return [];
   
-  // Normalisation sécurisée de la ligne 0 (la ligne des titres)
-  const normalizedHeaders = rows[0].map(h => normalizeHeader(h));
+  // Application de l'Option 2 & 3 : On isole et sécurise le tableau des en-têtes
+  const firstRow = rows[0];
+  const normalizedHeaders = firstRow.map((h: any) => normalizeHeader(h || ""));
   
-  const idxDate = normalizedHeaders.findIndex(h => h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
-  const idxHomol = normalizedHeaders.findIndex(h => h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
-  const idxCat = normalizedHeaders.findIndex(h => h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation"));
-  const idxEquipe = normalizedHeaders.findIndex(h => h.includes("numerodelequipe") || h.includes("equipe") || h.includes("numeroequipe"));
-  const idxAccueil = normalizedHeaders.findIndex(h => h.includes("clubdaccueilnom") || h.includes("accueil") || h.includes("clubaccueilnom"));
-  const idxVisiteur = normalizedHeaders.findIndex(h => h.includes("clubvisiteurnom") || h.includes("visiteur") || h.includes("clubvisiteur"));
-  const idxScore = normalizedHeaders.findIndex(h => h.includes("score"));
-  const idxNiveau = normalizedHeaders.findIndex(h => h.includes("niveaudelehomologation") || h.includes("niveau") || h.includes("niveauhomologation"));
+  const idxDate = normalizedHeaders.findIndex(h => h && h.includes("datedelarencontre") || h.includes("date") || h.includes("daterencontre"));
+  const idxHomol = normalizedHeaders.findIndex(h => h && h.includes("libelledelehomologation") || h.includes("homol") || h.includes("libellehomologation"));
+  const idxCat = normalizedHeaders.findIndex(h => h && h.includes("categoriedagedelehomologation") || h.includes("cat") || h.includes("categorieagehomologation"));
+  const idxEquipe = normalizedHeaders.findIndex(h => h && h.includes("numerodelequipe") || h.includes("equipe") || h.includes("numeroequipe"));
+  const idxAccueil = normalizedHeaders.findIndex(h => h && h.includes("clubdaccueilnom") || h.includes("accueil") || h.includes("clubaccueilnom"));
+  const idxVisiteur = normalizedHeaders.findIndex(h => h && h.includes("clubvisiteurnom") || h.includes("visiteur") || h.includes("clubvisiteur"));
+  const idxScore = normalizedHeaders.findIndex(h => h && h.includes("score"));
+  const idxNiveau = normalizedHeaders.findIndex(h => h && h.includes("niveaudelehomologation") || h.includes("niveau") || h.includes("niveauhomologation"));
 
   const list: Rencontre[] = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || idxDate === -1 || !row[idxDate]) continue;
-    let rawEq = idxEquipe !== -1 ? String(row[idxEquipe]) : "1";
+    let rawEq = idxEquipe !== -1 ? String(row[idxEquipe] || "1") : "1";
     let cleanEquipeNumber = rawEq.replace(/[^0-9]/g, "").trim() || rawEq;
 
     const matchObj: any = {
       id: `rec-${i}`,
       id_match: i,
-      date: row[idxDate],
-      homologation: idxHomol !== -1 ? row[idxHomol] : "Championnat",
-      categorieAge: idxCat !== -1 ? row[idxCat] : "Senior",
+      date: row[idxDate] || "Date inconnue",
+      homologation: idxHomol !== -1 ? row[idxHomol] || "Championnat" : "Championnat",
+      categorieAge: idxCat !== -1 ? row[idxCat] || "Senior" : "Senior",
       numeroEquipe: cleanEquipeNumber,
-      clubAccueil: idxAccueil !== -1 ? row[idxAccueil] : "TC Muzillac",
-      clubVisiteur: idxVisiteur !== -1 ? row[idxVisiteur] : "Adversaire",
-      score: idxScore !== -1 ? row[idxScore] : "À venir",
-      niveau: idxNiveau !== -1 ? String(row[idxNiveau]) : "Départemental",
+      clubAccueil: idxAccueil !== -1 ? row[idxAccueil] || "TC Muzillac" : "TC Muzillac",
+      clubVisiteur: idxVisiteur !== -1 ? row[idxVisiteur] || "Adversaire" : "Adversaire",
+      score: idxScore !== -1 ? row[idxScore] || "À venir" : "À venir",
+      niveau: idxNiveau !== -1 ? String(row[idxNiveau] || "Départemental") : "Départemental",
       composition: null
     };
 
     normalizedHeaders.forEach((headerName, index) => {
-      if (headerName && row[index] !== undefined) { matchObj[headerName] = row[index]; }
+      if (headerName && row[index] !== undefined) { matchObj[headerName] = row[index] || ""; }
     });
 
     matchObj.niveauHomologation = matchObj.niveau;
