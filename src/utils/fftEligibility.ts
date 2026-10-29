@@ -125,9 +125,11 @@ export function getRequiredSex(rencontre: Rencontre): 'H' | 'F' | 'Mixte' {
  */
 export function checkFFT2027Eligibility(
   adherent: Adherent,
-  rencontre: Rencontre
+  rencontre: Rencontre,
+  saison: string = '2027'
 ): EligibilityResult {
   const errors: string[] = [];
+  const saisonNum = parseInt(saison, 10) || 2027;
 
   // 1. VÉRIFICATION DU TYPE ET DU MILLÉSIME DE LICENCE
   // Types autorisés : 'C' (Club Compétition) ou 'W' (Compétition Web)
@@ -138,10 +140,10 @@ export function checkFFT2027Eligibility(
   let licenceValid = true;
   let licenceError: string | undefined;
 
-  // Si le millésime est renseigné et antérieur à 2027 (ex: 2026, 2025...)
-  if (millesime && millesime !== '2027') {
+  // Si le millésime est renseigné et antérieur à la saison active
+  if (millesime && millesime !== saison) {
     licenceValid = false;
-    licenceError = `Licence non renouvelée pour le millésime 2027 (dernière licence : ${millesime})`;
+    licenceError = `Licence non renouvelée pour le millésime ${saison} (dernière licence : ${millesime})`;
     errors.push(licenceError);
   } else if (!hasLicenceNumber) {
     licenceValid = false;
@@ -168,11 +170,11 @@ export function checkFFT2027Eligibility(
     errors.push(sexeError);
   }
 
-  // 3. VÉRIFICATION DE L'ÂGE (Millésime 2027)
+  // 3. VÉRIFICATION DE L'ÂGE (Millésime actif)
   const birthYear = extractBirthYear(adherent.dateNaissance);
   let ageSportif2027: number | null = null;
   if (birthYear !== null) {
-    ageSportif2027 = 2027 - birthYear;
+    ageSportif2027 = saisonNum - birthYear;
   }
 
   const normalizedCategory = normalizeCategory(
@@ -185,88 +187,79 @@ export function checkFFT2027Eligibility(
 
   if (birthYear === null) {
     ageValid = false;
-    ageError = "Date de naissance non renseignée (impossible de certifier le millésime 2027)";
+    ageError = `Date de naissance non renseignée (impossible de certifier le millésime ${saison})`;
     errors.push(ageError);
   } else {
     switch (normalizedCategory) {
       case '11/12':
-        // Nés en 2015 et 2016
-        if (birthYear !== 2015 && birthYear !== 2016) {
+        if (birthYear !== saisonNum - 12 && birthYear !== saisonNum - 11) {
           ageValid = false;
-          ageError = `Catégorie 11/12 ans : réservé aux nés en 2015 et 2016 (joueur né en ${birthYear})`;
+          ageError = `Catégorie 11/12 ans : réservé aux nés en ${saisonNum - 12} et ${saisonNum - 11} (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '13/14':
-        // Nés en 2013 et 2014
-        if (birthYear !== 2013 && birthYear !== 2014) {
+        if (birthYear !== saisonNum - 14 && birthYear !== saisonNum - 13) {
           ageValid = false;
-          ageError = `Catégorie 13/14 ans : réservé aux nés en 2013 et 2014 (joueur né en ${birthYear})`;
+          ageError = `Catégorie 13/14 ans : réservé aux nés en ${saisonNum - 14} et ${saisonNum - 13} (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '15/16':
-        // Nés en 2011 et 2012
-        if (birthYear !== 2011 && birthYear !== 2012) {
+        if (birthYear !== saisonNum - 16 && birthYear !== saisonNum - 15) {
           ageValid = false;
-          ageError = `Catégorie 15/16 ans : réservé aux nés en 2011 et 2012 (joueur né en ${birthYear})`;
+          ageError = `Catégorie 15/16 ans : réservé aux nés en ${saisonNum - 16} et ${saisonNum - 15} (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '17/18':
-        // Nés en 2009 et 2010
-        if (birthYear !== 2009 && birthYear !== 2010) {
+        if (birthYear !== saisonNum - 18 && birthYear !== saisonNum - 17) {
           ageValid = false;
-          ageError = `Catégorie 17/18 ans : réservé aux nés en 2009 et 2010 (joueur né en ${birthYear})`;
+          ageError = `Catégorie 17/18 ans : réservé aux nés en ${saisonNum - 18} et ${saisonNum - 17} (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '+35':
-        // Seniors +35 : nés entre 1988 et 1992 (et 1992 ou avant)
-        if (birthYear > 1992) {
+        if (birthYear > saisonNum - 35) {
           ageValid = false;
-          ageError = `Catégorie Seniors +35 : réservé aux joueurs de 35 ans et + (nés en 1992 et avant, joueur né en ${birthYear})`;
+          ageError = `Catégorie Seniors +35 : réservé aux joueurs de 35 ans et + (nés en ${saisonNum - 35} et avant, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '+45':
-        // Seniors +45 : nés entre 1978 et 1982 (et 1982 ou avant)
-        if (birthYear > 1982) {
+        if (birthYear > saisonNum - 45) {
           ageValid = false;
-          ageError = `Catégorie Seniors +45 : réservé aux joueurs de 45 ans et + (nés en 1982 et avant, joueur né en ${birthYear})`;
+          ageError = `Catégorie Seniors +45 : réservé aux joueurs de 45 ans et + (nés en ${saisonNum - 45} et avant, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '+55':
-        // Seniors +55 : nés en 1972 et avant
-        if (birthYear > 1972) {
+        if (birthYear > saisonNum - 55) {
           ageValid = false;
-          ageError = `Catégorie Seniors +55 : réservé aux joueurs nés en 1972 et avant (joueur né en ${birthYear})`;
+          ageError = `Catégorie Seniors +55 : réservé aux joueurs nés en ${saisonNum - 55} et avant (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '+65':
-        // Seniors +65 : nés en 1962 et avant
-        if (birthYear > 1962) {
+        if (birthYear > saisonNum - 65) {
           ageValid = false;
-          ageError = `Catégorie Seniors +65 : réservé aux joueurs nés en 1962 et avant (joueur né en ${birthYear})`;
+          ageError = `Catégorie Seniors +65 : réservé aux joueurs nés en ${saisonNum - 65} et avant (joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case 'seniors':
       default:
-        // Catégorie Seniors = nés en 2008 et avant
-        if (birthYear > 2008) {
+        if (birthYear > saisonNum - 19) {
           ageValid = false;
-          ageError = `Catégorie Seniors : réservé aux joueurs nés en 2008 et avant (joueur né en ${birthYear}, catégorie jeune)`;
+          ageError = `Catégorie Seniors : réservé aux joueurs nés en ${saisonNum - 19} et avant (joueur né en ${birthYear}, catégorie jeune)`;
           errors.push(ageError);
         }
         break;

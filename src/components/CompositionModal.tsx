@@ -45,7 +45,7 @@ import {
 import { ConfirmSaveCompositionModal } from './ConfirmSaveCompositionModal';
 import { saveCompositionToSheet } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
-import { isLicencieMuzillac2027 } from '../utils/licencies';
+import { isLicencieMuzillac } from '../utils/licencies';
 
 interface CompositionModalProps {
   rencontre: Rencontre | null;
@@ -57,6 +57,7 @@ interface CompositionModalProps {
   selectedSpreadsheetId?: string | null;
   spreadsheetName?: string;
   onOpenGoogleSyncModal?: () => void;
+  saison?: string;
 }
 
 type SlotKey = 
@@ -80,6 +81,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   selectedSpreadsheetId,
   spreadsheetName = 'Données_appli',
   onOpenGoogleSyncModal,
+  saison = '2027',
 }) => {
   if (!isOpen || !rencontre) return null;
 
@@ -215,8 +217,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         return playerSex === reqSex;
       })
       .map(adh => {
-        const eligibility = checkFFT2027Eligibility(adh, rencontre);
-        const isLicencie = isLicencieMuzillac2027(adh);
+        const eligibility = checkFFT2027Eligibility(adh, rencontre, saison);
+        const isLicencie = isLicencieMuzillac(adh, saison);
         const dispo = (rencontre.disponibilites || []).find(d => d.adherentId === adh.id);
         return {
           adherent: adh,
@@ -228,7 +230,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         };
       })
       .sort((a, b) => {
-        // 1. Licencié 2027 TCM en priorité
+        // 1. Licencié TCM en priorité
         if (a.isLicencie && !b.isLicencie) return -1;
         if (!a.isLicencie && b.isLicencie) return 1;
 

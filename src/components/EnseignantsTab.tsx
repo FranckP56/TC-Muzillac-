@@ -113,12 +113,53 @@ export const COURS_PLANNING: CoursSlot[] = [
   },
 ];
 
+export interface GroupInfo {
+  name: string;
+  count: number;
+  dueCount: number;
+  totalDue: number;
+}
+
+export interface DayGroupSection {
+  dayKey: string;
+  dayLabel: string;
+  order: number;
+  groups: GroupInfo[];
+  totalStudents: number;
+}
+
+export function detectDayFromGroupe(groupeName: string): { dayKey: string; dayLabel: string; order: number } {
+  const g = groupeName.trim().toLowerCase();
+  if (g.startsWith('lu') || g.startsWith('lundi')) {
+    return { dayKey: 'lundi', dayLabel: 'LUNDI', order: 1 };
+  }
+  if (g.startsWith('ma') || g.startsWith('mardi')) {
+    return { dayKey: 'mardi', dayLabel: 'MARDI', order: 2 };
+  }
+  if (g.startsWith('me') || g.startsWith('mercredi')) {
+    return { dayKey: 'mercredi', dayLabel: 'MERCREDI', order: 3 };
+  }
+  if (g.startsWith('je') || g.startsWith('jeudi')) {
+    return { dayKey: 'jeudi', dayLabel: 'JEUDI', order: 4 };
+  }
+  if (g.startsWith('ve') || g.startsWith('vendredi')) {
+    return { dayKey: 'vendredi', dayLabel: 'VENDREDI', order: 5 };
+  }
+  if (g.startsWith('sa') || g.startsWith('samedi')) {
+    return { dayKey: 'samedi', dayLabel: 'SAMEDI', order: 6 };
+  }
+  if (g.startsWith('di') || g.startsWith('dimanche')) {
+    return { dayKey: 'dimanche', dayLabel: 'DIMANCHE', order: 7 };
+  }
+  return { dayKey: 'autres', dayLabel: 'PRATIQUE LIBRE & AUTRES', order: 8 };
+}
+
 export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
   adherents,
   clubInfo,
   onSelectAdherent,
 }) => {
-  const [activeSubView, setActiveSubView] = useState<'eleves' | 'planning' | 'enseignants'>('eleves');
+  const [activeSubView, setActiveSubView] = useState<'eleves' | 'enseignants'>('eleves');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSolde, setFilterSolde] = useState<'all' | 'due' | 'uptodate' | 'credit'>('all');
   const [filterGroupe, setFilterGroupe] = useState<string>('all');
@@ -141,6 +182,50 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [adherents]);
+
+  // Regroupement des groupes par jour (Lundi en plus gros, Mardi, Mercredi, etc.)
+  const groupsByDay = useMemo(() => {
+    const groupStatsMap = new Map<string, GroupInfo>();
+
+    adherents.forEach(a => {
+      const g = (a.groupeEnseignement || '').trim();
+      if (!g || g === 'Pratique libre') return;
+
+      const current = groupStatsMap.get(g) || { name: g, count: 0, dueCount: 0, totalDue: 0 };
+      current.count += 1;
+      if (a.soldeDu < 0) {
+        current.dueCount += 1;
+        current.totalDue += Math.abs(a.soldeDu);
+      }
+      groupStatsMap.set(g, current);
+    });
+
+    const daySectionsMap = new Map<string, DayGroupSection>();
+
+    groupStatsMap.forEach((gInfo) => {
+      const dayMeta = detectDayFromGroupe(gInfo.name);
+      if (!daySectionsMap.has(dayMeta.dayKey)) {
+        daySectionsMap.set(dayMeta.dayKey, {
+          dayKey: dayMeta.dayKey,
+          dayLabel: dayMeta.dayLabel,
+          order: dayMeta.order,
+          groups: [],
+          totalStudents: 0,
+        });
+      }
+      const section = daySectionsMap.get(dayMeta.dayKey)!;
+      section.groups.push(gInfo);
+      section.totalStudents += gInfo.count;
+    });
+
+    const sortedSections = Array.from(daySectionsMap.values()).sort((a, b) => a.order - b.order);
+
+    sortedSections.forEach(section => {
+      section.groups.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
+    });
+
+    return sortedSections;
   }, [adherents]);
 
   // Filtrage des élèves
@@ -264,18 +349,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               }`}
             >
               <Users className="w-4 h-4" />
-              <span>Élèves & Soldes ({filteredEleves.length})</span>
-            </button>
-            <button
-              onClick={() => setActiveSubView('planning')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                activeSubView === 'planning'
-                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Planning des Cours</span>
+              <span>Élèves & Groupes ({filteredEleves.length})</span>
             </button>
             <button
               onClick={() => setActiveSubView('enseignants')}
@@ -286,7 +360,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               }`}
             >
               <GraduationCap className="w-4 h-4" />
-              <span>Équipe Pédagogique</span>
+              <span>Équipe Pédagogique ({clubInfo.enseignants.length})</span>
             </button>
           </div>
         </div>
@@ -345,10 +419,10 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               </div>
 
               {/* Filtre Solde */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs">
+              <div className="flex items-center gap-1.5 flex-wrap text-xs">
                 <button
                   onClick={() => setFilterSolde('all')}
-                  className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
                     filterSolde === 'all'
                       ? 'bg-orange-600 text-white'
                       : 'bg-[#181d26] text-zinc-400 hover:text-white border border-zinc-800'
@@ -358,7 +432,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 </button>
                 <button
                   onClick={() => setFilterSolde('due')}
-                  className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
                     filterSolde === 'due'
                       ? 'bg-rose-600 text-white'
                       : 'bg-[#181d26] text-rose-400 hover:text-rose-300 border border-rose-500/30'
@@ -368,7 +442,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 </button>
                 <button
                   onClick={() => setFilterSolde('uptodate')}
-                  className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
                     filterSolde === 'uptodate'
                       ? 'bg-emerald-600 text-white'
                       : 'bg-[#181d26] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30'
@@ -378,37 +452,122 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 </button>
               </div>
             </div>
+          </div>
 
-            {/* Filtre par groupe d'enseignement */}
-            {distinctGroupes.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] pt-1 border-t border-zinc-800/80">
-                <span className="text-zinc-500 font-semibold shrink-0">Groupe :</span>
-                <button
-                  onClick={() => setFilterGroupe('all')}
-                  className={`px-2.5 py-1 rounded-lg font-semibold whitespace-nowrap transition cursor-pointer ${
-                    filterGroupe === 'all'
-                      ? 'bg-white/10 text-white border border-white/20'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Tous les groupes
-                </button>
-                {distinctGroupes.map((grp) => (
+          {/* ==================== GROUPES D'ENTRAÎNEMENT PAR JOUR (PAS D'ASCENSEUR HORIZONTAL) ==================== */}
+          {groupsByDay.length > 0 && (
+            <div className="bg-[#141820] p-4 sm:p-5 rounded-3xl border border-[#252b37] space-y-5">
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-zinc-800">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-orange-500/20 text-[#FF6D00] flex items-center justify-center font-bold">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                      Groupes de Cours par Jour
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">
+                      Sélectionnez un groupe pour filtrer (ex : Je1 - 2020/2022 = 1er cours du jeudi).
+                    </p>
+                  </div>
+                </div>
+
+                {filterGroupe !== 'all' ? (
                   <button
-                    key={grp}
-                    onClick={() => setFilterGroupe(grp)}
-                    className={`px-2.5 py-1 rounded-lg font-semibold whitespace-nowrap transition cursor-pointer ${
-                      filterGroupe === grp
-                        ? 'bg-[#FF6D00]/20 text-[#FF6D00] border border-[#FF6D00]/40'
-                        : 'text-zinc-400 hover:text-zinc-200 bg-[#101319]'
-                    }`}
+                    onClick={() => setFilterGroupe('all')}
+                    className="px-3 py-1.5 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 text-[#FF6D00] border border-orange-500/40 text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm"
                   >
-                    {grp}
+                    <X className="w-3.5 h-3.5" />
+                    <span>Réinitialiser filtre ({filterGroupe})</span>
                   </button>
+                ) : (
+                  <span className="text-[11px] text-zinc-400 font-semibold">
+                    {distinctGroupes.length} groupes au total
+                  </span>
+                )}
+              </div>
+
+              {/* Sections par Jour (Lundi en plus gros, Mardi, etc.) */}
+              <div className="space-y-4">
+                {groupsByDay.map((daySec) => (
+                  <div key={daySec.dayKey} className="space-y-2.5">
+                    
+                    {/* Nom du jour EN PLUS GROS */}
+                    <div className="flex items-center space-x-2 pt-1">
+                      <span className="w-3 h-3 rounded-full bg-gradient-to-br from-[#BF360C] to-[#FF6D00] shadow-sm"></span>
+                      <h4 className="text-base sm:text-lg font-heading font-black text-white uppercase tracking-tight">
+                        {daySec.dayLabel}
+                      </h4>
+                      <span className="text-xs text-zinc-400 font-bold">
+                        ({daySec.groups.length} groupe{daySec.groups.length > 1 ? 's' : ''} • {daySec.totalStudents} élèves)
+                      </span>
+                    </div>
+
+                    {/* Grille de cellules pour chaque groupe sous ce jour */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                      {daySec.groups.map((grp) => {
+                        const isSelected = filterGroupe === grp.name;
+                        return (
+                          <button
+                            key={grp.name}
+                            type="button"
+                            onClick={() => setFilterGroupe(isSelected ? 'all' : grp.name)}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group shadow-sm ${
+                              isSelected
+                                ? 'bg-[#E65100]/25 border-[#FF6D00] text-white ring-2 ring-[#FF6D00] shadow-orange-950/40'
+                                : 'bg-[#101319] hover:bg-[#181d26] border-[#222834] hover:border-zinc-700 text-zinc-300'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p 
+                                className={`font-heading font-black text-xs leading-snug line-clamp-2 ${
+                                  isSelected ? 'text-[#FF6D00]' : 'text-zinc-100 group-hover:text-white'
+                                }`} 
+                                title={grp.name}
+                              >
+                                {grp.name}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 pt-2 mt-2 border-t border-zinc-800/80 text-[10px]">
+                              <span className={`font-bold ${isSelected ? 'text-orange-200' : 'text-zinc-400'}`}>
+                                {grp.count} élève{grp.count > 1 ? 's' : ''}
+                              </span>
+                              {grp.dueCount > 0 && (
+                                <span 
+                                  className="px-1.5 py-0.2 rounded font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px]" 
+                                  title={`${grp.dueCount} élève(s) avec solde dû (-${grp.totalDue}€)`}
+                                >
+                                  {grp.dueCount} dû
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                  </div>
                 ))}
               </div>
-            )}
-          </div>
+
+              {/* Si un filtre groupe est actif, récapitulatif */}
+              {filterGroupe !== 'all' && (
+                <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-2 text-orange-200">
+                    <CheckCircle2 className="w-4 h-4 text-[#FF6D00] shrink-0" />
+                    <span>Affichage restreint aux élèves du groupe : <strong>{filterGroupe}</strong> ({filteredEleves.length} élèves)</span>
+                  </div>
+                  <button
+                    onClick={() => setFilterGroupe('all')}
+                    className="text-[#FF6D00] hover:text-orange-300 font-bold underline cursor-pointer shrink-0"
+                  >
+                    Afficher tous les groupes
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Liste des cartes élèves */}
           <div className="space-y-3">
@@ -560,54 +719,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
         </div>
       )}
 
-      {/* ==================== VUE 2 : PLANNING DES COURS ==================== */}
-      {activeSubView === 'planning' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {COURS_PLANNING.map((cours) => (
-              <div
-                key={cours.id}
-                className="p-5 bg-[#161a22] rounded-3xl border border-[#252b37] hover:border-orange-500/40 transition-all space-y-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-500/20 text-[#FF6D00] border border-orange-500/30">
-                      {cours.jour}
-                    </span>
-                    <h3 className="font-heading font-black text-white text-base">
-                      {cours.nom}
-                    </h3>
-                  </div>
-
-                  <span className="text-xs font-bold text-white px-2.5 py-1 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center gap-1 shrink-0">
-                    <Clock className="w-3.5 h-3.5 text-orange-400" />
-                    <span>{cours.horaire}</span>
-                  </span>
-                </div>
-
-                <p className="text-xs text-zinc-300">
-                  {cours.publicCible}
-                </p>
-
-                <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400 flex-wrap gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <GraduationCap className="w-4 h-4 text-[#FF6D00]" />
-                    <span className="text-white font-bold">{cours.enseignantNom}</span>
-                    <span className="text-[10px] text-zinc-400">({cours.diplome})</span>
-                  </div>
-
-                  <div className="flex items-center gap-1 text-zinc-400 text-[11px]">
-                    <MapPin className="w-3.5 h-3.5 text-zinc-500" />
-                    <span>{cours.court}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ==================== VUE 3 : ÉQUIPE PÉDAGOGIQUE ==================== */}
+      {/* ==================== VUE 2 : ÉQUIPE PÉDAGOGIQUE ==================== */}
       {activeSubView === 'enseignants' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

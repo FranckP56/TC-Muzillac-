@@ -22,14 +22,17 @@ import {
   Scale,
   ClipboardCheck,
   Users,
-  Award
+  Award,
+  Search,
+  Filter,
+  X
 } from 'lucide-react';
 import { Rencontre, Adherent, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility } from '../utils/fftEligibility';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
 import { getCompetitionFormat, validateMatchDateAndSchedule } from '../utils/competitionFormats';
 import { getAdverseClubFullAddress, computeMatchRotationSchedule } from '../utils/matchScheduling';
-import { normalizeDateString } from '../utils/dateUtils';
+import { normalizeDateString, parseDateToJs } from '../utils/dateUtils';
 
 interface RencontresTabProps {
   rencontres: Rencontre[];
@@ -40,6 +43,7 @@ interface RencontresTabProps {
   userRole?: UserRole;
   onRefreshData?: () => void;
   isAutoSyncing?: boolean;
+  saison?: string;
 }
 
 export const RencontresTab: React.FC<RencontresTabProps> = ({
@@ -51,9 +55,14 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
   userRole = 'bureau',
   onRefreshData,
   isAutoSyncing = false,
+  saison = '2027',
 }) => {
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterTeam, setFilterTeam] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'upcoming' | 'finished'>('all');
+  const [filterSexe, setFilterSexe] = useState<'all' | 'H' | 'F'>('all');
+  const [filterChampionnat, setFilterChampionnat] = useState<string>('all');
+  const [filterCategorieAge, setFilterCategorieAge] = useState<string>('all');
   const [showRulesGuide, setShowRulesGuide] = useState<boolean>(false);
   const [expandedTeamDetails, setExpandedTeamDetails] = useState<Record<string, boolean>>({});
 
@@ -70,22 +79,119 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     rencontres.forEach(r => {
       if (r.numeroEquipe) set.add(r.numeroEquipe);
     });
-    return Array.from(set);
+    return Array.from(set).sort();
+  }, [rencontres]);
+
+  // Championnats distincts
+  const uniqueChampionnats = useMemo(() => {
+    const set = new Set<string>();
+    rencontres.forEach(r => {
+      const champ = r.libelleHomologation || r.division;
+      if (champ && champ.trim()) set.add(champ.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [rencontres]);
+
+  // Catégories d'âge distinctes
+  const uniqueCategoriesAge = useMemo(() => {
+    const set = new Set<string>();
+    rencontres.forEach(r => {
+      if (r.categorieAgeHomologation && r.categorieAgeHomologation.trim()) {
+        set.add(r.categorieAgeHomologation.trim());
+      }
+    });
+    return Array.from(set).sort();
   }, [rencontres]);
 
   const filteredRencontres = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+
     return rencontres.filter(r => {
-      if (filterTeam !== 'all' && r.numeroEquipe !== filterTeam) {
-        return false;
+      // 1. Recherche texte (adversaire, ville, capitaine, date...)
+      if (q) {
+        const adverse = (r.clubVisiteurNom || '').toLowerCase();
+        const accueil = (r.clubAccueilNom || '').toLowerCase();
+        const capitaine = `${r.prenomCapitaine || ''} ${r.nomCapitaine || ''}`.toLowerCase();
+        const equipe = (r.numeroEquipe || '').toLowerCase();
+        const division = (r.division || '').toLowerCase();
+        const libelle = (r.libelleHomologation || '').toLowerCase();
+        const dateStr = (r.dateRencontre || '').toLowerCase();
+        if (!adverse.includes(q) && !accueil.includes(q) && !capitaine.includes(q) && !equipe.includes(q) && !division.includes(q) && !libelle.includes(q) && !dateStr.includes(q)) {
+          return false;
+        }
       }
 
+      // 2. Filtre statut
       const isUpcoming = !r.score || r.score === 'À venir';
       if (filterStatus === 'upcoming' && !isUpcoming) return false;
       if (filterStatus === 'finished' && isUpcoming) return false;
 
+      // 3. Filtre Sexe
+      if (filterSexe !== 'all') {
+        const s = (r.sexeHomologation || '').toUpperCase();
+        const isFemme = s.includes('F') || s.includes('DAME');
+        if (filterSexe === 'F' && !isFemme) return false;
+        if (filterSexe === 'H' && isFemme) return false;
+      }
+
+      // 4. Filtre Championnat
+      if (filterChampionnat !== 'all') {
+        const champ = (r.libelleHomologation || r.division || '').trim();
+        if (champ !== filterChampionnat) return false;
+      }
+
+      // 5. Filtre Catégorie d'âge
+      if (filterCategorieAge !== 'all') {
+        if ((r.categorieAgeHomologation || '').trim() !== filterCategorieAge) return false;
+      }
+
+      // 6. Filtre Équipe
+      if (filterTeam !== 'all' && r.numeroEquipe !== filterTeam) {
+        return false;
+      }
+
       return true;
     });
-  }, [rencontres, filterTeam, filterStatus]);
+  }, [rencontres, searchQuery, filterStatus, filterSexe, filterChampionnat, filterCategorieAge, filterTeam]);
+
+  // Rassemblement des rencontres filtrées par date (triées chronologiquement)
+  const matchesByDate = useMemo(() => {
+    const groupsMap = new Map<string, {
+      dateKey: string;
+      formattedDate: string;
+      timestamp: number;
+      matches: Rencontre[];
+    }>();
+
+    filteredRencontres.forEach(r => {
+      const normDate = normalizeDateString(r.dateRencontre) || 'Date inconnue';
+      const jsDate = parseDateToJs(normDate);
+      const timestamp = jsDate ? jsDate.getTime() : 0;
+
+      let formatted = normDate;
+      if (jsDate) {
+        formatted = jsDate.toLocaleDateString('fr-FR', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+      }
+
+      if (!groupsMap.has(normDate)) {
+        groupsMap.set(normDate, {
+          dateKey: normDate,
+          formattedDate: formatted.toUpperCase(),
+          timestamp,
+          matches: []
+        });
+      }
+
+      groupsMap.get(normDate)!.matches.push(r);
+    });
+
+    return Array.from(groupsMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+  }, [filteredRencontres]);
 
   // Vérifie si une rencontre a une composition complète ou des problèmes
   const getCompositionStatus = (r: Rencontre) => {
@@ -149,28 +255,30 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
           </p>
         </div>
 
-        {/* Badge de synchronisation automatique FFT & Données_appli */}
-        <div className="flex items-center gap-2">
-          <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-sm">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Export FFT &amp; Données_appli synchronisés</span>
-          </div>
+        {/* Badge de synchronisation automatique FFT & Données_appli (Visible uniquement pour Admin) */}
+        {userRole === 'admin' && (
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-sm">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Export FFT &amp; Données_appli synchronisés</span>
+            </div>
 
-          {onRefreshData && (
-            <button
-              onClick={onRefreshData}
-              disabled={isAutoSyncing}
-              className="p-2 rounded-xl bg-[#181d26] hover:bg-[#222938] text-zinc-300 hover:text-white border border-[#2b3547] transition cursor-pointer shadow-sm disabled:opacity-50"
-              title="Rafraîchir les rencontres"
-            >
-              <RefreshCw className={`w-4 h-4 ${isAutoSyncing ? 'animate-spin text-orange-400' : ''}`} />
-            </button>
-          )}
-        </div>
+            {onRefreshData && (
+              <button
+                onClick={onRefreshData}
+                disabled={isAutoSyncing}
+                className="p-2 rounded-xl bg-[#181d26] hover:bg-[#222938] text-zinc-300 hover:text-white border border-[#2b3547] transition cursor-pointer shadow-sm disabled:opacity-50"
+                title="Rafraîchir les rencontres"
+              >
+                <RefreshCw className={`w-4 h-4 ${isAutoSyncing ? 'animate-spin text-orange-400' : ''}`} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Alerte Cycle des Mises à Jour & Classements Mensuels */}
-      {(() => {
+      {/* Alerte Cycle des Mises à Jour & Règles FFT (Réservé au profil Admin) */}
+      {userRole === 'admin' && (() => {
         const nextRanking = getNextFftMonthlyRankingRelease();
         const weeklyInfo = getWeeklyScheduleInfo();
         return (
@@ -183,7 +291,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-heading font-black text-white text-xs">
-                      Cycle Officiel FFT 2027 :
+                      Cycle Officiel FFT {saison} :
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-300 border border-blue-500/30">
                       Mise à jour résultats : Chaque Lundi
@@ -239,7 +347,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </ul>
                   </div>
 
-                  {/* 2. Seniors : Divisions & Formats Officiels 2027 */}
+                  {/* 2. Seniors : Divisions & Formats Officiels */}
                   <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
                     <div className="flex items-center gap-1.5 text-purple-400 font-bold">
                       <Trophy className="w-3.5 h-3.5" />
@@ -258,7 +366,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         <strong className="text-blue-400 block font-heading">Masculin :</strong>
                         <ul className="list-disc list-inside space-y-0.5 text-[10px]">
                           <li><strong>Pré-Régionale</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
-                          <li><strong>Division D1 (2027)</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
+                          <li><strong>Division D1</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
                           <li><strong>Divisions D2 &amp; D3</strong> : 5 simples + 1 double</li>
                         </ul>
                       </div>
@@ -306,77 +414,181 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
         );
       })()}
 
-      {/* Filtres par statut et par équipe */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        
-        {/* Filtre statut (Tous, À venir, Terminés) */}
-        <div className="flex items-center p-1 bg-[#141820] rounded-2xl border border-[#252b37] text-xs">
-          <button
-            onClick={() => setFilterStatus('all')}
-            className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
-              filterStatus === 'all'
-                ? 'bg-[#E65100] text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Toutes ({rencontres.length})
-          </button>
-          <button
-            onClick={() => setFilterStatus('upcoming')}
-            className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
-              filterStatus === 'upcoming'
-                ? 'bg-[#E65100] text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            À venir
-          </button>
-          <button
-            onClick={() => setFilterStatus('finished')}
-            className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
-              filterStatus === 'finished'
-                ? 'bg-[#E65100] text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Jouées
-          </button>
-        </div>
+      {/* ==================== BARRE DE RECHERCHE & FILTRES MULTI-CRITÈRES ==================== */}
+      <div className="bg-[#141820] p-4 rounded-2xl border border-[#252b37] space-y-3 text-xs">
+        {/* Ligne 1 : Recherche texte (gauche) & Filtre statut (droite) */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          
+          {/* Recherche texte rapide */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher par adversaire, ville, capitaine, équipe, date (JJ/MM/AAAA)..."
+              className="w-full bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
 
-        {/* Filtres par équipes */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full text-xs">
-          <button
-            onClick={() => setFilterTeam('all')}
-            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
-              filterTeam === 'all'
-                ? 'bg-[#E65100]/20 text-[#FF6D00] border border-[#E65100]/40'
-                : 'bg-[#141820] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            Toutes équipes
-          </button>
-
-          {uniqueTeams.map(team => (
+          {/* Filtre statut : Toutes, À venir, Jouées */}
+          <div className="flex items-center p-1 bg-[#0d1016] rounded-xl border border-zinc-800 shrink-0 self-start md:self-auto">
             <button
-              key={team}
-              onClick={() => setFilterTeam(team)}
-              className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
-                filterTeam === team
-                  ? 'bg-[#E65100]/20 text-[#FF6D00] border border-[#E65100]/40'
-                  : 'bg-[#141820] text-zinc-400 hover:text-white border border-[#242a36]'
+              onClick={() => setFilterStatus('all')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                filterStatus === 'all'
+                  ? 'bg-[#E65100] text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
               }`}
             >
-              {team}
+              Toutes ({rencontres.length})
             </button>
-          ))}
+            <button
+              onClick={() => setFilterStatus('upcoming')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                filterStatus === 'upcoming'
+                  ? 'bg-[#E65100] text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              À venir
+            </button>
+            <button
+              onClick={() => setFilterStatus('finished')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                filterStatus === 'finished'
+                  ? 'bg-[#E65100] text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Jouées
+            </button>
+          </div>
         </div>
 
+        {/* Ligne 2 : Filtres demandés : Championnat, Sexe, Catégorie d'âge, Équipe */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-800/80">
+          
+          {/* 1. Championnat */}
+          <div>
+            <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Championnat</label>
+            <select
+              value={filterChampionnat}
+              onChange={(e) => setFilterChampionnat(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer truncate"
+            >
+              <option value="all">Tous championnats</option>
+              {uniqueChampionnats.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 2. Sexe */}
+          <div>
+            <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Sexe / Épreuve</label>
+            <select
+              value={filterSexe}
+              onChange={(e) => setFilterSexe(e.target.value as any)}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+            >
+              <option value="all">Tous (Hommes & Femmes)</option>
+              <option value="H">Hommes (Messieurs)</option>
+              <option value="F">Femmes (Dames)</option>
+            </select>
+          </div>
+
+          {/* 3. Catégorie d'âge */}
+          <div>
+            <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Catégorie d'âge</label>
+            <select
+              value={filterCategorieAge}
+              onChange={(e) => setFilterCategorieAge(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+            >
+              <option value="all">Toutes catégories</option>
+              {uniqueCategoriesAge.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 4. Équipe TCM */}
+          <div>
+            <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Équipe Club</label>
+            <select
+              value={filterTeam}
+              onChange={(e) => setFilterTeam(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+            >
+              <option value="all">Toutes les équipes</option>
+              {uniqueTeams.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+        </div>
+
+        {/* Ligne 3 : Indicateur filtres actifs & réinitialisation */}
+        {(searchQuery || filterChampionnat !== 'all' || filterSexe !== 'all' || filterCategorieAge !== 'all' || filterTeam !== 'all' || filterStatus !== 'all') && (
+          <div className="flex items-center justify-between pt-1 text-[11px] text-orange-400">
+            <span>Filtre actif : {filteredRencontres.length} rencontre{filteredRencontres.length > 1 ? 's' : ''} trouvée{filteredRencontres.length > 1 ? 's' : ''} sur {rencontres.length}</span>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setFilterChampionnat('all');
+                setFilterSexe('all');
+                setFilterCategorieAge('all');
+                setFilterTeam('all');
+                setFilterStatus('all');
+              }}
+              className="text-zinc-400 hover:text-white underline cursor-pointer"
+            >
+              Réinitialiser tous les filtres
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ==================== GRILLE DES RENCONTRES DISPOSÉE PAR 3 ==================== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredRencontres.length > 0 ? (
-          filteredRencontres.map((r) => {
+      {/* ==================== RENCONTRES GROUPÉES PAR DATE (EN PLUS GROS) ==================== */}
+      {matchesByDate.length > 0 ? (
+        <div className="space-y-8">
+          {matchesByDate.map((dateGroup) => (
+            <div key={dateGroup.dateKey} className="space-y-3.5">
+              
+              {/* En-tête de date EN PLUS GROS */}
+              <div className="flex items-center justify-between border-b-2 border-orange-500/40 pb-2.5 pt-2">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-2xl bg-orange-500/15 border border-orange-500/30 text-[#FF6D00] flex items-center justify-center font-black shadow-md shrink-0">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base sm:text-xl font-heading font-black text-white uppercase tracking-tight">
+                      {dateGroup.formattedDate}
+                    </h2>
+                    <p className="text-[11px] text-zinc-400">
+                      {dateGroup.matches.length} rencontre{dateGroup.matches.length > 1 ? 's' : ''} programmée{dateGroup.matches.length > 1 ? 's' : ''} ce jour
+                    </p>
+                  </div>
+                </div>
+
+                <span className="px-3 py-1 rounded-xl text-xs font-black bg-orange-500/10 text-orange-400 border border-orange-500/25">
+                  {dateGroup.dateKey}
+                </span>
+              </div>
+
+              {/* Disposition par 3 des cartes de cette date */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {dateGroup.matches.map((r) => {
             const isUpcoming = !r.score || r.score === 'À venir';
             const isHome = r.clubAccueilNom.toLowerCase().includes('muzillac');
             const formatInfo = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
@@ -783,18 +995,20 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
               </div>
             );
-          })
-        ) : (
-          <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37] col-span-full">
-            <Trophy className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
-            <h3 className="font-heading font-black text-white text-base">Aucune rencontre trouvée</h3>
-            <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
-              Aucune rencontre ne correspond à vos filtres sélectionnés.
-            </p>
-          </div>
-        )}
+          })}
+        </div>
       </div>
-
+    ))}
+  </div>
+) : (
+  <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37] max-w-md mx-auto">
+    <Trophy className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
+    <h3 className="font-heading font-black text-white text-base">Aucune rencontre trouvée</h3>
+    <p className="text-xs text-zinc-400 mt-1">
+      Aucune rencontre ne correspond à vos filtres sélectionnés.
+    </p>
+  </div>
+)}
     </div>
   );
 };

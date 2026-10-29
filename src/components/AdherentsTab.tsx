@@ -10,18 +10,26 @@ import {
   SlidersHorizontal,
   Plus,
   RefreshCw,
-  TrendingDown
+  TrendingDown,
+  Phone,
+  MessageSquare,
+  Mail,
+  CheckCircle2,
+  ShieldCheck,
+  ShieldAlert,
+  Calendar,
+  X
 } from 'lucide-react';
-import { Adherent } from '../types/tennis';
-import { AdherentCard } from './AdherentCard';
-import { getRankingWeight, isRankingND } from '../utils/ranking';
+import { Adherent, UserRole } from '../types/tennis';
+import { getRankingMeta, getRankingWeight, isRankingND } from '../utils/ranking';
 import { FileSpreadsheet } from 'lucide-react';
 import { DataSyncBanner } from './DataSyncBanner';
 
 interface AdherentsTabProps {
   adherents: Adherent[];
+  userRole?: UserRole;
   onSelectAdherent: (adherent: Adherent) => void;
-  onOpenNewMemberModal: () => void;
+  onOpenNewMemberModal?: () => void;
   onOpenGsheetModal?: () => void;
   lastSyncTime?: string | null;
   isLoadingFile?: boolean;
@@ -30,6 +38,7 @@ interface AdherentsTabProps {
 
 export const AdherentsTab: React.FC<AdherentsTabProps> = ({
   adherents,
+  userRole = 'bureau',
   onSelectAdherent,
   onOpenNewMemberModal,
   onOpenGsheetModal,
@@ -38,85 +47,123 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
   onRefreshFromFile,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'due' | 'credit' | 'uptodate' | 'nd' | '2e' | '3e' | '4e' | 'nc' | 'comp' | 'loisir'>('all');
+  const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>('all');
+  const [filterSerie, setFilterSerie] = useState<'all' | '2' | '3' | '4' | 'nc'>('all');
+  const [filterSolde, setFilterSolde] = useState<'all' | 'due' | 'uptodate' | 'credit' | 'nd'>('all');
   const [sortBy, setSortBy] = useState<'ranking_desc' | 'name_asc' | 'solde_due_desc'>('ranking_desc');
 
-  // Statistiques globales de trésorerie & licences
+  // Statistiques complètes du club (Sexe, Pyramide FFT, Trésorerie)
   const stats = useMemo(() => {
     const total = adherents.length;
-    const withRank = adherents.filter(a => a.dernierClassTennis && a.dernierClassTennis.toUpperCase() !== 'NC' && !isRankingND(a.dernierClassTennis)).length;
-    // Soldes négatifs = impayés / dû au club
-    const dueMembers = adherents.filter(a => a.soldeDu < 0);
-    const totalDue = dueMembers.reduce((sum, a) => sum + Math.abs(a.soldeDu || 0), 0);
-    // Soldes positifs = à régulariser (avoir, tarif famille non pris en compte)
-    const creditMembers = adherents.filter(a => a.soldeDu > 0);
-    const totalCredit = creditMembers.reduce((sum, a) => sum + (a.soldeDu || 0), 0);
-    const upToDateMembers = adherents.filter(a => a.soldeDu === 0);
-    // Joueurs avec classement ND (Non Déterminé - Reclassement requis)
-    const ndMembers = adherents.filter(a => isRankingND(a.dernierClassTennis));
+    let hommes = 0;
+    let femmes = 0;
+    let s2 = 0;
+    let s3 = 0;
+    let s4 = 0;
+    let nc = 0;
+    let dueCount = 0;
+    let totalDue = 0;
+    let upToDateCount = 0;
+    let creditCount = 0;
+    let totalCredit = 0;
+    let ndCount = 0;
+
+    adherents.forEach(a => {
+      if (a.civilite === 'Madame') {
+        femmes++;
+      } else {
+        hommes++;
+      }
+
+      const r = (a.dernierClassTennis || 'NC').toUpperCase();
+      const meta = getRankingMeta(r);
+      if (meta.isND) {
+        ndCount++;
+      } else if (meta.serie.includes('2') || meta.serie.includes('1')) {
+        s2++;
+      } else if (meta.serie.includes('3')) {
+        s3++;
+      } else if (meta.serie.includes('4')) {
+        s4++;
+      } else {
+        nc++;
+      }
+
+      if (a.soldeDu < 0) {
+        dueCount++;
+        totalDue += Math.abs(a.soldeDu);
+      } else if (a.soldeDu === 0) {
+        upToDateCount++;
+      } else {
+        creditCount++;
+        totalCredit += a.soldeDu;
+      }
+    });
 
     return {
       total,
-      withRank,
-      dueCount: dueMembers.length,
+      hommes,
+      femmes,
+      series: { deuxieme: s2, troisieme: s3, quatrieme: s4, nc },
+      dueCount,
       totalDue,
-      creditCount: creditMembers.length,
+      upToDateCount,
+      creditCount,
       totalCredit,
-      upToDateCount: upToDateMembers.length,
-      ndCount: ndMembers.length,
+      ndCount,
     };
   }, [adherents]);
 
-  // Filtrage et Tri
-  const filteredAndSortedAdherents = useMemo(() => {
+  // Filtrage et Tri calqué sur LicenciesTab
+  const filteredAdherents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
     const filtered = adherents.filter(adh => {
-      // Recherche textuelle
-      const matchesSearch = 
-        adh.nomPrenom.toLowerCase().includes(q) ||
-        adh.licence.toLowerCase().includes(q) ||
-        (adh.groupeEnseignement && adh.groupeEnseignement.toLowerCase().includes(q)) ||
-        (adh.ageSportif && adh.ageSportif.toLowerCase().includes(q)) ||
-        adh.dernierClassTennis.toLowerCase().includes(q) ||
-        adh.telephonePortable.includes(q) ||
-        adh.email.toLowerCase().includes(q);
-
-      if (!matchesSearch) return false;
-
-      // Filtres financiers et par série
-      const rank = adh.dernierClassTennis || 'NC';
-      const weight = getRankingWeight(rank);
-      const isND = isRankingND(rank);
-
-      if (selectedFilter === 'due') return adh.soldeDu < 0;
-      if (selectedFilter === 'credit') return adh.soldeDu > 0;
-      if (selectedFilter === 'uptodate') return adh.soldeDu === 0;
-      if (selectedFilter === 'nd') return isND;
-      if (selectedFilter === '2e') return weight >= 250;
-      if (selectedFilter === '3e') return weight >= 130 && weight < 250;
-      if (selectedFilter === '4e') return weight >= 15 && weight < 130;
-      if (selectedFilter === 'nc') return weight === 0 && !isND;
-      if (selectedFilter === 'comp') {
-        const g = (adh.groupeEnseignement || '').toLowerCase();
-        return g.includes('compétition') || g.includes('équipe') || g.includes('espoir');
+      // 1. Recherche textuelle
+      if (q) {
+        const matchName = adh.nomPrenom.toLowerCase().includes(q);
+        const matchLicence = (adh.licence || '').toLowerCase().includes(q);
+        const matchClass = (adh.dernierClassTennis || '').toLowerCase().includes(q);
+        const matchGroupe = (adh.groupeEnseignement || '').toLowerCase().includes(q);
+        const matchTel = (adh.telephonePortable || '').includes(q);
+        const matchMail = (adh.email || '').toLowerCase().includes(q);
+        if (!matchName && !matchLicence && !matchClass && !matchGroupe && !matchTel && !matchMail) {
+          return false;
+        }
       }
-      if (selectedFilter === 'loisir') {
-        const g = (adh.groupeEnseignement || '').toLowerCase();
-        return g.includes('loisir') || g.includes('perfectionnement') || g.includes('initiation') || g.includes('école');
+
+      // 2. Filtre Sexe
+      if (filterSex !== 'all') {
+        const isF = adh.civilite === 'Madame';
+        if (filterSex === 'Dames' && !isF) return false;
+        if (filterSex === 'Messieurs' && isF) return false;
       }
+
+      // 3. Filtre Série
+      if (filterSerie !== 'all') {
+        const meta = getRankingMeta(adh.dernierClassTennis);
+        const rank = (adh.dernierClassTennis || 'NC').toUpperCase();
+        if (filterSerie === 'nc' && rank !== 'NC') return false;
+        if (filterSerie === '4' && !meta.serie.includes('4')) return false;
+        if (filterSerie === '3' && !meta.serie.includes('3')) return false;
+        if (filterSerie === '2' && !meta.serie.includes('2') && !meta.serie.includes('1')) return false;
+      }
+
+      // 4. Filtre Cotisation / Solde
+      if (filterSolde === 'due' && adh.soldeDu >= 0) return false;
+      if (filterSolde === 'uptodate' && adh.soldeDu !== 0) return false;
+      if (filterSolde === 'credit' && adh.soldeDu <= 0) return false;
+      if (filterSolde === 'nd' && !isRankingND(adh.dernierClassTennis)) return false;
 
       return true;
     });
 
-    // Tri (Classement décroissant par défaut comme sur Glide)
+    // Tri
     return filtered.sort((a, b) => {
       if (sortBy === 'ranking_desc') {
         const weightA = getRankingWeight(a.dernierClassTennis);
         const weightB = getRankingWeight(b.dernierClassTennis);
-        if (weightB !== weightA) {
-          return weightB - weightA;
-        }
+        if (weightB !== weightA) return weightB - weightA;
         return a.nomPrenom.localeCompare(b.nomPrenom, 'fr');
       }
 
@@ -125,168 +172,140 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
       }
 
       if (sortBy === 'solde_due_desc') {
-        // Les plus gros soldes négatifs en premier (ex: -330 avant -199 avant 0 avant +20)
-        if (a.soldeDu !== b.soldeDu) {
-          return a.soldeDu - b.soldeDu;
-        }
+        if (a.soldeDu !== b.soldeDu) return a.soldeDu - b.soldeDu;
         return a.nomPrenom.localeCompare(b.nomPrenom, 'fr');
       }
 
       return 0;
     });
-  }, [adherents, searchQuery, selectedFilter, sortBy]);
+  }, [adherents, searchQuery, filterSex, filterSerie, filterSolde, sortBy]);
 
   return (
     <div className="space-y-6">
       
-      {/* 0. Bannière de synchronisation directe du fichier Données_appli & Calendrier FFT */}
-      <DataSyncBanner
-        memberCount={stats.total}
-        lastSyncTime={lastSyncTime}
-        isLoading={isLoadingFile}
-        onRefresh={onRefreshFromFile || (() => {})}
-      />
+      {/* 0. Bannière de synchronisation (Réservée exclusivement au profil Admin) */}
+      {userRole === 'admin' && (
+        <DataSyncBanner
+          memberCount={stats.total}
+          lastSyncTime={lastSyncTime}
+          isLoading={isLoadingFile}
+          onRefresh={onRefreshFromFile || (() => {})}
+        />
+      )}
 
-      {/* 1. Barre de stats sportives & trésorerie */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-[#161a22] p-3.5 sm:p-4 rounded-2xl border border-[#252b37] flex items-center space-x-3 shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-orange-500/15 text-[#FF6D00] flex items-center justify-center font-bold">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 font-medium">Adhérents Actifs</p>
-            <p className="text-lg sm:text-xl font-heading font-black text-white">{stats.total}</p>
-          </div>
-        </div>
-
-        <div className="bg-[#161a22] p-3.5 sm:p-4 rounded-2xl border border-[#252b37] flex items-center space-x-3 shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center font-bold">
-            <Award className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[11px] text-zinc-400 font-medium">Joueurs Classés</p>
-            <p className="text-lg sm:text-xl font-heading font-black text-white">{stats.withRank}</p>
-          </div>
-        </div>
-
-        {/* Soldes Négatifs = Impayés Dûs au club */}
-        <div className="bg-[#161a22] p-3.5 sm:p-4 rounded-2xl border border-[#252b37] flex items-center space-x-3 shadow-sm">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-            stats.dueCount > 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
-          }`}>
-            <CreditCard className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1">
-              <p className="text-[11px] text-zinc-400 font-medium truncate">Soldes Dûs (&lt; 0 €)</p>
-              {stats.dueCount > 0 && (
-                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-rose-500/20 text-rose-300 shrink-0">
-                  {stats.dueCount}
-                </span>
-              )}
-            </div>
-            <p className="text-base sm:text-lg font-heading font-black text-rose-300 truncate">
-              {stats.totalDue} €
-            </p>
-          </div>
-        </div>
-
-        {/* Soldes Positifs = À Régulariser (avoir, tarif famille) */}
-        <div className="bg-[#161a22] p-3.5 sm:p-4 rounded-2xl border border-[#252b37] flex items-center space-x-3 shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center font-bold shrink-0">
-            <RefreshCw className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1">
-              <p className="text-[11px] text-zinc-400 font-medium truncate">À Régul. (&gt; 0 €)</p>
-              {stats.creditCount > 0 && (
-                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-300 shrink-0">
-                  {stats.creditCount}
-                </span>
-              )}
-            </div>
-            <p className="text-base sm:text-lg font-heading font-black text-amber-400 truncate">
-              +{stats.totalCredit} €
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Titre & Action Ten'Up + Bouton GSheet */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* ==================== EN-TÊTE ÉPURÉ DE LA SECTION ==================== */}
+      <div className="flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
               Annuaire des Adhérents
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
-              {filteredAndSortedAdherents.length}
+              {stats.total} inscrits
             </span>
           </div>
-          <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5">
-            <TrendingDown className="w-3.5 h-3.5 text-[#FF6D00]" />
-            <span>Tri automatique Glide : meilleur classement FFT vers NC</span>
+          <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <TrendingDown className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
+            <span>Membres du club (pratique libre, cours collectifs et compétitions) • Données_appli</span>
           </p>
-        </div>
-
-        <div className="flex items-center flex-wrap gap-2">
-          {onOpenGsheetModal && (
-            <button
-              onClick={onOpenGsheetModal}
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold transition shadow-sm cursor-pointer"
-              title="Inspecter les colonnes GSheet et importer Données_appli"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>Colonnes GSheet</span>
-            </button>
-          )}
-
-          <button
-            onClick={onOpenNewMemberModal}
-            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-[#1d222c] hover:bg-[#272d3a] border border-[#2d3443] text-zinc-200 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer"
-            title="Ajouter un adhérent"
-          >
-            <Plus className="w-4 h-4 text-[#FF6D00]" />
-            <span>Ajouter</span>
-          </button>
-
-          <a
-            href="https://tenup.fft.fr"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] via-[#E65100] to-[#FF6D00] hover:brightness-110 active:scale-95 text-white text-xs font-black transition shadow-lg shadow-orange-950/50"
-          >
-            <span>Portail Ten'Up FFT</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
         </div>
       </div>
 
-      {/* Barre de recherche et sélecteur de tri */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          {/* Champ recherche */}
+      {/* ==================== STATISTIQUES (CALQUÉES SUR LICENCIÉS) ==================== */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        
+        {/* Total & Répartition Sexe */}
+        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Effectif Total</span>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl font-heading font-black text-white">{stats.total}</span>
+            <span className="text-[11px] text-zinc-400">adhérents</span>
+          </div>
+          <div className="flex items-center gap-2 pt-1 text-[11px]">
+            <span className="text-blue-400 font-bold">{stats.hommes} H</span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-pink-400 font-bold">{stats.femmes} F</span>
+          </div>
+        </div>
+
+        {/* Pyramide des Classements */}
+        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Pyramide FFT</span>
+          <div className="flex items-baseline space-x-1.5 flex-wrap font-mono text-[11px] font-bold pt-0.5">
+            <span className="text-purple-300">{stats.series.deuxieme} en 2e</span>
+            <span className="text-zinc-600">/</span>
+            <span className="text-blue-300">{stats.series.troisieme} en 3e</span>
+            <span className="text-zinc-600">/</span>
+            <span className="text-amber-300">{stats.series.quatrieme} en 4e</span>
+            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-400">{stats.series.nc} NC</span>
+          </div>
+          <p className="text-[10px] text-zinc-500 mt-1">
+            {stats.ndCount > 0 ? `${stats.ndCount} à reclasser (ND)` : 'Classements à jour'}
+          </p>
+        </div>
+
+        {/* Trésorerie : Soldes Dûs */}
+        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Soldes Dûs (&lt; 0 €)</span>
+            <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+              stats.dueCount > 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-400'
+            }`}>
+              {stats.dueCount} impayés
+            </span>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl font-heading font-black text-rose-400">
+              -{stats.totalDue.toLocaleString('fr-FR')} €
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-500 mt-1">{stats.upToDateCount} comptes à jour (0 €)</p>
+        </div>
+
+        {/* Trésorerie : Avoirs & Trop-perçu */}
+        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">À Régulariser (&gt; 0 €)</span>
+            <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+              {stats.creditCount} avoirs
+            </span>
+          </div>
+          <div className="flex items-baseline space-x-2">
+            <span className="text-xl font-heading font-black text-amber-400">
+              +{stats.totalCredit.toLocaleString('fr-FR')} €
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-500 mt-1">Avoirs / Tarifs familles à ajuster</p>
+        </div>
+
+      </div>
+
+      {/* ==================== BARRE DE RECHERCHE & FILTRES (DISPOSITION PROPRE SANS SCROLL CUT-OFF) ==================== */}
+      <div className="bg-[#141820] p-4 rounded-3xl border border-[#252b37] space-y-3.5">
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Recherche texte */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher par nom, licence, groupe, classement (ex: 15/1, Senior, Laurent)..."
-              className="w-full pl-10 pr-4 py-2.5 bg-[#141820] text-sm text-white placeholder-zinc-500 rounded-2xl border border-[#252b37] focus:outline-none focus:border-[#E65100] focus:ring-1 focus:ring-[#E65100] transition"
+              placeholder="Rechercher par nom, licence, groupe, classement (ex: 15/1, Laurent, Je1)..."
+              className="w-full pl-10 pr-8 py-2 rounded-xl bg-[#0e1116] border border-zinc-800 text-xs sm:text-sm text-white placeholder-zinc-500 focus:border-[#FF6D00] outline-none"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white cursor-pointer"
               >
-                Effacer
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {/* Sélecteur de tri */}
-          <div className="flex items-center space-x-2 bg-[#141820] px-3 py-1.5 rounded-2xl border border-[#252b37] shrink-0">
+          {/* Tri */}
+          <div className="flex items-center space-x-2 bg-[#0e1116] px-3 py-1.5 rounded-xl border border-zinc-800 shrink-0">
             <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-xs text-zinc-400 hidden sm:inline">Tri :</span>
             <select
@@ -301,158 +320,280 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
           </div>
         </div>
 
-        {/* Puces de filtrage rapide (Filter chips) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
-          <button
-            onClick={() => setSelectedFilter('all')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === 'all'
-                ? 'bg-[#E65100] text-white shadow-md shadow-orange-950/50'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            Tous ({stats.total})
-          </button>
+        {/* Filtres Sexe, Séries & Cotisations en groupes de boutons élégants */}
+        <div className="flex items-center justify-between flex-wrap gap-2.5 pt-2 border-t border-zinc-800/80 text-xs">
+          
+          <div className="flex items-center flex-wrap gap-2">
+            {/* Sexe */}
+            <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
+              <button
+                onClick={() => setFilterSex('all')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSex === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Tous
+              </button>
+              <button
+                onClick={() => setFilterSex('Messieurs')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSex === 'Messieurs' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Messieurs ({stats.hommes})
+              </button>
+              <button
+                onClick={() => setFilterSex('Dames')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSex === 'Dames' ? 'bg-pink-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Dames ({stats.femmes})
+              </button>
+            </div>
 
-          {/* Filtre Soldes Négatifs = Impayés dûs */}
-          <button
-            onClick={() => setSelectedFilter('due')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer ${
-              selectedFilter === 'due'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
-                : 'bg-[#161a22] text-rose-300 hover:text-white border border-rose-500/30'
-            }`}
-          >
-            <AlertTriangle className="w-3 h-3 text-rose-400" />
-            <span>⚠️ Impayés Dûs ({stats.dueCount})</span>
-          </button>
+            {/* Séries */}
+            <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
+              <button
+                onClick={() => setFilterSerie('all')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSerie === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Toutes séries
+              </button>
+              <button
+                onClick={() => setFilterSerie('2')}
+                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSerie === '2' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+                title="2ème série (15 et au-dessus)"
+              >
+                2e
+              </button>
+              <button
+                onClick={() => setFilterSerie('3')}
+                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSerie === '3' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+                title="3ème série (15/1 à 30)"
+              >
+                3e
+              </button>
+              <button
+                onClick={() => setFilterSerie('4')}
+                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSerie === '4' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+                title="4ème série (30/1 à 40)"
+              >
+                4e
+              </button>
+              <button
+                onClick={() => setFilterSerie('nc')}
+                className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSerie === 'nc' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'
+                }`}
+                title="Non classés"
+              >
+                NC
+              </button>
+            </div>
+          </div>
 
-          {/* Filtre Soldes Positifs = À régulariser */}
-          <button
-            onClick={() => setSelectedFilter('credit')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer ${
-              selectedFilter === 'credit'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-950/50'
-                : 'bg-[#161a22] text-amber-300 hover:text-white border border-amber-500/30'
-            }`}
-          >
-            <RefreshCw className="w-3 h-3 text-amber-400" />
-            <span>ℹ️ À régulariser ({stats.creditCount})</span>
-          </button>
+          {/* Filtre Cotisation */}
+          <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547] flex-wrap">
+            <button
+              onClick={() => setFilterSolde('all')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                filterSolde === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Tous
+            </button>
+            <button
+              onClick={() => setFilterSolde('due')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                filterSolde === 'due' ? 'bg-rose-600 text-white' : 'text-rose-400 hover:text-rose-300'
+              }`}
+            >
+              Dûs ({stats.dueCount})
+            </button>
+            <button
+              onClick={() => setFilterSolde('uptodate')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                filterSolde === 'uptodate' ? 'bg-emerald-600 text-white' : 'text-emerald-400 hover:text-emerald-300'
+              }`}
+            >
+              À jour ({stats.upToDateCount})
+            </button>
+            <button
+              onClick={() => setFilterSolde('credit')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                filterSolde === 'credit' ? 'bg-amber-600 text-white' : 'text-amber-400 hover:text-amber-300'
+              }`}
+            >
+              Avoirs ({stats.creditCount})
+            </button>
+            {stats.ndCount > 0 && (
+              <button
+                onClick={() => setFilterSolde('nd')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  filterSolde === 'nd' ? 'bg-rose-800 text-white' : 'text-rose-400 hover:text-rose-300'
+                }`}
+                title="Classement non déterminé : reclassement FFT requis"
+              >
+                ND ({stats.ndCount})
+              </button>
+            )}
+          </div>
 
-          {/* Filtre Comptes à jour */}
-          <button
-            onClick={() => setSelectedFilter('uptodate')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer ${
-              selectedFilter === 'uptodate'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
-                : 'bg-[#161a22] text-emerald-400 hover:text-white border border-emerald-500/30'
-            }`}
-          >
-            <span>✅ À jour ({stats.upToDateCount})</span>
-          </button>
-
-          {/* Filtre Classements ND = Reclassement FFT requis */}
-          <button
-            onClick={() => setSelectedFilter('nd')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer ${
-              selectedFilter === 'nd'
-                ? 'bg-rose-700 text-white shadow-md shadow-rose-950/60'
-                : 'bg-[#161a22] text-rose-300 hover:text-white border border-rose-500/40'
-            }`}
-          >
-            <span>⚠️ Reclassement requis ND ({stats.ndCount})</span>
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('2e')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === '2e'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            2ème Série (15 à -30)
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('3e')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === '3e'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            3ème Série (15/1 à 30)
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('4e')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === '4e'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            4ème Série (30/1 à 40)
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('nc')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === 'nc'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            Non Classés (NC)
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('comp')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === 'comp'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            🏆 Compétition
-          </button>
-
-          <button
-            onClick={() => setSelectedFilter('loisir')}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
-              selectedFilter === 'loisir'
-                ? 'bg-[#E65100] text-white'
-                : 'bg-[#161a22] text-zinc-400 hover:text-white border border-[#242a36]'
-            }`}
-          >
-            🎾 Loisir & École
-          </button>
         </div>
       </div>
 
-      {/* Liste des cartes d'adhérents */}
-      <div className="space-y-3">
-        {filteredAndSortedAdherents.length > 0 ? (
-          filteredAndSortedAdherents.map((adherent) => (
-            <AdherentCard
-              key={adherent.id}
-              adherent={adherent}
-              onSelect={onSelectAdherent}
-            />
-          ))
+      {/* ==================== GRILLE DES ADHÉRENTS PAR 3 (COPIÉ DE L'ONGLET LICENCIÉS) ==================== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {filteredAdherents.length > 0 ? (
+          filteredAdherents.map((adh) => {
+            const meta = getRankingMeta(adh.dernierClassTennis);
+            const isFemme = adh.civilite === 'Madame';
+            const isOwed = adh.soldeDu < 0;
+            const isCredit = adh.soldeDu > 0;
+
+            return (
+              <div
+                key={adh.id}
+                onClick={() => onSelectAdherent(adh)}
+                className="bg-[#161a22] hover:bg-[#1a202a] border border-[#272e3b] hover:border-[#E65100]/50 rounded-2xl p-4 transition-all shadow-md flex flex-col justify-between space-y-3 cursor-pointer group"
+              >
+                <div>
+                  {/* Ligne 1 : Nom, Prénom, Civilité et Classement */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <span className="font-heading font-black text-white text-sm group-hover:text-orange-400 transition truncate">
+                          {adh.nomPrenom}
+                        </span>
+                        <span className={`px-2 py-0.2 rounded text-[10px] font-black border ${
+                          isFemme 
+                            ? 'bg-pink-500/20 text-pink-300 border-pink-500/30' 
+                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                        }`}>
+                          {isFemme ? 'F' : 'H'}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>{adh.ageSportif ? `${adh.ageSportif} ans` : 'Senior'}</span>
+                        <span>•</span>
+                        <span>Né(e) en {adh.dateNaissance ? adh.dateNaissance.split('/')[2] || adh.dateNaissance : 'N/A'}</span>
+                      </p>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className={`px-2.5 py-1 rounded-xl text-xs font-black border block ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
+                        {adh.dernierClassTennis || 'NC'}
+                      </span>
+                      {adh.meilleurClassTennis && adh.meilleurClassTennis !== adh.dernierClassTennis && (
+                        <span className="text-[9px] text-zinc-500 block mt-0.5">
+                          Max: {adh.meilleurClassTennis}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ligne 2 : Badges Licence, Groupe d'entraînement & Solde */}
+                  <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
+                    {adh.licence ? (
+                      <span className="px-2 py-0.5 rounded font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span>Licence {adh.millesimeLicence || '2027'}</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                        Sans licence
+                      </span>
+                    )}
+
+                    {adh.groupeEnseignement && (
+                      <span className="px-2 py-0.5 rounded font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 truncate max-w-[150px]" title={adh.groupeEnseignement}>
+                        {adh.groupeEnseignement}
+                      </span>
+                    )}
+
+                    {isOwed ? (
+                      <span className="px-2 py-0.5 rounded font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                        Dû : {Math.abs(adh.soldeDu).toFixed(0)} €
+                      </span>
+                    ) : isCredit ? (
+                      <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Avoir : +{adh.soldeDu.toFixed(0)} €
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                        À jour (0 €)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ligne 3 : Actions rapides & Coordonnées directes */}
+                <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
+                  <div className="flex items-center space-x-1">
+                    {adh.telephonePortable && (
+                      <a
+                        href={`tel:${adh.telephonePortable}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-emerald-500/20 hover:text-emerald-400 border border-zinc-800 transition"
+                        title={`Appeler ${adh.nomPrenom}`}
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                    {adh.telephonePortable && (
+                      <a
+                        href={`sms:${adh.telephonePortable}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-sky-500/20 hover:text-sky-400 border border-zinc-800 transition"
+                        title={`SMS à ${adh.nomPrenom}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                    {adh.email && (
+                      <a
+                        href={`mailto:${adh.email}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-orange-500/20 hover:text-orange-400 border border-zinc-800 transition"
+                        title={`Email à ${adh.nomPrenom}`}
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+
+                  <span className="text-[10px] text-zinc-500 flex items-center gap-1 group-hover:text-orange-300 transition">
+                    <span>Fiche adhérent</span>
+                    <span>→</span>
+                  </span>
+                </div>
+
+              </div>
+            );
+          })
         ) : (
-          <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37]">
+          <div className="col-span-full p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37]">
             <Users className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
             <h3 className="font-heading font-black text-white text-base">Aucun adhérent trouvé</h3>
             <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
-              Aucun joueur ne correspond à vos critères de recherche ou filtre actif.
+              Aucun joueur ne correspond à vos critères de recherche ou filtres actifs.
             </p>
             <button
               onClick={() => {
                 setSearchQuery('');
-                setSelectedFilter('all');
+                setFilterSex('all');
+                setFilterSerie('all');
+                setFilterSolde('all');
               }}
               className="mt-4 px-4 py-2 rounded-xl bg-[#1e232d] hover:bg-[#272d3a] border border-[#2b3342] text-xs font-bold text-orange-400 hover:text-white transition cursor-pointer"
             >

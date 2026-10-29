@@ -140,7 +140,7 @@ export interface Rencontre {
   disponibilites?: JoueurDisponibilite[];
 }
 
-export type UserRole = 'adherent' | 'capitaine' | 'prof' | 'bureau';
+export type UserRole = 'admin' | 'bureau' | 'prof' | 'capitaine' | 'adherent';
 
 export interface Enseignant {
   id: string;

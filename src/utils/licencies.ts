@@ -2,16 +2,16 @@ import { Adherent } from '../types/tennis';
 
 /**
  * Critères officiels des licenciés du club affectables aux rencontres interclubs :
- * - Millésime de licence 2027 (Colonne X de l'onglet Adhérents)
+ * - Millésime de licence correspondant à la saison active (Colonne X de l'onglet Adhérents)
  * - Club de rattachement : MUZILLAC TENNIS CLUB (Colonne AB de l'onglet Adhérents)
  * - N° de licence valide
  */
-export function isLicencieMuzillac2027(adherent: Adherent): boolean {
+export function isLicencieMuzillac(adherent: Adherent, saison: string = '2027'): boolean {
   if (!adherent) return false;
 
-  // 1. Colonne X : Millésime 2027
+  // 1. Colonne X : Millésime de la saison active
   const millesime = String(adherent.millesimeLicence || '').trim();
-  const is2027 = millesime === '2027' || millesime.includes('2027');
+  const isSaisonActive = millesime === saison || millesime.includes(saison);
 
   // 2. Colonne AB : MUZILLAC TENNIS CLUB
   const club = (adherent.clubRattachement || '').toUpperCase().trim();
@@ -23,15 +23,19 @@ export function isLicencieMuzillac2027(adherent: Adherent): boolean {
   // 3. Licence renseignée
   const hasLicence = !!adherent.licence && adherent.licence.trim().length >= 4;
 
-  return is2027 && isMuzillac && hasLicence;
+  return isSaisonActive && isMuzillac && hasLicence;
 }
 
+export const isLicencieMuzillac2027 = (adherent: Adherent, saison: string = '2027') => isLicencieMuzillac(adherent, saison);
+
 /**
- * Filtre et renvoie uniquement les licenciés officiels 2027 du Tennis Club de Muzillac
+ * Filtre et renvoie uniquement les licenciés officiels de la saison active du Tennis Club de Muzillac
  */
-export function filterLicenciesMuzillac2027(adherents: Adherent[]): Adherent[] {
-  return adherents.filter(isLicencieMuzillac2027);
+export function filterLicenciesMuzillac(adherents: Adherent[], saison: string = '2027'): Adherent[] {
+  return adherents.filter(a => isLicencieMuzillac(a, saison));
 }
+
+export const filterLicenciesMuzillac2027 = (adherents: Adherent[], saison: string = '2027') => filterLicenciesMuzillac(adherents, saison);
 
 /**
  * Statistiques clés des licenciés 2027

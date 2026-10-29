@@ -28,6 +28,7 @@ interface LicenciesTabProps {
   userRole?: UserRole;
   onSelectAdherent?: (adherent: Adherent) => void;
   onNavigateToRencontres?: () => void;
+  saison?: string;
 }
 
 export const LicenciesTab: React.FC<LicenciesTabProps> = ({
@@ -35,24 +36,25 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   userRole = 'bureau',
   onSelectAdherent,
   onNavigateToRencontres,
+  saison = '2027',
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>('all');
   const [filterCategory, setFilterCategory] = useState<'all' | 'seniors' | 'seniors_plus' | 'jeunes'>('all');
   const [filterSerie, setFilterSerie] = useState<'all' | '2' | '3' | '4' | 'nc'>('all');
 
-  // Filtrage exclusif des licenciés 2027 rattachés à MUZILLAC TENNIS CLUB
-  const licenciesMuzillac2027 = useMemo(() => {
-    return filterLicenciesMuzillac2027(adherents);
-  }, [adherents]);
+  // Filtrage exclusif des licenciés rattachés à MUZILLAC TENNIS CLUB pour la saison active
+  const licenciesMuzillac = useMemo(() => {
+    return filterLicenciesMuzillac2027(adherents, saison);
+  }, [adherents, saison]);
 
   const stats = useMemo(() => {
-    return getLicenciesStats(licenciesMuzillac2027);
-  }, [licenciesMuzillac2027]);
+    return getLicenciesStats(licenciesMuzillac);
+  }, [licenciesMuzillac]);
 
   // Filtrage utilisateur interactif
   const filteredList = useMemo(() => {
-    return licenciesMuzillac2027.filter(adh => {
+    return licenciesMuzillac.filter(adh => {
       // 1. Recherche texte
       const q = searchQuery.toLowerCase().trim();
       if (q) {
@@ -89,7 +91,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
 
       return true;
     });
-  }, [licenciesMuzillac2027, searchQuery, filterSex, filterCategory, filterSerie]);
+  }, [licenciesMuzillac, searchQuery, filterSex, filterCategory, filterSerie]);
 
   return (
     <div className="space-y-6">
@@ -99,15 +101,15 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
-              Licenciés du Club (Saison 2027)
+              Licenciés du Club (Saison {saison})
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-              {licenciesMuzillac2027.length} licenciés actifs
+              {licenciesMuzillac.length} licenciés actifs
             </span>
           </div>
           <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>Membres titulaires d'une licence FFT 2027 (Colonne X) • MUZILLAC TENNIS CLUB (Colonne AB)</span>
+            <span>Membres titulaires d'une licence FFT {saison} (Colonne X) • MUZILLAC TENNIS CLUB (Colonne AB)</span>
           </p>
         </div>
 

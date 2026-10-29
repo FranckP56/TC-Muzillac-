@@ -36,6 +36,7 @@ interface InfosClubTabProps {
   totalMembers?: number;
   onOpenEditClubModal?: () => void;
   isBureauMember?: boolean;
+  isAdmin?: boolean;
 }
 
 export const InfosClubTab: React.FC<InfosClubTabProps> = ({
@@ -52,6 +53,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
   totalMembers = 159,
   onOpenEditClubModal,
   isBureauMember = true,
+  isAdmin = false,
 }) => {
   const [gasUrl, setGasUrl] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
@@ -480,9 +482,6 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                     💳 CB via HelloAsso sur Ten'Up
                   </span>
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">
-                    🎾 Panier Ten'Up
-                  </span>
                   <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">
                     🎟️ ANCV & Pass'Sport
                   </span>
@@ -494,203 +493,84 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
 
       </div>
 
-      {/* Module 1 : Synchronisation Systématique du Fichier Réel TCM (Données_appli) */}
-      <div className="bg-[#161a22] p-5 sm:p-6 rounded-3xl border border-orange-500/30 shadow-lg shadow-black/40 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#BF360C] via-[#E65100] to-[#FF6D00] text-white flex items-center justify-center shadow-lg shadow-orange-950/60 font-black">
-              TCM
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-heading font-black text-white text-base">
-                  Fichier Réel Connecté (Données_appli)
-                </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  {totalMembers} adhérents en direct
-                </span>
+      {/* Module 1 : Synchronisation Systématique du Fichier Réel TCM (Données_appli) - Uniquement visible par l'Admin */}
+      {isAdmin && (
+        <div className="bg-[#161a22] p-5 sm:p-6 rounded-3xl border border-orange-500/30 shadow-lg shadow-black/40 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#BF360C] via-[#E65100] to-[#FF6D00] text-white flex items-center justify-center shadow-lg shadow-orange-950/60 font-black">
+                TCM
               </div>
-              <p className="text-xs text-zinc-400">
-                Lecture systématique et sans cache du fichier officiel <code className="text-orange-400 bg-black/40 px-1 py-0.5 rounded">Donn_es_appli_dad0017a</code>.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-heading font-black text-white text-base">
+                    Fichier Réel Connecté (Données_appli)
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    {totalMembers} adhérents en direct
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400">
+                  Lecture systématique et sans cache du fichier officiel <code className="text-orange-400 bg-black/40 px-1 py-0.5 rounded">Donn_es_appli_dad0017a</code>.
+                </p>
+              </div>
             </div>
-          </div>
 
-          {onRefreshFromFile && (
-            <button
-              onClick={() => onRefreshFromFile()}
-              disabled={isLoadingFile}
-              className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 active:scale-95 text-white text-xs font-bold transition shadow-md shadow-orange-950/50 disabled:opacity-50 cursor-pointer self-start sm:self-auto"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoadingFile ? 'animate-spin' : ''}`} />
-              <span>{isLoadingFile ? 'Lecture en cours...' : 'Recharger le fichier maintenant'}</span>
-            </button>
-          )}
-        </div>
-
-        {/* Grille explicative des 2 cycles indispensables */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 bg-[#11141a] rounded-2xl border border-[#232934] space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white text-xs flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
-                Cycle Hebdomadaire : Résultats & Rencontres
-              </span>
-              <span className="text-[10px] text-blue-300 font-semibold px-2 py-0.5 bg-blue-500/10 rounded-full border border-blue-500/20">
-                Chaque Lundi
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400 leading-relaxed">
-              Dès que les matchs du week-end sont terminés, les résultats et scores sont mis à jour dans le fichier. L'application met à jour les victoires, défaites et classements de division.
-            </p>
-          </div>
-
-          <div className="p-4 bg-[#11141a] rounded-2xl border border-orange-500/30 bg-orange-950/10 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white text-xs flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#E65100]"></span>
-                Cycle Mensuel : Nouveaux Classements FFT
-              </span>
-              <span className="text-[10px] text-orange-300 font-semibold px-2 py-0.5 bg-orange-500/20 rounded-full border border-orange-500/30">
-                1er mardi du mois
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400 leading-relaxed">
-              La FFT révise les échelons le premier mardi de chaque mois. Prochaine parution : <strong className="text-white">{nextRanking.formattedDate}</strong>.
-            </p>
-            <div className="p-2 bg-black/40 rounded-xl text-[10px] text-orange-200">
-              ⚡ <strong>Impact Équipes :</strong> En cas de montée/descente, le classement de chaque joueur est actualisé et l'ordre des simples (Simple 1 &ge; Simple 2) est recalculé pour les rencontres suivantes.
-            </div>
-          </div>
-        </div>
-
-        {lastSyncTime && (
-          <p className="text-[11px] text-emerald-400 font-medium">
-            ✓ Dernière lecture réussie depuis le fichier : {lastSyncTime}
-          </p>
-        )}
-      </div>
-
-      {/* Module Hub Google Apps Script & Google Sheets */}
-      <div className="bg-[#161a22] p-5 sm:p-6 rounded-3xl border border-[#252b37] shadow-sm space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-950/50">
-              <FileSpreadsheet className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="font-heading font-black text-white text-base">
-                Connexion Google Sheets & Apps Script (Code.gs)
-              </h2>
-              <p className="text-xs text-zinc-400">
-                Synchronisez l'application avec votre classeur Google Sheets <code>Données_appli</code> (onglets 'Adhérents' et 'Rencontres').
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 self-start sm:self-auto flex-wrap">
-            {onOpenGsheetModal && (
+            {onRefreshFromFile && (
               <button
-                onClick={onOpenGsheetModal}
-                className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer"
+                onClick={() => onRefreshFromFile()}
+                disabled={isLoadingFile}
+                className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 active:scale-95 text-white text-xs font-bold transition shadow-md shadow-orange-950/50 disabled:opacity-50 cursor-pointer self-start sm:self-auto"
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span>Valider Colonnes GSheet</span>
+                <RefreshCw className={`w-4 h-4 ${isLoadingFile ? 'animate-spin' : ''}`} />
+                <span>{isLoadingFile ? 'Lecture en cours...' : 'Recharger le fichier maintenant'}</span>
               </button>
             )}
-
-            <button
-              onClick={onOpenScriptModal}
-              className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 text-[#FF6D00] border border-orange-500/40 text-xs font-bold transition cursor-pointer"
-            >
-              <Code2 className="w-4 h-4" />
-              <span>Voir & Copier Code.gs</span>
-            </button>
           </div>
-        </div>
 
-        {/* Structure officielle du classeur Données_appli */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 bg-[#11141a] rounded-2xl border border-[#232934] space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <h3 className="font-bold text-white text-xs">Onglet 1 : 'Adhérents' (66 colonnes)</h3>
+          {/* Grille explicative des 2 cycles indispensables */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-[#11141a] rounded-2xl border border-[#232934] space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-xs flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+                  Cycle Hebdomadaire : Résultats & Rencontres
+                </span>
+                <span className="text-[10px] text-blue-300 font-semibold px-2 py-0.5 bg-blue-500/10 rounded-full border border-blue-500/20">
+                  Chaque Lundi
+                </span>
               </div>
-              <span className="text-[10px] text-zinc-400">GSheet Données_appli</span>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Dès que les matchs du week-end sont terminés, les résultats et scores sont mis à jour dans le fichier. L'application met à jour les victoires, défaites et classements de division.
+              </p>
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Extraction automatique des colonnes clés : <em>Nom Prénom, Solde (&lt; 0 = dû), Civilité, Date Naiss., Licence, Millésime 2027, Dernier class., Tel, Email, Groupe</em>.
-            </p>
-            <div className="p-2.5 bg-black/40 rounded-xl text-[10px] font-mono text-zinc-300 leading-relaxed overflow-x-auto max-h-20 scrollbar-none">
-              Nom Prénom, Solde, Famille, Nom, Prénom, Civilité, Date Naiss., Age., Statut représentant légal, Nationalité, Adresse, CP, Ville, Pays, Téléphone Portable, Email, Licence, Millésime dernière Licence, Dernier class. tennis, Groupe enseignement, Compte Ten'UP...
-            </div>
-          </div>
 
-          <div className="p-4 bg-[#11141a] rounded-2xl border border-[#232934] space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#E65100]"></span>
-                <h3 className="font-bold text-white text-xs">Onglet 2 : 'Rencontres' (41 colonnes)</h3>
+            <div className="p-4 bg-[#11141a] rounded-2xl border border-orange-500/30 bg-orange-950/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-xs flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#E65100]"></span>
+                  Cycle Mensuel : Nouveaux Classements FFT
+                </span>
+                <span className="text-[10px] text-orange-300 font-semibold px-2 py-0.5 bg-orange-500/20 rounded-full border border-orange-500/30">
+                  1er mardi du mois
+                </span>
               </div>
-              <span className="text-[10px] text-zinc-400">GSheet Données_appli</span>
-            </div>
-            <p className="text-[11px] text-zinc-400">
-              Croisement officiel FFT 2027 : <em>Libellé & Sexe homologation, Catégorie d'âge (Seniors, +35, +45...), Équipe, Clubs, Score, Capitaine</em>.
-            </p>
-            <div className="p-2.5 bg-black/40 rounded-xl text-[10px] font-mono text-zinc-300 leading-relaxed overflow-x-auto max-h-20 scrollbar-none">
-              Niveau de l'homologation, Libellé de l'homologation, Sexe de l'homologation, Catégorie d'âge de l'homologation, Division, Poule, Numéro de l'équipe, Date de la rencontre, Journée n°, Club d'accueil nom, Club visiteur nom, Score, Nom capitaine, Portable capitaine, Mail capitaine...
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                La FFT révise les échelons le premier mardi de chaque mois. Prochaine parution : <strong className="text-white">{nextRanking.formattedDate}</strong>.
+              </p>
+              <div className="p-2 bg-black/40 rounded-xl text-[10px] text-orange-200">
+                ⚡ <strong>Impact Équipes :</strong> En cas de montée/descente, le classement de chaque joueur est actualisé et l'ordre des simples (Simple 1 &ge; Simple 2) est recalculé pour les rencontres suivantes.
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Formulaire de connexion dynamique avec l'URL déployée Apps Script */}
-        <form onSubmit={handleConnectGas} className="p-4 bg-[#11141a] rounded-2xl border border-[#232934] space-y-3">
-          <label className="block text-xs font-bold text-white">
-            Connecter une Web App Google Apps Script en direct
-          </label>
-          <p className="text-[11px] text-zinc-400">
-            Collez l'URL de votre Web App déployée (ex: <code>https://script.google.com/macros/s/.../exec</code>) pour charger vos adhérents et rencontres en direct :
-          </p>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="url"
-              value={gasUrl}
-              onChange={(e) => setGasUrl(e.target.value)}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className="flex-1 px-3.5 py-2 bg-[#181d26] text-xs text-white placeholder-zinc-500 rounded-xl border border-[#282f3d] focus:outline-none focus:border-[#E65100]"
-            />
-            <button
-              type="submit"
-              disabled={isSyncing || !gasUrl.trim()}
-              className="px-4 py-2 bg-[#E65100] hover:bg-[#FF6D00] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Synchronisation...' : 'Synchroniser'}</span>
-            </button>
-          </div>
-
-          {syncError && (
-            <p className="text-xs text-rose-400 font-semibold">{syncError}</p>
-          )}
 
           {lastSyncTime && (
             <p className="text-[11px] text-emerald-400 font-medium">
-              ✓ Données synchronisées avec succès le {lastSyncTime}
+              ✓ Dernière lecture réussie depuis le fichier : {lastSyncTime}
             </p>
           )}
-        </form>
-
-        <div className="flex justify-end">
-          <button
-            onClick={onResetData}
-            className="text-xs text-zinc-400 hover:text-orange-400 underline transition cursor-pointer"
-          >
-            Réinitialiser avec les données d'exemple Muzillac TC
-          </button>
         </div>
-
-      </div>
+      )}
 
     </div>
   );
