@@ -16,11 +16,14 @@ import {
   RefreshCw,
   Copy,
   Check,
-  MessageSquare
+  MessageSquare,
+  AlertCircle
 } from 'lucide-react';
 import { ClubInfo } from '../types/tennis';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
 import { GraduationCap, Euro, Edit3, Building, CreditCard } from 'lucide-react';
+import { getAccessToken, googleSignIn } from '../services/auth';
+import { saveClubInfoToSheet, TCM_DEFAULT_SHEET_ID } from '../services/googleSheets';
 
 interface InfosClubTabProps {
   clubInfo: ClubInfo;
@@ -66,10 +69,65 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
+  const [isPushingDirect, setIsPushingDirect] = useState(false);
+  const [directPushStatus, setDirectPushStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
   const handleConnectGas = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!gasUrl.trim()) return;
     await onSyncWithUrl(gasUrl.trim());
+  };
+
+  const handleDirectPush = async () => {
+    setIsPushingDirect(true);
+    setDirectPushStatus(null);
+    try {
+      let token = await getAccessToken();
+      if (!token) {
+        setDirectPushStatus({
+          type: 'info',
+          text: 'Connexion Google requise pour écrire dans votre classeur...',
+        });
+        const authRes = await googleSignIn();
+        if (authRes && authRes.accessToken) {
+          token = authRes.accessToken;
+        } else {
+          setDirectPushStatus({
+            type: 'error',
+            text: 'Connexion Google annulée.',
+          });
+          setIsPushingDirect(false);
+          return;
+        }
+      }
+
+      setDirectPushStatus({
+        type: 'info',
+        text: 'Écriture en cours dans votre Google Sheet (Bureau_Profs, Installations, Cotisations_Tarifs)...',
+      });
+
+      const res = await saveClubInfoToSheet(clubInfo, TCM_DEFAULT_SHEET_ID, token);
+      if (res.success) {
+        setDirectPushStatus({
+          type: 'success',
+          text: '✓ Vos données actuelles du club ont été écrites avec succès dans votre Google Sheet !',
+        });
+        setTimeout(() => setDirectPushStatus(null), 5000);
+      } else {
+        setDirectPushStatus({
+          type: 'error',
+          text: `Erreur d'écriture : ${res.error || 'Vérifiez les permissions du classeur'}`,
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setDirectPushStatus({
+        type: 'error',
+        text: `Erreur : ${err.message || "Échec d'envoi vers Google Sheets"}`,
+      });
+    } finally {
+      setIsPushingDirect(false);
+    }
   };
 
   return (
@@ -125,9 +183,41 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
                 <span>Modifier les données du club</span>
               </button>
             )}
+
+            {isBureauMember && (
+              <button
+                onClick={handleDirectPush}
+                disabled={isPushingDirect}
+                className="inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 hover:text-orange-300 border border-orange-500/40 text-xs font-bold transition cursor-pointer shadow-sm"
+                title="Pousser immédiatement les informations actuelles vers Google Sheets"
+              >
+                <Upload className={`w-3.5 h-3.5 ${isPushingDirect ? 'animate-bounce' : ''}`} />
+                <span>{isPushingDirect ? 'Écriture en cours...' : 'Pousser vers Google Sheets'}</span>
+              </button>
+            )}
             <span className="text-[10px] text-zinc-500 text-center">Accès adhérents TCM FFT</span>
           </div>
         </div>
+
+        {/* Message d'état pour la synchronisation directe Google Sheets */}
+        {directPushStatus && (
+          <div className={`mt-4 p-3 rounded-2xl text-xs flex items-center space-x-2 border animate-fadeIn ${
+            directPushStatus.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+              : directPushStatus.type === 'error'
+              ? 'bg-rose-950/80 border-rose-500/50 text-rose-300'
+              : 'bg-orange-950/80 border-orange-500/50 text-orange-200'
+          }`}>
+            {directPushStatus.type === 'success' ? (
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : directPushStatus.type === 'error' ? (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            ) : (
+              <RefreshCw className="w-4 h-4 text-orange-400 animate-spin shrink-0" />
+            )}
+            <span className="font-medium">{directPushStatus.text}</span>
+          </div>
+        )}
       </div>
 
       {/* Grille : Enseignants & Bureau */}

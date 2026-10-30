@@ -17,15 +17,21 @@ import {
   Check,
   Tag,
   CreditCard,
-  ExternalLink
+  ExternalLink,
+  Upload,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { ClubInfo, Enseignant, ClubTarif } from '../types/tennis';
+import { getAccessToken, googleSignIn } from '../services/auth';
+import { saveClubInfoToSheet, TCM_DEFAULT_SHEET_ID } from '../services/googleSheets';
 
 interface EditClubInfoModalProps {
   isOpen: boolean;
   onClose: () => void;
   clubInfo: ClubInfo;
   onSave: (updatedInfo: ClubInfo) => void;
+  selectedSpreadsheetId?: string | null;
 }
 
 // Fonction de salubrité : corrige automatiquement les tarifs mal étiquetés 'jeune' alors qu'ils mentionnent adulte/adhésion
@@ -49,7 +55,11 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   onClose,
   clubInfo,
   onSave,
+  selectedSpreadsheetId,
 }) => {
+  const [isPushingToGsheet, setIsPushingToGsheet] = useState(false);
+  const [pushStatusMessage, setPushStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
   const [formData, setFormData] = useState<ClubInfo>(() => ({
     ...clubInfo,
     enseignants: clubInfo.enseignants && clubInfo.enseignants.length > 0 
@@ -247,6 +257,68 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
       setSuccessSaved(false);
       onClose();
     }, 800);
+  };
+
+  const handlePushToGoogleSheets = async () => {
+    setIsPushingToGsheet(true);
+    setPushStatusMessage(null);
+    try {
+      const sanitized = {
+        ...formData,
+        tarifs: sanitizeClubTarifs(formData.tarifs),
+      };
+      // 1. Sauvegarde locale immédiate
+      onSave(sanitized);
+
+      // 2. Récupération ou demande du token OAuth Google
+      let token = await getAccessToken();
+      if (!token) {
+        setPushStatusMessage({
+          type: 'info',
+          text: 'Connexion Google requise. Veuillez sélectionner votre compte dans la fenêtre...',
+        });
+        const authRes = await googleSignIn();
+        if (authRes && authRes.accessToken) {
+          token = authRes.accessToken;
+        } else {
+          setPushStatusMessage({
+            type: 'error',
+            text: 'Connexion Google annulée. Les données restent sauvegardées en local.',
+          });
+          setIsPushingToGsheet(false);
+          return;
+        }
+      }
+
+      setPushStatusMessage({
+        type: 'info',
+        text: 'Écriture en cours dans les onglets Bureau_Profs, Installations et Cotisations_Tarifs...',
+      });
+
+      const res = await saveClubInfoToSheet(sanitized, selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID, token);
+      if (res.success) {
+        setPushStatusMessage({
+          type: 'success',
+          text: '✓ Vos données réelles ont été écrites avec succès dans votre Google Sheet !',
+        });
+        setTimeout(() => {
+          onClose();
+        }, 2500);
+      } else {
+        setPushStatusMessage({
+          type: 'error',
+          text: `Erreur d'écriture : ${res.error || 'Vérifiez les permissions de votre fichier'}`,
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setPushStatusMessage({
+        type: 'error',
+        text: `Erreur : ${err.message || "Échec d'écriture Google Sheets"}`,
+      });
+    } finally {
+      setIsPushingToGsheet(false);
+    }
   };
 
   return (
@@ -989,31 +1061,62 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
 
         </div>
 
+        {/* Message d'état pour la synchronisation Google Sheets */}
+        {pushStatusMessage && (
+          <div className={`mx-4 sm:mx-6 mb-3 p-3 rounded-2xl text-xs flex items-center space-x-2 border animate-fadeIn ${
+            pushStatusMessage.type === 'success'
+              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+              : pushStatusMessage.type === 'error'
+              ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              : 'bg-orange-950/60 border-orange-500/40 text-orange-200'
+          }`}>
+            {pushStatusMessage.type === 'success' ? (
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : pushStatusMessage.type === 'error' ? (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            ) : (
+              <RefreshCw className="w-4 h-4 text-orange-400 animate-spin shrink-0" />
+            )}
+            <span className="font-medium">{pushStatusMessage.text}</span>
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="p-4 sm:p-5 border-t border-[#232934] bg-[#11141a] flex items-center justify-between">
+        <div className="p-4 sm:p-5 border-t border-[#232934] bg-[#11141a] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer order-3 sm:order-1 text-center"
           >
             Annuler
           </button>
 
-          <button
-            onClick={handleSave}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 active:scale-95 text-white text-xs sm:text-sm font-black transition flex items-center gap-2 shadow-lg shadow-orange-950/60 cursor-pointer"
-          >
-            {successSaved ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400" />
-                <span>Enregistré avec succès !</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                <span>Enregistrer les informations</span>
-              </>
-            )}
-          </button>
+          <div className="flex flex-col sm:flex-row items-center gap-2 order-1 sm:order-2">
+            <button
+              onClick={handleSave}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Save className="w-4 h-4 text-zinc-400" />
+              <span>Enregistrer en local</span>
+            </button>
+
+            <button
+              onClick={handlePushToGoogleSheets}
+              disabled={isPushingToGsheet}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] via-[#E65100] to-[#FF6D00] hover:brightness-110 active:scale-95 text-white text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 shadow-lg shadow-orange-950/60 disabled:opacity-50 cursor-pointer"
+            >
+              {isPushingToGsheet ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Écriture dans Google Sheets...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  <span>Enregistrer & Pousser vers Google Sheets</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
       </div>

@@ -24,6 +24,7 @@ import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { 
   readBureauProfsFromSheet, 
   readInstallationsFromSheet, 
+  readTarifsFromSheet,
   saveClubInfoToSheet, 
   TCM_DEFAULT_SHEET_ID 
 } from './services/googleSheets';
@@ -230,15 +231,16 @@ export default function App() {
         // Optionnel si le fichier n'est pas encore téléversé séparément
       }
 
-      // 3. Chargement dynamique éventuel depuis Google Sheets des onglets Bureau_Profs et Installations
+      // 3. Chargement dynamique éventuel depuis Google Sheets des onglets Bureau_Profs, Installations et Cotisations_Tarifs
       try {
         const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
-        const [bureauData, installData] = await Promise.all([
+        const [bureauData, installData, tarifsData] = await Promise.all([
           readBureauProfsFromSheet(currentSheetId),
-          readInstallationsFromSheet(currentSheetId)
+          readInstallationsFromSheet(currentSheetId),
+          readTarifsFromSheet(currentSheetId)
         ]);
 
-        if (bureauData || installData) {
+        if (bureauData || installData || tarifsData) {
           setClubInfo(prev => {
             const updated = { ...prev };
             if (bureauData) {
@@ -265,13 +267,16 @@ export default function App() {
             if (installData && installData.length > 0) {
               updated.installations = installData;
             }
+            if (tarifsData && tarifsData.length > 0) {
+              updated.tarifs = tarifsData;
+            }
             const sanitized = sanitizeLoadedTarifs(updated);
             localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
             return sanitized;
           });
         }
       } catch (errDynamic) {
-        console.warn('Lecture dynamique Bureau_Profs/Installations (optionnel):', errDynamic);
+        console.warn('Lecture dynamique Bureau_Profs/Installations/Tarifs (optionnel):', errDynamic);
       }
 
       const now = new Date().toLocaleTimeString('fr-FR', { 
@@ -646,6 +651,7 @@ export default function App() {
         onClose={() => setIsEditClubModalOpen(false)}
         clubInfo={clubInfo}
         onSave={handleSaveClubInfo}
+        selectedSpreadsheetId={selectedSpreadsheetId}
       />
 
       {/* Visionneuse Code.gs Google Apps Script & Déploiement */}

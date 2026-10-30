@@ -1,4 +1,4 @@
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 
 export interface GoogleDriveFile {
@@ -549,6 +549,73 @@ export const INSTALLATIONS_HEADERS = [
   "Détails / Remarques"
 ];
 
+export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
+export const COTISATIONS_HEADERS = [
+  "Catégorie",
+  "Intitulé Formule / Tarif",
+  "Montant (€)",
+  "Description"
+];
+
+/**
+ * Lit l'onglet 'Cotisations_Tarifs' (ou 'Tarifs') depuis le Google Sheet
+ */
+export async function readTarifsFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  accessToken?: string
+): Promise<ClubTarif[] | null> {
+  try {
+    let rows = await fetchSheetTabValues(COTISATIONS_SHEET_TITLE, spreadsheetId);
+    if (!rows || rows.length <= 1) {
+      rows = await fetchSheetTabValues('Tarifs', spreadsheetId);
+    }
+    if (!rows || rows.length <= 1) return null;
+
+    const list: ClubTarif[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const rawCat = (r[0] || '').toLowerCase().trim();
+      const label = (r[1] || '').trim();
+      const rawMontant = (r[2] || '').trim();
+      const description = (r[3] || '').trim();
+
+      if (!label) continue;
+
+      const cleanMontant = rawMontant.replace('€', '').replace(/\s+/g, '').replace(',', '.');
+      const montant = parseFloat(cleanMontant) || 0;
+
+      let categorie: ClubTarif['categorie'] = 'adulte';
+      if (rawCat.includes('jeune') || rawCat.includes('enfant') || rawCat.includes('ado')) {
+        categorie = 'jeune';
+      } else if (rawCat.includes('compet') || rawCat.includes('compét')) {
+        categorie = 'competition';
+      } else if (rawCat.includes('adhes') || rawCat.includes('adhés') || rawCat.includes('libre')) {
+        categorie = 'adhesion';
+      } else {
+        categorie = 'adulte';
+      }
+
+      // Règle de salubrité : si le libellé mentionne explicitement adulte/senior/majeur, ne jamais laisser 'jeune'
+      if (categorie === 'jeune' && /adulte|senior|majeur/i.test(label)) {
+        categorie = /adh[eé]sion/i.test(label) && !/cours|collectif|entrain/i.test(label) ? 'adhesion' : 'adulte';
+      }
+
+      list.push({
+        id: `tarif-sheet-${i}`,
+        label,
+        montant,
+        categorie,
+        description: description || undefined,
+      });
+    }
+
+    return list.length > 0 ? list : null;
+  } catch (err) {
+    console.warn("Erreur lecture Cotisations_Tarifs depuis Google Sheet:", err);
+    return null;
+  }
+}
+
 /**
  * Lit l'onglet 'Bureau_Profs' depuis le Google Sheet
  */
@@ -663,8 +730,7 @@ export async function saveClubInfoToSheet(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     if (!accessToken) {
-      // Si pas d'authentification OAuth directe, on conserve en LocalStorage et on prévient
-      return { success: true };
+      return { success: false, error: 'NO_AUTH' };
     }
 
     // 1. Sauvegarde dans l'onglet Bureau_Profs
@@ -684,8 +750,19 @@ export async function saveClubInfoToSheet(
       ]))
     ];
 
-    const rangeBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:F${bureauRows.length}`);
+    // Nettoyage préalable pour éviter les lignes résiduelles
+    const clearBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:Z`);
     await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${clearBureau}:clear`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }
+    );
+
+    const rangeBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:F${bureauRows.length}`);
+    const resBureau = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeBureau}?valueInputOption=USER_ENTERED`,
       {
         method: 'PUT',
@@ -693,6 +770,10 @@ export async function saveClubInfoToSheet(
         body: JSON.stringify({ values: bureauRows }),
       }
     );
+    if (!resBureau.ok) {
+      const errText = await resBureau.text();
+      throw new Error(`Erreur écriture Bureau_Profs : ${errText}`);
+    }
 
     // 2. Sauvegarde dans l'onglet Installations
     await ensureSheetTab(spreadsheetId, INSTALLATIONS_SHEET_TITLE, INSTALLATIONS_HEADERS, accessToken);
@@ -708,8 +789,18 @@ export async function saveClubInfoToSheet(
       ]))
     ];
 
-    const rangeInstall = encodeURIComponent(`'${INSTALLATIONS_SHEET_TITLE}'!A1:F${installRows.length}`);
+    const clearInstall = encodeURIComponent(`'${INSTALLATIONS_SHEET_TITLE}'!A1:Z`);
     await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${clearInstall}:clear`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }
+    );
+
+    const rangeInstall = encodeURIComponent(`'${INSTALLATIONS_SHEET_TITLE}'!A1:F${installRows.length}`);
+    const resInstall = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeInstall}?valueInputOption=USER_ENTERED`,
       {
         method: 'PUT',
@@ -717,6 +808,48 @@ export async function saveClubInfoToSheet(
         body: JSON.stringify({ values: installRows }),
       }
     );
+    if (!resInstall.ok) {
+      const errText = await resInstall.text();
+      throw new Error(`Erreur écriture Installations : ${errText}`);
+    }
+
+    // 3. Sauvegarde dans l'onglet Cotisations_Tarifs
+    if (clubInfo.tarifs && clubInfo.tarifs.length > 0) {
+      await ensureSheetTab(spreadsheetId, COTISATIONS_SHEET_TITLE, COTISATIONS_HEADERS, accessToken);
+      const cotisRows: any[][] = [
+        COTISATIONS_HEADERS,
+        ...(clubInfo.tarifs.map(t => [
+          t.categorie === 'jeune' ? 'Jeune' : t.categorie === 'competition' ? 'Compétition' : t.categorie === 'adhesion' ? 'Adhésion' : 'Adulte',
+          t.label,
+          t.montant,
+          t.description || ""
+        ]))
+      ];
+
+      const clearCotis = encodeURIComponent(`'${COTISATIONS_SHEET_TITLE}'!A1:Z`);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${clearCotis}:clear`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+
+      const rangeCotis = encodeURIComponent(`'${COTISATIONS_SHEET_TITLE}'!A1:D${cotisRows.length}`);
+      const resCotis = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeCotis}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: cotisRows }),
+        }
+      );
+      if (!resCotis.ok) {
+        const errText = await resCotis.text();
+        throw new Error(`Erreur écriture Cotisations_Tarifs : ${errText}`);
+      }
+    }
 
     return { success: true };
   } catch (err: any) {
