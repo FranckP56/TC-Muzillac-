@@ -66,14 +66,59 @@ export function parseCSVToArray(text: string): string[][] {
 }
 
 /**
+ * Identifiants GID officiels de chaque onglet pour l'export direct CSV sans restriction CORS (ACAO: *)
+ */
+export const TCM_SHEET_GIDS: Record<string, string> = {
+  [ADHERENTS_SHEET_TITLE]: '0',
+  [BUREAU_PROFS_SHEET_TITLE]: '954852958',
+  [INSTALLATIONS_SHEET_TITLE]: '1891894449',
+  [COTISATIONS_SHEET_TITLE]: '51708128',
+  [RENCONTRES_SHEET_TITLE]: '1817189976',
+  'Capitaines': '1384186022',
+  [COMPOSITIONS_SHEET_TITLE]: '1060224133',
+};
+
+/**
  * Fonction universelle anti-cache pour récupérer le flux CSV d'un onglet public ou partagé (Vercel & Next.js compliant)
+ * Utilise en priorité l'export direct par GID pour garantir Access-Control-Allow-Origin: * dans tous les navigateurs.
  */
 export async function fetchSheetTabValues(tabName: string, sheetId: string = TCM_DEFAULT_SHEET_ID): Promise<string[][]> {
-  try {
-    const timestamp = Date.now();
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&_t=${timestamp}`;
+  const timestamp = Date.now();
+  const gid = TCM_SHEET_GIDS[tabName];
 
-    const response = await fetch(url, {
+  // 1. Priorité absolue : Export CSV direct par GID (garantit ACAO: * et évite tout blocage CORS sur Vercel)
+  if (gid !== undefined) {
+    try {
+      const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+      const response = await fetch(exportUrl, {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+          "Pragma": "no-cache",
+          "Expires": "0"
+        },
+        cache: "no-store",
+        // @ts-ignore
+        next: { revalidate: 0 }
+      });
+
+      if (response.ok) {
+        const csvText = await response.text();
+        const parsed = parseCSVToArray(csvText);
+        if (parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn(`[GoogleSheets] Échec export GID (${gid}) pour onglet ${tabName}, repli GViz:`, e);
+    }
+  }
+
+  // 2. Repli : Endpoint GViz TQ CSV
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&_t=${timestamp}`;
+
+    const response = await fetch(gvizUrl, {
       method: "GET",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
@@ -85,13 +130,18 @@ export async function fetchSheetTabValues(tabName: string, sheetId: string = TCM
       next: { revalidate: 0 }
     });
 
-    if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
-    const csvText = await response.text();
-    return parseCSVToArray(csvText);
+    if (response.ok) {
+      const csvText = await response.text();
+      const parsed = parseCSVToArray(csvText);
+      if (parsed.length > 0) {
+        return parsed;
+      }
+    }
   } catch (error) {
-    console.warn(`[GoogleSheets] Échec lecture CSV sur l'onglet ${tabName}:`, error);
-    return [];
+    console.warn(`[GoogleSheets] Échec lecture GViz CSV sur l'onglet ${tabName}:`, error);
   }
+
+  return [];
 }
 
 /**

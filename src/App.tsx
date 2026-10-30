@@ -19,6 +19,7 @@ import { SondageDisponibilitesModal } from './components/SondageDisponibilitesMo
 import { GsheetDataModal } from './components/GsheetDataModal';
 import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { User } from 'firebase/auth';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { initAuth, getAccessToken } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { 
@@ -143,12 +144,18 @@ export default function App() {
     return INITIAL_RENCONTRES;
   });
 
-  // Données officielles du club (avec 2 enseignants DE et BPJEPS, installations, tarifs assainis)
+  // Données officielles du club (chargées dynamiquement depuis Google Sheets)
   const [clubInfo, setClubInfo] = useState<ClubInfo>(() => {
     try {
       const saved = localStorage.getItem('tcm_club_info_v2');
       if (saved) {
-        return sanitizeLoadedTarifs(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Ne jamais réutiliser les vieilles données de test si elles contiennent l'ancien président ou enseignant factice
+        if (parsed.president === 'Laurent Le Guennec' || parsed.secretaire === 'Sophie Bourdon') {
+          localStorage.removeItem('tcm_club_info_v2');
+        } else {
+          return sanitizeLoadedTarifs(parsed);
+        }
       }
     } catch (e) {
       console.warn(e);
@@ -206,128 +213,100 @@ export default function App() {
     try {
       const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
 
-      // 1. Chargement systématique en temps réel et sans cache des Adhérents depuis Google Sheets
-      try {
-        const sheetAdherents = await readAdherentsFromSheet(currentSheetId);
-        if (sheetAdherents && sheetAdherents.length > 0) {
-          const sorted = sortAdherentsByRankingDesc(sheetAdherents);
-          setAdherents(sorted);
-          localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
-        } else {
-          const res = await fetch(`${REAL_DATA_FILE_URL}?_t=${Date.now()}`, { cache: 'no-store' });
-          if (res.ok) {
-            const text = await res.text();
-            if (text && text.trim().length > 0) {
-              const parsed = parseAdherentsCsv(text);
-              if (parsed.length > 0) {
-                const sorted = sortAdherentsByRankingDesc(parsed);
-                setAdherents(sorted);
-                localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
-              }
-            }
-          }
-        }
-      } catch (eAdh) {
-        console.warn("Échec chargement Adhérents Google Sheets, repli local:", eAdh);
+      // Chargement en parallèle de tous les 6 onglets du Google Sheet via les exports GID dédiés (sans restriction CORS)
+      const [sheetAdherents, sheetRencontres, compMap, bureauData, installData, tarifsData] = await Promise.all([
+        readAdherentsFromSheet(currentSheetId),
+        readRencontresFromSheet(currentSheetId),
+        readCompositionsFromSheet(currentSheetId),
+        readBureauProfsFromSheet(currentSheetId),
+        readInstallationsFromSheet(currentSheetId),
+        readTarifsFromSheet(currentSheetId)
+      ]);
+
+      const errorIssues: string[] = [];
+
+      // 1. Mise à jour des Adhérents réels
+      if (sheetAdherents && sheetAdherents.length > 0) {
+        const sorted = sortAdherentsByRankingDesc(sheetAdherents);
+        setAdherents(sorted);
+        localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
+      } else {
+        errorIssues.push("onglet 'Adhérents'");
       }
 
-      // 2. Chargement des Rencontres ET des Compositions d'équipes en direct depuis Google Sheets
-      try {
-        let sheetRencontres = await readRencontresFromSheet(currentSheetId);
-        if (!sheetRencontres || sheetRencontres.length === 0) {
-          try {
-            const resRec = await fetch(`${REAL_RENCONTRES_FILE_URL}?_t=${Date.now()}`, { cache: 'no-store' });
-            if (resRec.ok) {
-              const textRec = await resRec.text();
-              if (textRec && textRec.trim().length > 0) {
-                sheetRencontres = parseRencontresCsv(textRec);
+      // 2. Fusion des Rencontres réelles avec les Compositions d'équipes
+      if (sheetRencontres && sheetRencontres.length > 0) {
+        const mergedRencontres = sheetRencontres.map(r => {
+          const cleanId = normalizeSheetMatchKey(r.id);
+          const dateClean = normalizeSheetMatchKey(r.dateRencontre);
+          const eqClean = normalizeSheetMatchKey(r.numeroEquipe);
+          const compositeKey = `date_${dateClean}_eq_${eqClean}`;
+
+          const entry = compMap.get(r.id) || compMap.get(cleanId) || compMap.get(compositeKey);
+          if (entry && entry.composition) {
+            return {
+              ...r,
+              composition: {
+                ...r.composition,
+                ...entry.composition,
+                lieuRencontre: entry.composition.lieuRencontre || r.composition?.lieuRencontre,
+                heureDebut: entry.composition.heureDebut || r.composition?.heureDebut || '09:00',
+                nombreCourts: entry.composition.nombreCourts || r.composition?.nombreCourts || 2,
+                frozenPlayers: entry.frozenSlots || entry.composition.frozenPlayers || [],
               }
-            }
-          } catch {
-            // pas de fichier statique disponible
+            };
           }
-        }
+          return r;
+        });
 
-        // Lecture des compositions d'équipes officielles depuis l'onglet Compositions_Equipes
-        const compMap = await readCompositionsFromSheet(currentSheetId);
-
-        // Si nous avons des rencontres, on fusionne les compositions correspondantes
-        if (sheetRencontres && sheetRencontres.length > 0) {
-          const mergedRencontres = sheetRencontres.map(r => {
-            const cleanId = normalizeSheetMatchKey(r.id);
-            const dateClean = normalizeSheetMatchKey(r.dateRencontre);
-            const eqClean = normalizeSheetMatchKey(r.numeroEquipe);
-            const compositeKey = `date_${dateClean}_eq_${eqClean}`;
-
-            const entry = compMap.get(r.id) || compMap.get(cleanId) || compMap.get(compositeKey);
-            if (entry && entry.composition) {
-              return {
-                ...r,
-                composition: {
-                  ...r.composition,
-                  ...entry.composition,
-                  lieuRencontre: entry.composition.lieuRencontre || r.composition?.lieuRencontre,
-                  heureDebut: entry.composition.heureDebut || r.composition?.heureDebut || '09:00',
-                  nombreCourts: entry.composition.nombreCourts || r.composition?.nombreCourts || 2,
-                  frozenPlayers: entry.frozenSlots || entry.composition.frozenPlayers || [],
-                }
-              };
-            }
-            return r;
-          });
-
-          setRencontres(mergedRencontres);
-          localStorage.setItem('tcm_rencontres_v3', JSON.stringify(mergedRencontres));
-        }
-      } catch (eRenc) {
-        console.warn("Échec chargement Rencontres/Compositions Google Sheets:", eRenc);
+        setRencontres(mergedRencontres);
+        localStorage.setItem('tcm_rencontres_v3', JSON.stringify(mergedRencontres));
+      } else {
+        errorIssues.push("onglet 'Rencontres'");
       }
 
-      // 3. Chargement dynamique sans cache depuis Google Sheets des onglets Bureau_Profs, Installations et Cotisations_Tarifs
-      try {
-        const [bureauData, installData, tarifsData] = await Promise.all([
-          readBureauProfsFromSheet(currentSheetId),
-          readInstallationsFromSheet(currentSheetId),
-          readTarifsFromSheet(currentSheetId)
-        ]);
+      // 3. Mise à jour du Bureau, Enseignants, Installations et Tarifs réels
+      if (bureauData || installData || tarifsData) {
+        setClubInfo(prev => {
+          const updated = { ...prev };
+          if (bureauData) {
+            if (bureauData.president?.nom) {
+              updated.president = bureauData.president.nom;
+              if (bureauData.president.tel) updated.presidentTelephone = bureauData.president.tel;
+              if (bureauData.president.email) updated.presidentEmail = bureauData.president.email;
+            }
+            if (bureauData.secretaire?.nom) {
+              updated.secretaire = bureauData.secretaire.nom;
+              if (bureauData.secretaire.tel) updated.secretaireTelephone = bureauData.secretaire.tel;
+              if (bureauData.secretaire.email) updated.secretaireEmail = bureauData.secretaire.email;
+            }
+            if (bureauData.tresorier?.nom) {
+              updated.tresorier = bureauData.tresorier.nom;
+              if (bureauData.tresorier.tel) updated.tresorierTelephone = bureauData.tresorier.tel;
+              if (bureauData.tresorier.email) updated.tresorierEmail = bureauData.tresorier.email;
+            }
+            if (bureauData.enseignants && bureauData.enseignants.length > 0) {
+              updated.enseignants = bureauData.enseignants;
+              updated.enseignant = `${bureauData.enseignants[0].nomPrenom} (${bureauData.enseignants[0].diplome})`;
+            }
+          }
+          if (installData && installData.length > 0) {
+            updated.installations = installData;
+          }
+          if (tarifsData && tarifsData.length > 0) {
+            updated.tarifs = tarifsData;
+          }
+          const sanitized = sanitizeLoadedTarifs(updated);
+          localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
+          return sanitized;
+        });
+      }
 
-        if (bureauData || installData || tarifsData) {
-          setClubInfo(prev => {
-            const updated = { ...prev };
-            if (bureauData) {
-              if (bureauData.president?.nom) {
-                updated.president = bureauData.president.nom;
-                if (bureauData.president.tel) updated.presidentTelephone = bureauData.president.tel;
-                if (bureauData.president.email) updated.presidentEmail = bureauData.president.email;
-              }
-              if (bureauData.secretaire?.nom) {
-                updated.secretaire = bureauData.secretaire.nom;
-                if (bureauData.secretaire.tel) updated.secretaireTelephone = bureauData.secretaire.tel;
-                if (bureauData.secretaire.email) updated.secretaireEmail = bureauData.secretaire.email;
-              }
-              if (bureauData.tresorier?.nom) {
-                updated.tresorier = bureauData.tresorier.nom;
-                if (bureauData.tresorier.tel) updated.tresorierTelephone = bureauData.tresorier.tel;
-                if (bureauData.tresorier.email) updated.tresorierEmail = bureauData.tresorier.email;
-              }
-              if (bureauData.enseignants && bureauData.enseignants.length > 0) {
-                updated.enseignants = bureauData.enseignants;
-                updated.enseignant = `${bureauData.enseignants[0].nomPrenom} (${bureauData.enseignants[0].diplome})`;
-              }
-            }
-            if (installData && installData.length > 0) {
-              updated.installations = installData;
-            }
-            if (tarifsData && tarifsData.length > 0) {
-              updated.tarifs = tarifsData;
-            }
-            const sanitized = sanitizeLoadedTarifs(updated);
-            localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
-            return sanitized;
-          });
-        }
-      } catch (errDynamic) {
-        console.warn('Lecture dynamique Bureau_Profs/Installations/Tarifs (optionnel):', errDynamic);
+      // Si les données principales n'ont pas pu être reçues du tableur, afficher l'erreur explicite
+      if (errorIssues.length > 0) {
+        setFileLoadError(`Erreur de connexion avec le tableur Google : impossible de lire ${errorIssues.join(' et ')}. Vérifiez le partage du fichier.`);
+      } else {
+        setFileLoadError(null);
       }
 
       const now = new Date().toLocaleTimeString('fr-FR', { 
@@ -339,7 +318,7 @@ export default function App() {
       localStorage.setItem('tcm_last_sync_v2', now);
     } catch (err: any) {
       console.warn('Erreur lecture directe Données_appli:', err);
-      setFileLoadError(err.message || 'Erreur inconnue');
+      setFileLoadError(`Erreur de connexion avec le tableur Google (${err.message || 'accès réseau bloqué'}).`);
     } finally {
       setIsLoadingFile(false);
     }
@@ -544,6 +523,39 @@ export default function App() {
 
       {/* 2. CONTENU PRINCIPAL (ESPACEMENT SOUS LA NAV FIXE SUR 2 LIGNES) */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-28 sm:pt-32 pb-16">
+        
+        {/* BANNIÈRE D'ERREUR EXPLICITE SI LE TABLEUR GOOGLE EST INACCESSIBLE */}
+        {fileLoadError && (
+          <div className="mb-6 bg-rose-500/15 border-2 border-rose-500/40 rounded-2xl p-4 sm:p-5 text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-start sm:items-center space-x-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-500/25 border border-rose-500/40 flex items-center justify-center shrink-0 text-rose-400 font-bold">
+                <AlertTriangle className="w-6 h-6 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="font-heading font-black text-white text-base sm:text-lg flex items-center gap-2">
+                  <span>Erreur de connexion avec le tableur Google</span>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-500/25 text-rose-300 font-mono font-bold border border-rose-500/40">
+                    Données_appli
+                  </span>
+                </h3>
+                <p className="text-xs sm:text-sm text-rose-200/90 mt-0.5 leading-relaxed">
+                  {fileLoadError}
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  Les anciennes données factices ont été neutralisées. Aucune fausse information n'est affichée.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleLoadFromRealFile(false)}
+              disabled={isLoadingFile}
+              className="px-4 py-2.5 bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 shrink-0 cursor-pointer shadow-md disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFile ? 'animate-spin' : ''}`} />
+              <span>Réessayer la connexion</span>
+            </button>
+          </div>
+        )}
         
         {/* Onglet 'Rencontres' (Accessible à tous, avec boutons de composition pour Capitaines et Bureau) */}
         {activeTab === 'rencontres' && (

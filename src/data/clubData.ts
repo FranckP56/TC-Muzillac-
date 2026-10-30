@@ -17,48 +17,19 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   email: 'tennisclubmuzillac@gmail.com',
   telephone: '02 97 41 67 80',
   siteWeb: 'https://tennis-club-muzillac.fr',
-  president: 'Laurent Le Guennec',
-  presidentTelephone: '06 82 45 19 33',
-  presidentEmail: 'president.tcmuzillac@gmail.com',
-  secretaire: 'Sophie Bourdon',
-  secretaireTelephone: '06 74 12 88 50',
-  secretaireEmail: 'secretariat.tcmuzillac@gmail.com',
-  tresorier: 'Philippe Conan',
-  tresorierTelephone: '06 63 90 24 17',
-  tresorierEmail: 'tresorerie.tcmuzillac@gmail.com',
-  enseignant: 'Alexandre Rault (Diplômé d\'État)',
-  enseignants: [
-    {
-      id: 'prof-1',
-      nomPrenom: 'Alexandre Rault',
-      diplome: 'Diplômé d\'État (DE)',
-      telephone: '06 12 34 56 78',
-      email: 'alexandre.rault.tennis@gmail.com',
-      description: 'Responsable pédagogique, école de tennis compétition, équipes régionales et cours adultes.',
-    },
-    {
-      id: 'prof-2',
-      nomPrenom: 'Thomas Mercier',
-      diplome: 'BPJEPS Tennis',
-      telephone: '06 98 76 54 32',
-      email: 'thomas.mercier.tennis@gmail.com',
-      description: 'Enseignant Galaxie Tennis (moins de 10 ans), perfectionnement jeunes et cours collectifs adultes.',
-    },
-  ],
-  installations: [
-    '2 courts couverts en résine (Salle du Clos des Moines, Complexe du Chêne Rond)',
-    '2 courts extérieurs en béton poreux (Clos des Moines)',
-    '2 courts couverts empruntés à la Salle du TC Nivillac (en cas de 3 réceptions simultanées)',
-    'Club-house convivial avec vestiaires, douches et espace d\'accueil',
-    'Accès sécurisé par badge électronique et réservation Ten\'Up',
-  ],
-  tarifs: [
-    { id: 't1', label: 'Cotisation Jeune Galaxie (1h/semaine)', montant: 135, categorie: 'jeune', description: 'Licence FFT comprise' },
-    { id: 't2', label: 'École de Tennis Jeunes (1h30/semaine)', montant: 185, categorie: 'jeune', description: 'Licence FFT + entraînements' },
-    { id: 't3', label: 'Pôle Compétition Jeunes (2 x 1h30)', montant: 260, categorie: 'competition', description: 'Préparation championnats' },
-    { id: 't4', label: 'Cours Collectifs Adultes (1h30/semaine)', montant: 215, categorie: 'adulte', description: 'Licence FFT incluse' },
-    { id: 't5', label: 'Adhésion seule / Accès courts libre', montant: 110, categorie: 'adhesion', description: 'Accès 7j/7 + badge' },
-  ],
+  president: '',
+  presidentTelephone: '',
+  presidentEmail: '',
+  secretaire: '',
+  secretaireTelephone: '',
+  secretaireEmail: '',
+  tresorier: '',
+  tresorierTelephone: '',
+  tresorierEmail: '',
+  enseignant: '',
+  enseignants: [],
+  installations: [],
+  tarifs: [],
   horairesPermanence: 'Mercredi 14h-18h et Samedi 10h-12h au Club-house',
   modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
   helloAssoUrl: "https://www.helloasso.com/associations/tennis-club-muzillac",
@@ -244,10 +215,7 @@ export function parseAdherentsCsv(rawCsv: string): Adherent[] {
   return list;
 }
 
-/**
- * Données réelles complètes (159 adhérents) issues du fichier GSheet Données_appli officiel du TCM
- */
-export const INITIAL_ADHERENTS: Adherent[] = realAdherentsData as Adherent[];
+export const INITIAL_ADHERENTS: Adherent[] = [];
 
 /**
  * Parser complet pour le CSV brut de l'onglet 'Rencontres' du GSheet Données_appli (41 colonnes officielles)
@@ -384,7 +352,4 @@ export function parseRencontresCsv(rawCsv: string): Rencontre[] {
   return list;
 }
 
-/**
- * Rencontres officielles du TCM calquées sur les 41 colonnes réelles du GSheet Données_appli
- */
-export const INITIAL_RENCONTRES: Rencontre[] = realRencontresData as Rencontre[];
+export const INITIAL_RENCONTRES: Rencontre[] = [];
