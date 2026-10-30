@@ -26,7 +26,7 @@ import {
   readAdherentsFromSheet,
   readRencontresFromSheet,
   readCompositionsFromSheet,
-  readBureauProfsFromSheet, 
+  readBureauFromSheet, 
   readInstallationsFromSheet, 
   readTarifsFromSheet,
   saveClubInfoToSheet, 
@@ -218,7 +218,7 @@ export default function App() {
         readAdherentsFromSheet(currentSheetId),
         readRencontresFromSheet(currentSheetId),
         readCompositionsFromSheet(currentSheetId),
-        readBureauProfsFromSheet(currentSheetId),
+        readBureauFromSheet(currentSheetId),
         readInstallationsFromSheet(currentSheetId),
         readTarifsFromSheet(currentSheetId)
       ]);

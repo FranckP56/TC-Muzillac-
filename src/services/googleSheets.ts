@@ -12,7 +12,7 @@ export const TCM_DEFAULT_SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya8
 export const ADHERENTS_SHEET_TITLE = 'Adhérents';
 export const RENCONTRES_SHEET_TITLE = 'Rencontres';
 export const COMPOSITIONS_SHEET_TITLE = 'Compositions_Equipes';
-export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
+export const BUREAU_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 
@@ -70,11 +70,11 @@ export function parseCSVToArray(text: string): string[][] {
  */
 export const TCM_SHEET_GIDS: Record<string, string> = {
   [ADHERENTS_SHEET_TITLE]: '0',
-  [BUREAU_PROFS_SHEET_TITLE]: '954852958',
+  [BUREAU_SHEET_TITLE]: '954852958',
   [INSTALLATIONS_SHEET_TITLE]: '1891894449',
   [COTISATIONS_SHEET_TITLE]: '51708128',
   [RENCONTRES_SHEET_TITLE]: '1817189976',
-  'Capitaines': '1384186022',
+  [CAPITAINES_SHEET_TITLE]: '1384186022',
   [COMPOSITIONS_SHEET_TITLE]: '1060224133',
 };
 
@@ -195,7 +195,7 @@ export async function searchDonneesAppliFiles(accessToken?: string): Promise<Goo
  */
 export async function getSpreadsheetTabs(spreadsheetId: string = TCM_DEFAULT_SHEET_ID, accessToken?: string): Promise<string[]> {
   if (!accessToken) {
-    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
   }
 
   try {
@@ -207,13 +207,13 @@ export async function getSpreadsheetTabs(spreadsheetId: string = TCM_DEFAULT_SHE
     );
 
     if (!res.ok) {
-      return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+      return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
     }
 
     const data = await res.json();
     return (data.sheets || []).map((s: any) => s.properties?.title || '').filter(Boolean);
   } catch {
-    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
   }
 }
 
@@ -624,7 +624,7 @@ export async function saveCompositionToSheet(
  * =========================================================================
  */
 
-export const BUREAU_PROFS_HEADERS = [
+export const BUREAU_HEADERS = [
   "Rôle / Fonction",
   "Nom Prénom",
   "Diplôme / Titre",
@@ -721,7 +721,7 @@ export async function readBureauProfsFromSheet(
   enseignants: Enseignant[];
 } | null> {
   try {
-    const rows = await fetchSheetTabValues(BUREAU_PROFS_SHEET_TITLE, spreadsheetId);
+    const rows = await fetchSheetTabValues(BUREAU_SHEET_TITLE, spreadsheetId);
     if (!rows || rows.length <= 1) return null;
 
     let president = { nom: '', tel: '', email: '' };
@@ -826,9 +826,9 @@ export async function saveClubInfoToSheet(
     }
 
     // 1. Sauvegarde dans l'onglet Bureau_Profs
-    await ensureSheetTab(spreadsheetId, BUREAU_PROFS_SHEET_TITLE, BUREAU_PROFS_HEADERS, accessToken);
+    await ensureSheetTab(spreadsheetId, BUREAU_SHEET_TITLE, BUREAU_HEADERS, accessToken);
     const bureauRows: any[][] = [
-      BUREAU_PROFS_HEADERS,
+      BUREAU_HEADERS,
       ["Président", clubInfo.president, "Dirigeant", clubInfo.presidentTelephone || "", clubInfo.presidentEmail || "", "Direction du club"],
       ["Secrétaire", clubInfo.secretaire, "Dirigeante", clubInfo.secretaireTelephone || "", clubInfo.secretaireEmail || "", "Secrétariat et licences"],
       ["Trésorier", clubInfo.tresorier, "Dirigeant", clubInfo.tresorierTelephone || "", clubInfo.tresorierEmail || "", "Comptabilité et finances"],
@@ -843,7 +843,7 @@ export async function saveClubInfoToSheet(
     ];
 
     // Nettoyage préalable pour éviter les lignes résiduelles
-    const clearBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:Z`);
+    const clearBureau = encodeURIComponent(`'${BUREAU_SHEET_TITLE}'!A1:Z`);
     await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${clearBureau}:clear`,
       {
@@ -853,7 +853,7 @@ export async function saveClubInfoToSheet(
       }
     );
 
-    const rangeBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:F${bureauRows.length}`);
+    const rangeBureau = encodeURIComponent(`'${BUREAU_SHEET_TITLE}'!A1:F${bureauRows.length}`);
     const resBureau = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeBureau}?valueInputOption=USER_ENTERED`,
       {
