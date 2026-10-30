@@ -148,12 +148,57 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   const reqSex = getRequiredSex(rencontre);
 
-  // Dictionnaire des adhérents pour lookup rapide
+  // Dictionnaire des adhérents pour lookup rapide (par ID, licence, nom et joueurs gelés)
   const adherentsById = useMemo(() => {
     const map = new Map<string, Adherent>();
-    adherents.forEach(a => map.set(a.id, a));
+    
+    adherents.forEach(a => {
+      map.set(a.id, a);
+      if (a.licence) {
+        map.set(a.licence.trim(), a);
+        map.set(a.licence.replace(/\s+/g, ''), a);
+      }
+      if (a.nomPrenom) {
+        map.set(a.nomPrenom.trim(), a);
+        map.set(a.nomPrenom.toLowerCase().trim(), a);
+      }
+    });
+
+    // Ingestion des joueurs gelés dans la composition de cette rencontre
+    if (rencontre.composition?.frozenPlayers) {
+      rencontre.composition.frozenPlayers.forEach(fp => {
+        if (!map.has(fp.adherentId) && !map.has(fp.licence || '') && !map.has(fp.nomPrenom)) {
+          const synth: Adherent = {
+            id: fp.adherentId || fp.licence || fp.nomPrenom,
+            nomPrenom: fp.nomPrenom,
+            civilite: 'Monsieur',
+            dateNaissance: fp.dateNaissance || '',
+            typeLicence: fp.typeLicence || 'Licence C',
+            millesimeLicence: '2027',
+            soldeDu: 0,
+            telephonePortable: '',
+            email: '',
+            dernierClassTennis: fp.classementGele || 'NC',
+            meilleurClassTennis: fp.classementGele || 'NC',
+            licence: fp.licence || '',
+            ageSportif: fp.ageSportif || '',
+            groupeEnseignement: 'Compétition',
+            compteTenUp: 'Actif',
+            ville: 'Muzillac',
+            clubRattachement: 'MUZILLAC TENNIS CLUB',
+          };
+          map.set(synth.id, synth);
+          if (synth.licence) {
+            map.set(synth.licence.trim(), synth);
+            map.set(synth.licence.replace(/\s+/g, ''), synth);
+          }
+          map.set(synth.nomPrenom.trim(), synth);
+        }
+      });
+    }
+
     return map;
-  }, [adherents]);
+  }, [adherents, rencontre]);
 
   // Analyse du format de championnat officiel (Jeunes, Seniors+, Régional, Départemental)
   const compFormat: CompetitionFormatInfo = useMemo(() => {

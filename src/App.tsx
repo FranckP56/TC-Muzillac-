@@ -22,10 +22,14 @@ import { User } from 'firebase/auth';
 import { initAuth, getAccessToken } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { 
+  readAdherentsFromSheet,
+  readRencontresFromSheet,
+  readCompositionsFromSheet,
   readBureauProfsFromSheet, 
   readInstallationsFromSheet, 
   readTarifsFromSheet,
   saveClubInfoToSheet, 
+  normalizeSheetMatchKey,
   TCM_DEFAULT_SHEET_ID 
 } from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
@@ -200,40 +204,87 @@ export default function App() {
     setIsLoadingFile(true);
     setFileLoadError(null);
     try {
-      // 1. Chargement sans cache des adhérents
-      const res = await fetch(`${REAL_DATA_FILE_URL}?t=${Date.now()}`, { cache: 'no-store' });
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.trim().length > 0) {
-          const parsed = parseAdherentsCsv(text);
-          if (parsed.length > 0) {
-            const sorted = sortAdherentsByRankingDesc(parsed);
-            setAdherents(sorted);
-            localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
-          }
-        }
-      }
+      const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
 
-      // 2. Vérification présence éventuelle d'un fichier réel pour Rencontres
+      // 1. Chargement systématique en temps réel et sans cache des Adhérents depuis Google Sheets
       try {
-        const resRec = await fetch(`${REAL_RENCONTRES_FILE_URL}?t=${Date.now()}`, { cache: 'no-store' });
-        if (resRec.ok) {
-          const textRec = await resRec.text();
-          if (textRec && textRec.trim().length > 0) {
-            const parsedRec = parseRencontresCsv(textRec);
-            if (parsedRec.length > 0) {
-              setRencontres(parsedRec);
-              localStorage.setItem('tcm_rencontres_v3', JSON.stringify(parsedRec));
+        const sheetAdherents = await readAdherentsFromSheet(currentSheetId);
+        if (sheetAdherents && sheetAdherents.length > 0) {
+          const sorted = sortAdherentsByRankingDesc(sheetAdherents);
+          setAdherents(sorted);
+          localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
+        } else {
+          const res = await fetch(`${REAL_DATA_FILE_URL}?_t=${Date.now()}`, { cache: 'no-store' });
+          if (res.ok) {
+            const text = await res.text();
+            if (text && text.trim().length > 0) {
+              const parsed = parseAdherentsCsv(text);
+              if (parsed.length > 0) {
+                const sorted = sortAdherentsByRankingDesc(parsed);
+                setAdherents(sorted);
+                localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
+              }
             }
           }
         }
-      } catch {
-        // Optionnel si le fichier n'est pas encore téléversé séparément
+      } catch (eAdh) {
+        console.warn("Échec chargement Adhérents Google Sheets, repli local:", eAdh);
       }
 
-      // 3. Chargement dynamique éventuel depuis Google Sheets des onglets Bureau_Profs, Installations et Cotisations_Tarifs
+      // 2. Chargement des Rencontres ET des Compositions d'équipes en direct depuis Google Sheets
       try {
-        const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
+        let sheetRencontres = await readRencontresFromSheet(currentSheetId);
+        if (!sheetRencontres || sheetRencontres.length === 0) {
+          try {
+            const resRec = await fetch(`${REAL_RENCONTRES_FILE_URL}?_t=${Date.now()}`, { cache: 'no-store' });
+            if (resRec.ok) {
+              const textRec = await resRec.text();
+              if (textRec && textRec.trim().length > 0) {
+                sheetRencontres = parseRencontresCsv(textRec);
+              }
+            }
+          } catch {
+            // pas de fichier statique disponible
+          }
+        }
+
+        // Lecture des compositions d'équipes officielles depuis l'onglet Compositions_Equipes
+        const compMap = await readCompositionsFromSheet(currentSheetId);
+
+        // Si nous avons des rencontres, on fusionne les compositions correspondantes
+        if (sheetRencontres && sheetRencontres.length > 0) {
+          const mergedRencontres = sheetRencontres.map(r => {
+            const cleanId = normalizeSheetMatchKey(r.id);
+            const dateClean = normalizeSheetMatchKey(r.dateRencontre);
+            const eqClean = normalizeSheetMatchKey(r.numeroEquipe);
+            const compositeKey = `date_${dateClean}_eq_${eqClean}`;
+
+            const entry = compMap.get(r.id) || compMap.get(cleanId) || compMap.get(compositeKey);
+            if (entry && entry.composition) {
+              return {
+                ...r,
+                composition: {
+                  ...r.composition,
+                  ...entry.composition,
+                  lieuRencontre: entry.composition.lieuRencontre || r.composition?.lieuRencontre,
+                  heureDebut: entry.composition.heureDebut || r.composition?.heureDebut || '09:00',
+                  nombreCourts: entry.composition.nombreCourts || r.composition?.nombreCourts || 2,
+                  frozenPlayers: entry.frozenSlots || entry.composition.frozenPlayers || [],
+                }
+              };
+            }
+            return r;
+          });
+
+          setRencontres(mergedRencontres);
+          localStorage.setItem('tcm_rencontres_v3', JSON.stringify(mergedRencontres));
+        }
+      } catch (eRenc) {
+        console.warn("Échec chargement Rencontres/Compositions Google Sheets:", eRenc);
+      }
+
+      // 3. Chargement dynamique sans cache depuis Google Sheets des onglets Bureau_Profs, Installations et Cotisations_Tarifs
+      try {
         const [bureauData, installData, tarifsData] = await Promise.all([
           readBureauProfsFromSheet(currentSheetId),
           readInstallationsFromSheet(currentSheetId),

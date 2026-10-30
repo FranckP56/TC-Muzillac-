@@ -9,9 +9,12 @@ export interface GoogleDriveFile {
 }
 
 export const TCM_DEFAULT_SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
+export const ADHERENTS_SHEET_TITLE = 'Adhérents';
+export const RENCONTRES_SHEET_TITLE = 'Rencontres';
 export const COMPOSITIONS_SHEET_TITLE = 'Compositions_Equipes';
 export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
+export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 
 export const COMPOSITIONS_HEADERS = [
   "ID Rencontre",
@@ -37,6 +40,13 @@ export const COMPOSITIONS_HEADERS = [
 ];
 
 /**
+ * Normalisation insensible aux espaces, slashes et tirets pour garantir le matching d'identifiants
+ */
+export function normalizeSheetMatchKey(str: string): string {
+  return (str || '').toLowerCase().replace(/[\s\/\-_]/g, '');
+}
+
+/**
  * Parseur CSV robuste pour flux Google Sheets (GViz CSV)
  */
 export function parseCSVToArray(text: string): string[][] {
@@ -56,21 +66,23 @@ export function parseCSVToArray(text: string): string[][] {
 }
 
 /**
- * Fonction universelle anti-cache pour récupérer le flux CSV d'un onglet public ou partagé
+ * Fonction universelle anti-cache pour récupérer le flux CSV d'un onglet public ou partagé (Vercel & Next.js compliant)
  */
 export async function fetchSheetTabValues(tabName: string, sheetId: string = TCM_DEFAULT_SHEET_ID): Promise<string[][]> {
   try {
     const timestamp = Date.now();
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&t=${timestamp}`;
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&_t=${timestamp}`;
 
     const response = await fetch(url, {
       method: "GET",
       headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
         "Pragma": "no-cache",
         "Expires": "0"
       },
-      cache: "no-store"
+      cache: "no-store",
+      // @ts-ignore
+      next: { revalidate: 0 }
     });
 
     if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
@@ -293,7 +305,7 @@ export async function ensureCompositionsSheet(spreadsheetId: string, accessToken
 }
 
 /**
- * Lit les compositions enregistrées avec classements gelés
+ * Lit les compositions enregistrées avec classements gelés (Totalement anti-cache)
  */
 export async function readCompositionsFromSheet(
   spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
@@ -306,8 +318,18 @@ export async function readCompositionsFromSheet(
     if (accessToken) {
       const range = encodeURIComponent(`'${COMPOSITIONS_SHEET_TITLE}'!A1:T`);
       const res = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?_t=${Date.now()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          },
+          cache: 'no-store',
+          // @ts-ignore
+          next: { revalidate: 0 },
+        }
       );
       if (res.ok) {
         const data = await res.json();
@@ -324,6 +346,8 @@ export async function readCompositionsFromSheet(
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const matchId = String(row[0] || '').trim();
+      const dateVal = String(row[1] || '').trim();
+      const numEqVal = String(row[2] || '').trim();
       const poste = String(row[8] || '').trim();
       const nomPrenom = String(row[9] || '').trim();
       const licence = String(row[10] || '').trim();
@@ -357,6 +381,7 @@ export async function readCompositionsFromSheet(
           composition: {
             valideParCapitaine: valide,
             dateValidation: dateEnreg,
+            dateRencontreValidee: dateVal || undefined,
             heureDebut,
             lieuRencontre,
             nombreCourts,
@@ -364,12 +389,18 @@ export async function readCompositionsFromSheet(
           },
           frozenSlots: [],
         };
+        // Indexation multiple pour matching immédiat et infaillible
         map.set(matchId, entry);
+        map.set(normalizeSheetMatchKey(matchId), entry);
+        if (dateVal && numEqVal) {
+          map.set(`date_${normalizeSheetMatchKey(dateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
+        }
       }
 
+      const playerId = licence || nomPrenom;
       const slot: FrozenPlayerSlot = {
         poste,
-        adherentId: licence || nomPrenom,
+        adherentId: playerId,
         nomPrenom,
         licence,
         classementGele,
@@ -382,6 +413,18 @@ export async function readCompositionsFromSheet(
       if (entry.composition.frozenPlayers) {
         entry.composition.frozenPlayers.push(slot);
       }
+
+      // Assignation directe des slots sur l'objet composition
+      const normPoste = poste.toLowerCase();
+      if (normPoste.includes('simple 1') || normPoste === 's1') entry.composition.simple1Id = playerId;
+      else if (normPoste.includes('simple 2') || normPoste === 's2') entry.composition.simple2Id = playerId;
+      else if (normPoste.includes('simple 3') || normPoste === 's3') entry.composition.simple3Id = playerId;
+      else if (normPoste.includes('simple 4') || normPoste === 's4') entry.composition.simple4Id = playerId;
+      else if (normPoste.includes('simple 5') || normPoste === 's5') entry.composition.simple5Id = playerId;
+      else if (normPoste.includes('double 1') && (normPoste.includes('j1') || normPoste.endsWith('(j1)') || normPoste.includes('1)'))) entry.composition.double1Player1Id = playerId;
+      else if (normPoste.includes('double 1') && (normPoste.includes('j2') || normPoste.endsWith('(j2)') || normPoste.includes('2)'))) entry.composition.double1Player2Id = playerId;
+      else if (normPoste.includes('double 2') && (normPoste.includes('j1') || normPoste.endsWith('(j1)') || normPoste.includes('1)'))) entry.composition.double2Player1Id = playerId;
+      else if (normPoste.includes('double 2') && (normPoste.includes('j2') || normPoste.endsWith('(j2)') || normPoste.includes('2)'))) entry.composition.double2Player2Id = playerId;
     }
   } catch (err) {
     console.warn('Lecture compositions gelées:', err);
@@ -549,7 +592,6 @@ export const INSTALLATIONS_HEADERS = [
   "Détails / Remarques"
 ];
 
-export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 export const COTISATIONS_HEADERS = [
   "Catégorie",
   "Intitulé Formule / Tarif",
