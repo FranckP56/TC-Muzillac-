@@ -19,8 +19,14 @@ import { SondageDisponibilitesModal } from './components/SondageDisponibilitesMo
 import { GsheetDataModal } from './components/GsheetDataModal';
 import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { User } from 'firebase/auth';
-import { initAuth } from './services/auth';
+import { initAuth, getAccessToken } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
+import { 
+  readBureauProfsFromSheet, 
+  readInstallationsFromSheet, 
+  saveClubInfoToSheet, 
+  TCM_DEFAULT_SHEET_ID 
+} from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { 
@@ -224,6 +230,50 @@ export default function App() {
         // Optionnel si le fichier n'est pas encore téléversé séparément
       }
 
+      // 3. Chargement dynamique éventuel depuis Google Sheets des onglets Bureau_Profs et Installations
+      try {
+        const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
+        const [bureauData, installData] = await Promise.all([
+          readBureauProfsFromSheet(currentSheetId),
+          readInstallationsFromSheet(currentSheetId)
+        ]);
+
+        if (bureauData || installData) {
+          setClubInfo(prev => {
+            const updated = { ...prev };
+            if (bureauData) {
+              if (bureauData.president?.nom) {
+                updated.president = bureauData.president.nom;
+                if (bureauData.president.tel) updated.presidentTelephone = bureauData.president.tel;
+                if (bureauData.president.email) updated.presidentEmail = bureauData.president.email;
+              }
+              if (bureauData.secretaire?.nom) {
+                updated.secretaire = bureauData.secretaire.nom;
+                if (bureauData.secretaire.tel) updated.secretaireTelephone = bureauData.secretaire.tel;
+                if (bureauData.secretaire.email) updated.secretaireEmail = bureauData.secretaire.email;
+              }
+              if (bureauData.tresorier?.nom) {
+                updated.tresorier = bureauData.tresorier.nom;
+                if (bureauData.tresorier.tel) updated.tresorierTelephone = bureauData.tresorier.tel;
+                if (bureauData.tresorier.email) updated.tresorierEmail = bureauData.tresorier.email;
+              }
+              if (bureauData.enseignants && bureauData.enseignants.length > 0) {
+                updated.enseignants = bureauData.enseignants;
+                updated.enseignant = `${bureauData.enseignants[0].nomPrenom} (${bureauData.enseignants[0].diplome})`;
+              }
+            }
+            if (installData && installData.length > 0) {
+              updated.installations = installData;
+            }
+            const sanitized = sanitizeLoadedTarifs(updated);
+            localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
+            return sanitized;
+          });
+        }
+      } catch (errDynamic) {
+        console.warn('Lecture dynamique Bureau_Profs/Installations (optionnel):', errDynamic);
+      }
+
       const now = new Date().toLocaleTimeString('fr-FR', { 
         hour: '2-digit', 
         minute: '2-digit',
@@ -399,13 +449,15 @@ export default function App() {
   };
 
   // Sauvegarde des modifications du club (enseignants, installations, tarifs assainis, permanences)
-  const handleSaveClubInfo = (updatedInfo: ClubInfo) => {
+  const handleSaveClubInfo = async (updatedInfo: ClubInfo) => {
     const sanitized = sanitizeLoadedTarifs(updatedInfo);
     setClubInfo(sanitized);
     try {
       localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
+      const token = await getAccessToken();
+      await saveClubInfoToSheet(sanitized, selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID, token || undefined);
     } catch (e) {
-      console.warn(e);
+      console.warn('Erreur sauvegarde Google Sheets ClubInfo:', e);
     }
   };
 

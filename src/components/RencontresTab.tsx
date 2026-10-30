@@ -231,8 +231,47 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
   return (
     <div className="space-y-6">
+      
+      {/* En-tête de section avec synchronisation automatique FFT et Données_appli */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
+              Rencontres par Équipes
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
+              {filteredRencontres.length} match{filteredRencontres.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 text-[#FF6D00]" />
+            <span>Championnats Interclubs • Calendrier FFT officiel &amp; Gestion des compositions</span>
+          </p>
+        </div>
 
-       {/* Alerte Cycle des Mises à Jour & Règles FFT (Réservé au profil Admin) */}
+        {/* Badge de synchronisation automatique FFT & Données_appli (Visible uniquement pour Admin) */}
+        {userRole === 'admin' && (
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-sm">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Export FFT &amp; Données_appli synchronisés</span>
+            </div>
+
+            {onRefreshData && (
+              <button
+                onClick={onRefreshData}
+                disabled={isAutoSyncing}
+                className="p-2 rounded-xl bg-[#181d26] hover:bg-[#222938] text-zinc-300 hover:text-white border border-[#2b3547] transition cursor-pointer shadow-sm disabled:opacity-50"
+                title="Rafraîchir les rencontres"
+              >
+                <RefreshCw className={`w-4 h-4 ${isAutoSyncing ? 'animate-spin text-orange-400' : ''}`} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Alerte Cycle des Mises à Jour & Règles FFT (Réservé au profil Admin) */}
       {userRole === 'admin' && (() => {
         const nextRanking = getNextFftMonthlyRankingRelease();
         const weeklyInfo = getWeeklyScheduleInfo();

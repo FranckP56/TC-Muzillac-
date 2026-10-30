@@ -1,20 +1,67 @@
-// src/services/googleSheets.ts
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo } from '../types/tennis';
+import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
+
+export interface GoogleDriveFile {
+  id: string;
+  name: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+}
+
+export const TCM_DEFAULT_SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
+export const COMPOSITIONS_SHEET_TITLE = 'Compositions_Equipes';
+export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
+export const INSTALLATIONS_SHEET_TITLE = 'Installations';
+
+export const COMPOSITIONS_HEADERS = [
+  "ID Rencontre",
+  "Date Rencontre",
+  "Numéro Équipe",
+  "Homologation",
+  "Catégorie",
+  "Sexe",
+  "Club Accueil",
+  "Club Visiteur",
+  "Poste",
+  "Nom Prénom Joueur",
+  "N° Licence",
+  "Classement Gelé au Match",
+  "Date Naissance",
+  "Âge Sportif",
+  "Type Licence",
+  "Heure Début",
+  "Lieu Rencontre",
+  "Nombre Courts",
+  "Date Enregistrement",
+  "Validé par Capitaine"
+];
 
 /**
- * Service complet Google Sheets pour le TCM Muzillac
- * Intègre le système anti-cache Vercel et maintient les exports requis par les Modals
+ * Parseur CSV robuste pour flux Google Sheets (GViz CSV)
  */
-
-const SHEET_ID = "1FTYPkFaQM-S4UN5i8dL2zKZM4qZqHmckx-RmFxTya80";
-export const COMPOSITIONS_SHEET_TITLE = "Compo_Matchs";
+export function parseCSVToArray(text: string): string[][] {
+  if (!text) return [];
+  const lines = text.split(/\r\n|\n/);
+  return lines
+    .filter(line => line.trim() !== "")
+    .map(line => {
+      const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
+      return matches.map(val => {
+        return val
+          .replace(/^"|"$/g, '')
+          .replace(/""/g, '"')
+          .trim();
+      });
+    });
+}
 
 /**
- * Fonction universelle anti-cache pour récupérer le flux CSV d'un onglet
+ * Fonction universelle anti-cache pour récupérer le flux CSV d'un onglet public ou partagé
  */
-export async function fetchSheetTabValues(tabName: string): Promise<any[][]> {
+export async function fetchSheetTabValues(tabName: string, sheetId: string = TCM_DEFAULT_SHEET_ID): Promise<string[][]> {
   try {
     const timestamp = Date.now();
-    const url = `https://google.com{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&t=${timestamp}`;
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&t=${timestamp}`;
 
     const response = await fetch(url, {
       method: "GET",
@@ -30,69 +77,650 @@ export async function fetchSheetTabValues(tabName: string): Promise<any[][]> {
     const csvText = await response.text();
     return parseCSVToArray(csvText);
   } catch (error) {
-    console.error(`[GoogleSheets] Échec sur l'onglet ${tabName}:`, error);
+    console.warn(`[GoogleSheets] Échec lecture CSV sur l'onglet ${tabName}:`, error);
     return [];
   }
 }
 
 /**
- * Mappings pour correspondre aux fonctions attendues par GoogleSheetsSyncModal.tsx
+ * Recherche les classeurs Google Sheets correspondant à "Données_appli" sur Google Drive
  */
-export async function readAdherentsFromSheet(): Promise<any[][]> {
-  return await fetchSheetTabValues("Adhérents");
-}
+export async function searchDonneesAppliFiles(accessToken?: string): Promise<GoogleDriveFile[]> {
+  if (!accessToken) {
+    return [{ id: TCM_DEFAULT_SHEET_ID, name: "Données_appli" }];
+  }
 
-export async function readRencontresFromSheet(): Promise<any[][]> {
-  return await fetchSheetTabValues("Rencontres");
-}
-
-export async function readCompositionsFromSheet(): Promise<any[][]> {
-  return await fetchSheetTabValues(COMPOSITIONS_SHEET_TITLE);
-}
-
-/**
- * Simule la recherche de fichiers (requis par le modal de synchronisation)
- */
-export async function searchDonneesAppliFiles(): Promise<Array<{ id: string; name: string }>> {
-  return [{ id: SHEET_ID, name: "Données_appli" }];
-}
-
-/**
- * Simule la récupération des onglets disponibles (requis par le modal)
- */
-export async function getSpreadsheetTabs(): Promise<string[]> {
-  return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE];
-}
-
-/**
- * Sauvegarde des feuilles de compositions (requis par CompositionModal.tsx)
- */
-export async function saveCompositionToSheet(idMatch: string | number, payload: any): Promise<{ success: boolean; error?: string }> {
   try {
-    const googleMacroUrl = `https://google.com`;
-    await fetch(googleMacroUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idMatch, ...payload })
-    });
-    return { success: true };
-  } catch (error: any) {
-    console.error("[GoogleSheets] Échec de la sauvegarde:", error);
-    return { success: false, error: error.message };
+    const query = encodeURIComponent("name contains 'Données_appli' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,modifiedTime,webViewLink)&orderBy=modifiedTime desc&pageSize=10`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        return data.files;
+      }
+    }
+
+    const fallbackQuery = encodeURIComponent("name contains 'Donn' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const fallbackRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${fallbackQuery}&fields=files(id,name,modifiedTime,webViewLink)&orderBy=modifiedTime desc&pageSize=10`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (fallbackRes.ok) {
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData.files && fallbackData.files.length > 0) {
+        return fallbackData.files;
+      }
+    }
+
+    return [{ id: TCM_DEFAULT_SHEET_ID, name: "Données_appli" }];
+  } catch (error) {
+    console.error('Erreur recherche Données_appli:', error);
+    return [{ id: TCM_DEFAULT_SHEET_ID, name: "Données_appli" }];
   }
 }
 
 /**
- * Parseur CSV robuste
+ * Récupère la liste des onglets d'un tableur Google Sheets
  */
-function parseCSVToArray(text: string): any[][] {
-  if (!text) return [];
-  const lines = text.split(/\r\n|\n/);
-  return lines
-    .filter(line => line.trim() !== "")
-    .map(line => {
-      const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
-      return matches.map(val => val.replace(/^"|"$/g, '').trim());
+export async function getSpreadsheetTabs(spreadsheetId: string = TCM_DEFAULT_SHEET_ID, accessToken?: string): Promise<string[]> {
+  if (!accessToken) {
+    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+  }
+
+  try {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!res.ok) {
+      return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+    }
+
+    const data = await res.json();
+    return (data.sheets || []).map((s: any) => s.properties?.title || '').filter(Boolean);
+  } catch {
+    return ["Adhérents", "Rencontres", COMPOSITIONS_SHEET_TITLE, BUREAU_PROFS_SHEET_TITLE, INSTALLATIONS_SHEET_TITLE];
+  }
+}
+
+/**
+ * Lit les adhérents directement dans l'onglet 'Adhérents'
+ */
+export async function readAdherentsFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID, 
+  accessToken?: string,
+  sheetTitle: string = 'Adhérents'
+): Promise<Adherent[]> {
+  let rows: string[][] = [];
+
+  if (accessToken) {
+    try {
+      const range = encodeURIComponent(`'${sheetTitle}'!A1:ZZ`);
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        rows = data.values || [];
+      }
+    } catch (e) {
+      console.warn("Échec lecture adhérents via API, tentative GViz...", e);
+    }
+  }
+
+  if (rows.length === 0) {
+    rows = await fetchSheetTabValues(sheetTitle, spreadsheetId);
+  }
+
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map(h => String(h || '').trim());
+  const adherents: Adherent[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const parsed = parseAdherentRow(rows[i], headers, i);
+    if (parsed) adherents.push(parsed);
+  }
+
+  return adherents;
+}
+
+/**
+ * Lit les rencontres directement dans l'onglet 'Rencontres'
+ */
+export async function readRencontresFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID, 
+  accessToken?: string,
+  sheetTitle: string = 'Rencontres'
+): Promise<Rencontre[]> {
+  let rows: string[][] = [];
+
+  if (accessToken) {
+    try {
+      const range = encodeURIComponent(`'${sheetTitle}'!A1:ZZ`);
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        rows = data.values || [];
+      }
+    } catch (e) {
+      console.warn("Échec lecture rencontres via API, tentative GViz...", e);
+    }
+  }
+
+  if (rows.length === 0) {
+    rows = await fetchSheetTabValues(sheetTitle, spreadsheetId);
+  }
+
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map(h => String(h || '').trim());
+  const rencontres: Rencontre[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const parsed = parseRencontreRow(rows[i], headers, i);
+    if (parsed) rencontres.push(parsed);
+  }
+
+  return rencontres;
+}
+
+/**
+ * S'assure qu'un onglet existe dans le Google Sheet
+ */
+export async function ensureSheetTab(spreadsheetId: string, sheetTitle: string, headers: string[], accessToken: string): Promise<void> {
+  const tabs = await getSpreadsheetTabs(spreadsheetId, accessToken);
+  if (tabs.includes(sheetTitle)) return;
+
+  const addSheetRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetTitle,
+                gridProperties: { frozenRowCount: 1 },
+                tabColor: { red: 0.9, green: 0.32, blue: 0.0 },
+              },
+            },
+          },
+        ],
+      }),
+    }
+  );
+
+  if (addSheetRes.ok && headers.length > 0) {
+    const range = encodeURIComponent(`'${sheetTitle}'!A1:ZZ1`);
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: [headers] }),
+      }
+    );
+  }
+}
+
+export async function ensureCompositionsSheet(spreadsheetId: string, accessToken: string): Promise<void> {
+  return ensureSheetTab(spreadsheetId, COMPOSITIONS_SHEET_TITLE, COMPOSITIONS_HEADERS, accessToken);
+}
+
+/**
+ * Lit les compositions enregistrées avec classements gelés
+ */
+export async function readCompositionsFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  accessToken?: string
+): Promise<Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }>> {
+  const map = new Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }>();
+
+  try {
+    let rows: string[][] = [];
+    if (accessToken) {
+      const range = encodeURIComponent(`'${COMPOSITIONS_SHEET_TITLE}'!A1:T`);
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        rows = data.values || [];
+      }
+    }
+
+    if (rows.length === 0) {
+      rows = await fetchSheetTabValues(COMPOSITIONS_SHEET_TITLE, spreadsheetId);
+    }
+
+    if (rows.length <= 1) return map;
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const matchId = String(row[0] || '').trim();
+      const poste = String(row[8] || '').trim();
+      const nomPrenom = String(row[9] || '').trim();
+      const licence = String(row[10] || '').trim();
+      const classementGele = String(row[11] || '').trim();
+      const dateNaissance = String(row[12] || '').trim();
+      const ageSportif = String(row[13] || '').trim();
+      const typeLicence = String(row[14] || '').trim();
+      
+      let heureDebut = '09:00';
+      let lieuRencontre = 'Clos des Moines (Muzillac)';
+      let nombreCourts = 2;
+      let dateEnreg = '';
+      let valide = false;
+
+      if (row.length > 17) {
+        heureDebut = String(row[15] || '09:00').trim();
+        lieuRencontre = String(row[16] || 'Clos des Moines (Muzillac)').trim();
+        nombreCourts = parseInt(String(row[17]), 10) || 2;
+        dateEnreg = String(row[18] || '').trim();
+        valide = String(row[19] || '').toLowerCase() === 'oui' || String(row[19] || '').toLowerCase() === 'true';
+      } else {
+        dateEnreg = String(row[15] || '').trim();
+        valide = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
+      }
+
+      if (!matchId || !poste || !nomPrenom) continue;
+
+      let entry = map.get(matchId);
+      if (!entry) {
+        entry = {
+          composition: {
+            valideParCapitaine: valide,
+            dateValidation: dateEnreg,
+            heureDebut,
+            lieuRencontre,
+            nombreCourts,
+            frozenPlayers: [],
+          },
+          frozenSlots: [],
+        };
+        map.set(matchId, entry);
+      }
+
+      const slot: FrozenPlayerSlot = {
+        poste,
+        adherentId: licence || nomPrenom,
+        nomPrenom,
+        licence,
+        classementGele,
+        dateNaissance,
+        ageSportif,
+        typeLicence,
+      };
+
+      entry.frozenSlots.push(slot);
+      if (entry.composition.frozenPlayers) {
+        entry.composition.frozenPlayers.push(slot);
+      }
+    }
+  } catch (err) {
+    console.warn('Lecture compositions gelées:', err);
+  }
+
+  return map;
+}
+
+/**
+ * Enregistre définitivement une composition d'équipe
+ */
+export async function saveCompositionToSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  rencontre: Rencontre,
+  composition: MatchComposition,
+  adherentsById: Map<string, Adherent>,
+  accessToken?: string
+): Promise<{ success: boolean; rowsSaved: number; error?: string }> {
+  try {
+    const now = new Date().toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
     });
+
+    const slotsToSave: { poste: string; playerId?: string }[] = [
+      { poste: 'Simple 1', playerId: composition.simple1Id },
+      { poste: 'Simple 2', playerId: composition.simple2Id },
+      { poste: 'Simple 3', playerId: composition.simple3Id },
+      { poste: 'Simple 4', playerId: composition.simple4Id },
+      { poste: 'Simple 5', playerId: composition.simple5Id },
+      { poste: 'Double 1 (J1)', playerId: composition.double1Player1Id },
+      { poste: 'Double 1 (J2)', playerId: composition.double1Player2Id },
+      { poste: 'Double 2 (J1)', playerId: composition.double2Player1Id },
+      { poste: 'Double 2 (J2)', playerId: composition.double2Player2Id },
+    ];
+
+    const newRows: any[][] = [];
+    const frozenList: FrozenPlayerSlot[] = [];
+
+    for (const item of slotsToSave) {
+      if (!item.playerId) continue;
+      const player = adherentsById.get(item.playerId);
+      if (!player) continue;
+
+      const classementGele = player.dernierClassTennis || 'NC';
+      const licence = player.licence || '';
+      const dateNaiss = player.dateNaissance || '';
+      const ageSportif = player.ageSportif || '';
+      const typeLicence = player.typeLicence || '';
+
+      frozenList.push({
+        poste: item.poste,
+        adherentId: player.id,
+        nomPrenom: player.nomPrenom,
+        licence,
+        classementGele,
+        dateNaissance: dateNaiss,
+        ageSportif,
+        typeLicence,
+      });
+
+      newRows.push([
+        rencontre.id,
+        composition.dateRencontreValidee || rencontre.dateRencontre,
+        rencontre.numeroEquipe,
+        rencontre.libelleHomologation || '',
+        rencontre.categorieAgeHomologation || '',
+        rencontre.sexeHomologation || '',
+        rencontre.clubAccueilNom || '',
+        rencontre.clubVisiteurNom || '',
+        item.poste,
+        player.nomPrenom,
+        licence,
+        classementGele,
+        dateNaiss,
+        ageSportif,
+        typeLicence,
+        composition.heureDebut || '09:00',
+        composition.lieuRencontre || 'Clos des Moines (Muzillac)',
+        composition.nombreCourts || 2,
+        composition.dateValidation || now,
+        composition.valideParCapitaine ? 'OUI' : 'NON',
+      ]);
+    }
+
+    if (newRows.length === 0) {
+      return { success: false, rowsSaved: 0, error: 'Aucun joueur désigné' };
+    }
+
+    if (accessToken) {
+      await ensureCompositionsSheet(spreadsheetId, accessToken);
+      const readRange = encodeURIComponent(`'${COMPOSITIONS_SHEET_TITLE}'!A1:T`);
+      const currentSheetRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${readRange}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      let existingRows: any[][] = [];
+      if (currentSheetRes.ok) {
+        const currentData = await currentSheetRes.json();
+        existingRows = currentData.values || [];
+      }
+
+      const headerRow = existingRows.length > 0 ? existingRows[0] : COMPOSITIONS_HEADERS;
+      const filteredRows = existingRows.slice(1).filter(r => String(r[0] || '').trim() !== String(rencontre.id).trim());
+      const allUpdatedRows = [headerRow, ...filteredRows, ...newRows];
+
+      const clearRange = encodeURIComponent(`'${COMPOSITIONS_SHEET_TITLE}'!A1:T`);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${clearRange}:clear`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      const writeRange = encodeURIComponent(`'${COMPOSITIONS_SHEET_TITLE}'!A1:T${allUpdatedRows.length}`);
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${writeRange}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: allUpdatedRows }),
+        }
+      );
+    }
+
+    composition.frozenPlayers = frozenList;
+    return { success: true, rowsSaved: newRows.length };
+  } catch (error: any) {
+    console.error('[GoogleSheets] Erreur saveComposition:', error);
+    return { success: false, rowsSaved: 0, error: error.message };
+  }
+}
+
+/**
+ * =========================================================================
+ * NOUVEAUX ONGLETS DYNAMIQUES : BUREAU_PROFS & INSTALLATIONS
+ * =========================================================================
+ */
+
+export const BUREAU_PROFS_HEADERS = [
+  "Rôle / Fonction",
+  "Nom Prénom",
+  "Diplôme / Titre",
+  "Téléphone",
+  "Email",
+  "Description / Missions"
+];
+
+export const INSTALLATIONS_HEADERS = [
+  "Nom Installation",
+  "Type Court",
+  "Surface",
+  "Éclairage",
+  "Adresse / Lieu",
+  "Détails / Remarques"
+];
+
+/**
+ * Lit l'onglet 'Bureau_Profs' depuis le Google Sheet
+ */
+export async function readBureauProfsFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  accessToken?: string
+): Promise<{
+  president?: { nom: string; tel?: string; email?: string };
+  secretaire?: { nom: string; tel?: string; email?: string };
+  tresorier?: { nom: string; tel?: string; email?: string };
+  enseignants: Enseignant[];
+} | null> {
+  try {
+    const rows = await fetchSheetTabValues(BUREAU_PROFS_SHEET_TITLE, spreadsheetId);
+    if (!rows || rows.length <= 1) return null;
+
+    let president = { nom: '', tel: '', email: '' };
+    let secretaire = { nom: '', tel: '', email: '' };
+    let tresorier = { nom: '', tel: '', email: '' };
+    const enseignants: Enseignant[] = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const role = (r[0] || '').toLowerCase().trim();
+      const nomPrenom = (r[1] || '').trim();
+      const diplome = (r[2] || '').trim();
+      const tel = (r[3] || '').trim();
+      const email = (r[4] || '').trim();
+      const desc = (r[5] || '').trim();
+
+      if (!nomPrenom) continue;
+
+      if (role.includes('presid') || role.includes('présid')) {
+        president = { nom: nomPrenom, tel, email };
+      } else if (role.includes('secr')) {
+        secretaire = { nom: nomPrenom, tel, email };
+      } else if (role.includes('trésor') || role.includes('tresor')) {
+        tresorier = { nom: nomPrenom, tel, email };
+      } else if (role.includes('prof') || role.includes('enseign') || role.includes('coach') || diplome) {
+        enseignants.push({
+          id: `prof-${i}`,
+          nomPrenom,
+          diplome: diplome || "Diplômé d'État (DE)",
+          telephone: tel,
+          email,
+          description: desc,
+        });
+      }
+    }
+
+    return {
+      president: president.nom ? president : undefined,
+      secretaire: secretaire.nom ? secretaire : undefined,
+      tresorier: tresorier.nom ? tresorier : undefined,
+      enseignants,
+    };
+  } catch (err) {
+    console.warn("Erreur lecture Bureau_Profs depuis Google Sheet:", err);
+    return null;
+  }
+}
+
+/**
+ * Lit l'onglet 'Installations' depuis le Google Sheet
+ */
+export async function readInstallationsFromSheet(
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  accessToken?: string
+): Promise<string[] | null> {
+  try {
+    const rows = await fetchSheetTabValues(INSTALLATIONS_SHEET_TITLE, spreadsheetId);
+    if (!rows || rows.length <= 1) return null;
+
+    const list: string[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const nom = (r[0] || '').trim();
+      const type = (r[1] || '').trim();
+      const surface = (r[2] || '').trim();
+      const lieu = (r[4] || '').trim();
+      const details = (r[5] || '').trim();
+
+      if (!nom) continue;
+
+      let label = nom;
+      if (surface || type) {
+        label += ` (${[type, surface].filter(Boolean).join(', ')})`;
+      }
+      if (lieu) {
+        label += ` - ${lieu}`;
+      }
+      if (details) {
+        label += ` [${details}]`;
+      }
+      list.push(label);
+    }
+
+    return list.length > 0 ? list : null;
+  } catch (err) {
+    console.warn("Erreur lecture Installations depuis Google Sheet:", err);
+    return null;
+  }
+}
+
+/**
+ * Enregistre les informations du club dans Google Sheets via API REST ou webhook Apps Script
+ */
+export async function saveClubInfoToSheet(
+  clubInfo: ClubInfo,
+  spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
+  accessToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!accessToken) {
+      // Si pas d'authentification OAuth directe, on conserve en LocalStorage et on prévient
+      return { success: true };
+    }
+
+    // 1. Sauvegarde dans l'onglet Bureau_Profs
+    await ensureSheetTab(spreadsheetId, BUREAU_PROFS_SHEET_TITLE, BUREAU_PROFS_HEADERS, accessToken);
+    const bureauRows: any[][] = [
+      BUREAU_PROFS_HEADERS,
+      ["Président", clubInfo.president, "Dirigeant", clubInfo.presidentTelephone || "", clubInfo.presidentEmail || "", "Direction du club"],
+      ["Secrétaire", clubInfo.secretaire, "Dirigeante", clubInfo.secretaireTelephone || "", clubInfo.secretaireEmail || "", "Secrétariat et licences"],
+      ["Trésorier", clubInfo.tresorier, "Dirigeant", clubInfo.tresorierTelephone || "", clubInfo.tresorierEmail || "", "Comptabilité et finances"],
+      ...((clubInfo.enseignants || []).map(p => [
+        "Enseignant",
+        p.nomPrenom,
+        p.diplome,
+        p.telephone || "",
+        p.email || "",
+        p.description || ""
+      ]))
+    ];
+
+    const rangeBureau = encodeURIComponent(`'${BUREAU_PROFS_SHEET_TITLE}'!A1:F${bureauRows.length}`);
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeBureau}?valueInputOption=USER_ENTERED`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: bureauRows }),
+      }
+    );
+
+    // 2. Sauvegarde dans l'onglet Installations
+    await ensureSheetTab(spreadsheetId, INSTALLATIONS_SHEET_TITLE, INSTALLATIONS_HEADERS, accessToken);
+    const installRows: any[][] = [
+      INSTALLATIONS_HEADERS,
+      ...((clubInfo.installations || []).map(inst => [
+        inst,
+        "Tennis",
+        "Résine / Béton",
+        "Oui",
+        "Complexe Chêne Rond / Clos des Moines",
+        ""
+      ]))
+    ];
+
+    const rangeInstall = encodeURIComponent(`'${INSTALLATIONS_SHEET_TITLE}'!A1:F${installRows.length}`);
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${rangeInstall}?valueInputOption=USER_ENTERED`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: installRows }),
+      }
+    );
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Erreur saveClubInfoToSheet:", err);
+    return { success: false, error: err.message };
+  }
 }
