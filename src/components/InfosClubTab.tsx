@@ -232,7 +232,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
               </div>
               <div>
                 <h2 className="font-heading font-black text-white text-base">
-                  Enseignants Professionnels ({clubInfo.enseignants?.length || 2})
+                  Enseignants Professionnels ({clubInfo.enseignants?.length || 0})
                 </h2>
                 <p className="text-[11px] text-zinc-400">Équipe pédagogique homologuée FFT</p>
               </div>
@@ -248,7 +248,10 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
           </div>
 
           <div className="space-y-3">
-            {(clubInfo.enseignants || []).map((ens) => (
+            {(!clubInfo.enseignants || clubInfo.enseignants.length === 0) ? (
+              <p className="text-xs text-zinc-500 py-3 text-center italic">Aucun enseignant renseigné dans le classeur</p>
+            ) : (
+              clubInfo.enseignants.map((ens) => (
               <div
                 key={ens.id}
                 className="p-3.5 bg-[#11141a] rounded-2xl border border-zinc-800/80 space-y-1.5"
@@ -283,7 +286,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
                   )}
                 </div>
               </div>
-            ))}
+            )))}
           </div>
 
           <div className="pt-2 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
@@ -490,14 +493,18 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             </h2>
           </div>
 
-          <ul className="space-y-3 text-xs sm:text-sm text-zinc-300">
-            {clubInfo.installations.map((item, idx) => (
-              <li key={idx} className="flex items-start space-x-2.5">
-                <span className="text-[#FF6D00] font-bold mt-0.5">•</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
+          {(!clubInfo.installations || clubInfo.installations.length === 0) ? (
+            <p className="text-xs text-zinc-500 py-3 italic">Aucune infrastructure renseignée dans le classeur</p>
+          ) : (
+            <ul className="space-y-3 text-xs sm:text-sm text-zinc-300">
+              {clubInfo.installations.map((item, idx) => (
+                <li key={idx} className="flex items-start space-x-2.5">
+                  <span className="text-[#FF6D00] font-bold mt-0.5">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          )}
 
           <div className="pt-3 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
             <span>Accès sécurisé par badge</span>
@@ -515,12 +522,15 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
               <Euro className="w-4 h-4" />
             </div>
             <h2 className="font-heading font-black text-white text-base">
-              Cotisations & Formules 2026/2027
+              Cotisations & Formules 2026/2027 ({clubInfo.tarifs?.length || 0})
             </h2>
           </div>
 
           <div className="space-y-2.5 text-xs">
-            {(clubInfo.tarifs || []).map((t) => (
+            {(!clubInfo.tarifs || clubInfo.tarifs.length === 0) ? (
+              <p className="text-xs text-zinc-500 py-3 italic">Aucun tarif renseigné dans le classeur</p>
+            ) : (
+              clubInfo.tarifs.map((t) => (
               <div
                 key={t.id}
                 className="p-2.5 bg-[#11141a] rounded-xl border border-zinc-800/80 flex items-center justify-between gap-2"
@@ -552,7 +562,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
                   {t.montant} €
                 </span>
               </div>
-            ))}
+            )))}
           </div>
 
           {/* Modalités & Facilités de paiement (Échelonnement, Chèque, HelloAsso via Ten'Up, ANCV) */}

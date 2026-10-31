@@ -2,6 +2,7 @@ import { Adherent, ClubInfo, Rencontre, SexeHomologation } from '../types/tennis
 import realAdherentsData from './realAdherents.json';
 import realRencontresData from './realRencontres.json';
 
+export const TCM_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec";
 export const REAL_DATA_FILE_URL = '/assets/aistudio/Donn_es_appli_dad0017a';
 export const REAL_RENCONTRES_FILE_URL = '/assets/aistudio/Donn_es_appli_rencontres';
 

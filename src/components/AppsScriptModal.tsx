@@ -33,239 +33,145 @@ const SHEET_ADHERENTS = 'Adhérents';
 const SHEET_RENCONTRES = 'Rencontres';
 
 function doGet(e) {
-  if (e && e.parameter && e.parameter.action) {
-    const action = e.parameter.action;
-    let result = {};
+  var action = (e && e.parameter && e.parameter.action) ? e.parameter.action : 'getAll';
+  var result = {};
 
-    try {
-      if (action === 'getAdherents' || action === 'adherents') {
-        result = { success: true, data: getAdherents() };
-      } else if (action === 'getRencontres' || action === 'rencontres') {
-        result = { success: true, data: getRencontres() };
-      } else if (action === 'getAll' || action === 'all') {
-        result = { 
-          success: true, 
-          adherents: getAdherents(),
-          rencontres: getRencontres(),
-          clubInfo: {
-            nom: "Tennis Club de Muzillac (TCM)",
-            adresse: "Complexe sportif du Chêne Rond, 56190 Muzillac",
-            email: "tennisclubmuzillac@gmail.com"
-          }
-        };
-      } else {
-        result = { success: false, error: "Action inconnue : " + action };
-      }
-    } catch (err) {
-      result = { success: false, error: err.toString() };
+  try {
+    if (action === 'getAll' || action === 'all') {
+      result = {
+        success: true,
+        adherents: getSheetRawValues('Adhérents'),
+        rencontres: getSheetRawValues('Rencontres'),
+        compositions: getSheetRawValues('Compositions_Equipes'),
+        bureau: getSheetRawValues('Bureau_Profs'),
+        installations: getSheetRawValues('Installations'),
+        tarifs: getSheetRawValues('Cotisations_Tarifs')
+      };
+    } else if (action === 'getAdherents' || action === 'adherents') {
+      result = { success: true, data: getSheetRawValues('Adhérents') };
+    } else if (action === 'getRencontres' || action === 'rencontres') {
+      result = { success: true, data: getSheetRawValues('Rencontres') };
+    } else {
+      result = { success: false, error: "Action inconnue : " + action };
     }
-
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    result = { success: false, error: err.toString() };
   }
 
-  const template = HtmlService.createTemplateFromFile('Index');
-  template.initialData = {
-    adherents: getAdherents(),
-    rencontres: getRencontres()
-  };
-
-  return template.evaluate()
-    .setTitle("Muzillac Tennis Club (TCM)")
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
-function getAdherents() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_ADHERENTS);
-  if (!sheet) throw new Error("Onglet '" + SHEET_ADHERENTS + "' introuvable");
+function doPost(e) {
+  try {
+    var raw = e && e.postData ? e.postData.contents : '';
+    var json = raw ? JSON.parse(raw) : {};
+    var action = json.action || (e && e.parameter ? e.parameter.action : '');
 
-  const values = sheet.getDataRange().getValues();
-  if (values.length <= 1) return [];
-
-  const headers = values[0].map(h => String(h || '').trim().toLowerCase());
-  const idxNom = getColIndex(headers, ['nom prénom', 'nom', 'adhérent'], 0);
-  const idxCivilite = getColIndex(headers, ['civilité', 'civilite', 'sexe'], -1);
-  const idxDateNaiss = getColIndex(headers, ['date naiss.', 'date naiss', 'naissance'], -1);
-  const idxTypeLicence = getColIndex(headers, ['type licence', 'statut licence'], -1);
-  const idxSolde = getColIndex(headers, ['solde dû', 'solde du', 'solde'], 1);
-  const idxTel = getColIndex(headers, ['téléphone portable', 'portable'], 2);
-  const idxEmail = getColIndex(headers, ['email', 'mail'], 3);
-  const idxClass = getColIndex(headers, ['dernier class. tennis', 'classement'], 4);
-  const idxLicence = getColIndex(headers, ['licence', 'n° licence'], 5);
-  const idxAgeSportif = getColIndex(headers, ['age sportif', 'catégorie'], 6);
-  const idxGroupe = getColIndex(headers, ['groupe enseignement', 'groupe'], 7);
-  const idxTenUp = getColIndex(headers, ['compte ten\'up', 'tenup'], 8);
-
-  const adherents = [];
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    const nomPrenom = String(row[idxNom] || '').trim();
-    if (!nomPrenom) continue;
-
-    let solde = 0;
-    const rawSolde = idxSolde >= 0 ? row[idxSolde] : 0;
-    if (typeof rawSolde === 'number') {
-      solde = rawSolde;
-    } else if (rawSolde) {
-      const clean = String(rawSolde).replace('€', '').replace(',', '.').trim();
-      solde = parseFloat(clean) || 0;
+    if (action === 'saveComposition') {
+      return handleSaveComposition(json);
+    } else if (action === 'saveClubInfo') {
+      return handleSaveClubInfo(json);
+    } else {
+      return createJsonResponse({ success: false, error: 'Action inconnue : ' + action });
     }
+  } catch (err) {
+    return createJsonResponse({ success: false, error: err.toString() });
+  }
+}
 
-    let tel = idxTel >= 0 ? String(row[idxTel] || '').trim() : '';
-    if (tel && !tel.startsWith('+') && !tel.startsWith('0') && tel.length === 9) {
-      tel = '0' + tel;
-    }
+function createJsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    let civilite = 'Monsieur';
-    if (idxCivilite >= 0 && row[idxCivilite]) {
-      const c = String(row[idxCivilite]).toLowerCase();
-      if (c.includes('mme') || c.includes('madame') || c.includes('f')) civilite = 'Madame';
-    }
+function getSheetRawValues(sheetName) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  return sheet.getDataRange().getValues();
+}
 
-    let dateNaissStr = '1990';
-    if (idxDateNaiss >= 0 && row[idxDateNaiss]) {
-      const dRaw = row[idxDateNaiss];
-      if (dRaw instanceof Date) {
-        const d = ("0" + dRaw.getDate()).slice(-2);
-        const m = ("0" + (dRaw.getMonth() + 1)).slice(-2);
-        dateNaissStr = d + "/" + m + "/" + dRaw.getFullYear();
-      } else {
-        dateNaissStr = String(dRaw).trim();
+function handleSaveComposition(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Compositions_Equipes');
+  if (!sheet) {
+    sheet = ss.insertSheet('Compositions_Equipes');
+    sheet.appendRow([
+      "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
+      "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence", "Classement Gelé au Match",
+      "Date Naissance", "Âge Sportif", "Type Licence", "Heure Début", "Lieu Rencontre", "Nombre Courts",
+      "Date Enregistrement", "Validé par Capitaine"
+    ]);
+  }
+
+  var matchId = payload.rencontreId;
+  var rows = sheet.getDataRange().getValues();
+  var keepRows = [];
+  if (rows.length > 0) {
+    keepRows.push(rows[0]);
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || '').trim() !== String(matchId || '').trim()) {
+        keepRows.push(rows[i]);
       }
     }
-
-    let typeLicence = 'C';
-    if (idxTypeLicence >= 0 && row[idxTypeLicence]) {
-      typeLicence = String(row[idxTypeLicence]).trim().toUpperCase();
-    }
-
-    adherents.push({
-      id: 'adh-' + i,
-      nomPrenom: nomPrenom,
-      civilite: civilite,
-      dateNaissance: dateNaissStr,
-      typeLicence: typeLicence,
-      soldeDu: solde,
-      telephonePortable: tel,
-      email: idxEmail >= 0 ? String(row[idxEmail] || '').trim() : '',
-      dernierClassTennis: idxClass >= 0 ? String(row[idxClass] || 'NC').trim().toUpperCase() : 'NC',
-      licence: idxLicence >= 0 ? String(row[idxLicence] || '').trim() : '',
-      ageSportif: idxAgeSportif >= 0 ? String(row[idxAgeSportif] || '').trim() : 'Senior',
-      groupeEnseignement: idxGroupe >= 0 ? String(row[idxGroupe] || 'Loisir').trim() : 'Loisir',
-      compteTenUp: idxTenUp >= 0 ? String(row[idxTenUp] || 'Actif').trim() : 'Actif'
-    });
   }
 
-  return sortAdherentsByRanking(adherents);
-}
-
-function getRencontres() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_RENCONTRES);
-  if (!sheet) throw new Error("Onglet '" + SHEET_RENCONTRES + "' introuvable");
-
-  const values = sheet.getDataRange().getValues();
-  if (values.length <= 1) return [];
-
-  const headers = values[0].map(h => String(h || '').trim().toLowerCase());
-  const idxDate = getColIndex(headers, ['date de la rencontre', 'date'], 0);
-  const idxLibelle = getColIndex(headers, ['libellé de l\'homologation', 'libellé'], 1);
-  const idxCatAge = getColIndex(headers, ['catégorie d\'âge de l\'homologation', 'catégorie'], 2);
-  const idxSexe = getColIndex(headers, ['sexe de l\'homologation', 'sexe'], -1);
-  const idxEquipe = getColIndex(headers, ['numéro de l\'équipe', 'équipe'], 3);
-  const idxAccueil = getColIndex(headers, ['club d\'accueil nom', 'accueil'], 4);
-  const idxVisiteur = getColIndex(headers, ['club visiteur nom', 'visiteur'], 5);
-  const idxScore = getColIndex(headers, ['score'], 6);
-  const idxCapitaine = getColIndex(headers, ['nom capitaine', 'capitaine'], 7);
-  const idxTelCap = getColIndex(headers, ['portable capitaine', 'tel capitaine'], 8);
-  const idxMailCap = getColIndex(headers, ['mail capitaine'], 9);
-
-  const rencontres = [];
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    const clubAccueil = idxAccueil >= 0 ? String(row[idxAccueil] || '').trim() : '';
-    const clubVisiteur = idxVisiteur >= 0 ? String(row[idxVisiteur] || '').trim() : '';
-    if (!clubAccueil && !clubVisiteur) continue;
-
-    let dateStr = '';
-    const dateRaw = idxDate >= 0 ? row[idxDate] : '';
-    if (dateRaw instanceof Date) {
-      const d = ("0" + dateRaw.getDate()).slice(-2);
-      const m = ("0" + (dateRaw.getMonth() + 1)).slice(-2);
-      dateStr = d + "/" + m + "/" + dateRaw.getFullYear();
-    } else {
-      dateStr = String(dateRaw || '').trim();
-    }
-
-    let telCapitaine = idxTelCap >= 0 ? String(row[idxTelCap] || '').trim() : '';
-    if (telCapitaine && !telCapitaine.startsWith('+') && !telCapitaine.startsWith('0') && telCapitaine.length === 9) {
-      telCapitaine = '0' + telCapitaine;
-    }
-
-    let sexe = 'Messieurs';
-    if (idxSexe >= 0 && row[idxSexe]) {
-      const s = String(row[idxSexe]).toLowerCase();
-      if (s.includes('dame') || s.includes('f')) sexe = 'Dames';
-      else if (s.includes('mixte')) sexe = 'Mixte';
-    } else {
-      const combined = (row[idxLibelle] + ' ' + row[idxCatAge]).toLowerCase();
-      if (combined.includes('dame') || combined.includes('femm')) sexe = 'Dames';
-    }
-
-    rencontres.push({
-      id: 'rencontre-' + i,
-      dateRencontre: dateStr,
-      libelleHomologation: idxLibelle >= 0 ? String(row[idxLibelle] || '').trim() : '',
-      categorieAgeHomologation: idxCatAge >= 0 ? String(row[idxCatAge] || '').trim() : 'Seniors',
-      sexeHomologation: sexe,
-      numeroEquipe: idxEquipe >= 0 ? String(row[idxEquipe] || '').trim() : 'Équipe 1',
-      clubAccueilNom: clubAccueil,
-      clubVisiteurNom: clubVisiteur,
-      score: idxScore >= 0 ? String(row[idxScore] || '').trim() : 'À venir',
-      nomCapitaine: idxCapitaine >= 0 ? String(row[idxCapitaine] || '').trim() : '',
-      portableCapitaine: telCapitaine,
-      mailCapitaine: idxMailCap >= 0 ? String(row[idxMailCap] || '').trim() : ''
-    });
+  var slots = payload.slots || [];
+  var nowStr = payload.dateValidation || new Date().toISOString();
+  for (var j = 0; j < slots.length; j++) {
+    var s = slots[j];
+    keepRows.push([
+      matchId,
+      payload.dateRencontre || '',
+      payload.numeroEquipe || '',
+      payload.libelleHomologation || '',
+      payload.categorieAgeHomologation || '',
+      payload.sexeHomologation || '',
+      payload.clubAccueilNom || '',
+      payload.clubVisiteurNom || '',
+      s.poste || '',
+      s.nomPrenom || '',
+      s.licence || '',
+      s.classementGele || 'NC',
+      s.dateNaissance || '',
+      s.ageSportif || '',
+      s.typeLicence || '',
+      payload.heureDebut || '09:00',
+      payload.lieuRencontre || 'Clos des Moines (Muzillac)',
+      payload.nombreCourts || 2,
+      nowStr,
+      payload.valideParCapitaine ? 'OUI' : 'NON'
+    ]);
   }
 
-  return rencontres;
+  sheet.clearContents();
+  sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
+  return createJsonResponse({ success: true, rowsSaved: slots.length });
 }
 
-function getColIndex(headers, matchKeywords, defaultIndex) {
-  for (let i = 0; i < headers.length; i++) {
-    const h = headers[i];
-    for (let k = 0; k < matchKeywords.length; k++) {
-      if (h.includes(matchKeywords[k])) return i;
+function handleSaveClubInfo(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var info = payload.clubInfo || {};
+
+  // Mise à jour de Bureau_Profs
+  var bSheet = ss.getSheetByName('Bureau_Profs');
+  if (bSheet && (info.president || info.secretaire || info.tresorier)) {
+    var bRows = [
+      ["Rôle / Fonction", "Nom Prénom", "Diplôme / Titre", "Téléphone", "Email", "Description / Missions"],
+      ["Président", info.president || "", "Dirigeant", info.presidentTelephone || "", info.presidentEmail || "", "Direction du club"],
+      ["Secrétaire", info.secretaire || "", "Dirigeante", info.secretaireTelephone || "", info.secretaireEmail || "", "Secrétariat et licences"],
+      ["Trésorier", info.tresorier || "", "Dirigeant", info.tresorierTelephone || "", info.tresorierEmail || "", "Comptabilité et finances"]
+    ];
+    var profs = info.enseignants || [];
+    for (var p = 0; p < profs.length; p++) {
+      bRows.push(["Enseignant", profs[p].nomPrenom, profs[p].diplome, profs[p].telephone || "", profs[p].email || "", profs[p].description || ""]);
     }
+    bSheet.clearContents();
+    bSheet.getRange(1, 1, bRows.length, bRows[0].length).setValues(bRows);
   }
-  return defaultIndex;
-}
 
-function getRankingWeight(rank) {
-  if (!rank) return 0;
-  const clean = rank.trim().toUpperCase().replace(/\\s+/g, '');
-  if (clean.startsWith('N') && clean !== 'NC') {
-    const num = parseInt(clean.replace('N', ''), 10) || 100;
-    return 1000 - num;
-  }
-  const weights = {
-    '-30': 450, '-15': 430, '-4/6': 410, '-2/6': 390, '0': 370,
-    '1/6': 350, '2/6': 330, '3/6': 310, '4/6': 290, '5/6': 270, '15': 250,
-    '15/1': 230, '15/2': 210, '15/3': 190, '15/4': 170, '15/5': 150, '30': 130,
-    '30/1': 110, '30/2': 90, '30/3': 70, '30/4': 50, '30/5': 30, '40': 15, 'NC': 0
-  };
-  return weights[clean] !== undefined ? weights[clean] : 0;
-}
-
-function sortAdherentsByRanking(list) {
-  return list.sort(function(a, b) {
-    const weightA = getRankingWeight(a.dernierClassTennis);
-    const weightB = getRankingWeight(b.dernierClassTennis);
-    if (weightB !== weightA) return weightB - weightA;
-    return a.nomPrenom.localeCompare(b.nomPrenom, 'fr');
-  });
+  return createJsonResponse({ success: true });
 }`;
 
   const handleCopy = (content: string) => {

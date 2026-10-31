@@ -32,7 +32,27 @@ export function normalizeDateString(raw: string | number | undefined | null): st
     return `${d}/${m}/${y}`;
   }
 
-  // 3. Numéro de série Excel (nombre de jours depuis 1900)
+  // 3. Format ISO complet avec heure (ex: "2026-09-12T22:00:00.000Z")
+  if (str.includes('T')) {
+    const dObj = new Date(str);
+    if (!isNaN(dObj.getTime())) {
+      try {
+        return dObj.toLocaleDateString('fr-FR', {
+          timeZone: 'Europe/Paris',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        });
+      } catch {
+        const d = String(dObj.getDate()).padStart(2, '0');
+        const m = String(dObj.getMonth() + 1).padStart(2, '0');
+        const y = dObj.getFullYear();
+        return `${d}/${m}/${y}`;
+      }
+    }
+  }
+
+  // 4. Numéro de série Excel (nombre de jours depuis 1900)
   if (/^\d{5}$/.test(str)) {
     const serial = parseInt(str, 10);
     // 25569 = jours entre 01/01/1900 et 01/01/1970

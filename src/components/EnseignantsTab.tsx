@@ -32,86 +32,7 @@ interface EnseignantsTabProps {
   onSelectAdherent?: (adh: Adherent) => void;
 }
 
-export interface CoursSlot {
-  id: string;
-  nom: string;
-  jour: string;
-  horaire: string;
-  court: string;
-  enseignantNom: string;
-  diplome: string;
-  publicCible: string;
-  groupeMatcher: string; // Ex: "École de Tennis", "Galaxie", "Compétition", "Adultes"
-}
 
-export const COURS_PLANNING: CoursSlot[] = [
-  {
-    id: 'c1',
-    nom: 'Galaxie Tennis (Moins de 10 ans)',
-    jour: 'Mercredi',
-    horaire: '14h00 - 15h15',
-    court: 'Clos des Moines - Court n°1 résine',
-    enseignantNom: 'Thomas Mercier',
-    diplome: 'BPJEPS Tennis',
-    publicCible: 'Niveaux Violet, Rouge, Orange (Terrains adaptés)',
-    groupeMatcher: 'galaxie',
-  },
-  {
-    id: 'c2',
-    nom: 'École de Tennis Jeunes (11/14 ans)',
-    jour: 'Mercredi',
-    horaire: '15h15 - 16h45',
-    court: 'Clos des Moines - Court n°1 & n°2',
-    enseignantNom: 'Alexandre Rault',
-    diplome: 'Diplômé d\'État (DE)',
-    publicCible: 'Perfectionnement et apprentissage tactique',
-    groupeMatcher: 'ecole',
-  },
-  {
-    id: 'c3',
-    nom: 'Pôle Compétition Jeunes (15/18 ans)',
-    jour: 'Mardi',
-    horaire: '18h00 - 19h30',
-    court: 'Clos des Moines - Court n°1 résine',
-    enseignantNom: 'Alexandre Rault',
-    diplome: 'Diplômé d\'État (DE)',
-    publicCible: 'Joueurs classés en championnats interclubs',
-    groupeMatcher: 'competition',
-  },
-  {
-    id: 'c4',
-    nom: 'Cours Collectifs Adultes (Initiation & Loisir)',
-    jour: 'Lundi',
-    horaire: '19h00 - 20h30',
-    court: 'Clos des Moines - Court n°1 & n°2',
-    enseignantNom: 'Thomas Mercier',
-    diplome: 'BPJEPS Tennis',
-    publicCible: 'Adultes débutants et reprise d\'activité',
-    groupeMatcher: 'adulte',
-  },
-  {
-    id: 'c5',
-    nom: 'Entraînement Équipes Seniors (Compétition)',
-    jour: 'Vendredi',
-    horaire: '19h00 - 21h00',
-    court: 'Clos des Moines - 2 courts résine',
-    enseignantNom: 'Alexandre Rault',
-    diplome: 'Diplômé d\'État (DE)',
-    publicCible: 'Équipes 1 & 2 Régionales et Départementales',
-    groupeMatcher: 'equipe',
-  },
-  {
-    id: 'c6',
-    nom: 'École de Tennis Jeunes Samedi',
-    jour: 'Samedi',
-    horaire: '10h00 - 11h30',
-    court: 'Clos des Moines - Court n°1',
-    enseignantNom: 'Thomas Mercier',
-    diplome: 'BPJEPS Tennis',
-    publicCible: 'Enfants scolarisés en semaine',
-    groupeMatcher: 'samedi',
-  },
-];
 
 export interface GroupInfo {
   name: string;
@@ -722,8 +643,15 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       {/* ==================== VUE 2 : ÉQUIPE PÉDAGOGIQUE ==================== */}
       {activeSubView === 'enseignants' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {clubInfo.enseignants.map((ens) => (
+          {(!clubInfo.enseignants || clubInfo.enseignants.length === 0) ? (
+            <div className="p-8 text-center bg-[#141820] rounded-2xl border border-zinc-800">
+              <GraduationCap className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+              <p className="text-white text-sm font-bold">Aucun enseignant disponible</p>
+              <p className="text-xs text-zinc-400">Aucune information renseignée dans le Google Sheet.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {clubInfo.enseignants.map((ens) => (
               <div
                 key={ens.id}
                 className="p-6 bg-[#161a22] rounded-3xl border border-[#252b37] space-y-4 relative overflow-hidden"
@@ -773,6 +701,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 

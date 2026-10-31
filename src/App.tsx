@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Header } from './components/Header';
 import { AdherentsTab } from './components/AdherentsTab';
 import { RencontresTab } from './components/RencontresTab';
@@ -23,30 +23,18 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { initAuth, getAccessToken } from './services/auth';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { 
-  readAdherentsFromSheet,
-  readRencontresFromSheet,
-  readCompositionsFromSheet,
-  readBureauFromSheet, 
-  readInstallationsFromSheet, 
-  readTarifsFromSheet,
-  saveClubInfoToSheet, 
-  normalizeSheetMatchKey,
+  fetchAllDataFromAppsScript,
+  saveCompositionViaAppsScript,
+  saveClubInfoViaAppsScript,
+  TCM_APPS_SCRIPT_URL,
   TCM_DEFAULT_SHEET_ID 
 } from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
-import { 
-  INITIAL_ADHERENTS, 
-  INITIAL_RENCONTRES, 
-  INITIAL_CLUB_INFO, 
-  REAL_DATA_FILE_URL, 
-  REAL_RENCONTRES_FILE_URL,
-  parseAdherentsCsv,
-  parseRencontresCsv
-} from './data/clubData';
+import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc } from './utils/ranking';
 
-// Fonction de salubrité : s'assure qu'aucun tarif 'adulte' n'a la pastille 'jeune' par erreur et initialise les paiements échelonnés
+// Assainissement des tarifs : catégories correctes et modalités de paiement
 const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
   if (!info) return info;
   const fixedInfo = { ...info };
@@ -78,7 +66,7 @@ export default function App() {
   // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents'
   const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants'>('rencontres');
 
-  // Rôle et permissions (5 profils : admin, bureau, prof, capitaine, adhérent)
+  // Profils d'accès (admin, bureau, prof, capitaine, adherent)
   const [userRole, setUserRole] = useState<UserRole>(() => {
     try {
       const savedRole = localStorage.getItem('tcm_user_role') as UserRole;
@@ -88,10 +76,10 @@ export default function App() {
     } catch (e) {
       console.warn(e);
     }
-    return 'admin'; // Par défaut profil Admin pour configuration complète
+    return 'admin';
   });
 
-  // Saison sportive active (2027 par défaut, modifiable par l'Admin pour passer à 2028, etc.)
+  // Saison sportive active (2027 par défaut, modifiable par l'Admin)
   const [saison, setSaison] = useState<string>(() => {
     try {
       return localStorage.getItem('tcm_saison_active') || '2027';
@@ -118,50 +106,40 @@ export default function App() {
     }
   };
 
-  // Données adhérents avec persistance locale
-  const [adherents, setAdherents] = useState<Adherent[]>(() => {
+  // URL du Web App Google Apps Script
+  const [gasUrl, setGasUrl] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem('tcm_adherents_v2');
-      if (saved) {
-        return sortAdherentsByRankingDesc(JSON.parse(saved));
+      const stored = localStorage.getItem('tcm_gas_url');
+      if (stored && stored.includes('AKfycbwq9bSE7K0zujyK-zP3KdxMuHLfaFlnvRHwGPsO9MJ_C6KmuATVIPC7K6KToI_7mM7ZDA')) {
+        localStorage.setItem('tcm_gas_url', TCM_APPS_SCRIPT_URL);
+        return TCM_APPS_SCRIPT_URL;
       }
-    } catch (e) {
-      console.warn('Erreur chargement localStorage', e);
+      return stored || TCM_APPS_SCRIPT_URL;
+    } catch {
+      return TCM_APPS_SCRIPT_URL;
     }
-    return sortAdherentsByRankingDesc(INITIAL_ADHERENTS);
   });
 
-  // Données rencontres avec persistance locale
-  const [rencontres, setRencontres] = useState<Rencontre[]>(() => {
-    try {
-      const saved = localStorage.getItem('tcm_rencontres_v3');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.warn('Erreur chargement localStorage', e);
-    }
-    return INITIAL_RENCONTRES;
-  });
+  // RÈGLE 1 : Zéro localStorage/sessionStorage pour les données. Les données résident UNIQUEMENT en mémoire.
+  const [adherents, setAdherents] = useState<Adherent[]>([]);
+  const [rencontres, setRencontres] = useState<Rencontre[]>([]);
+  const [clubInfo, setClubInfo] = useState<ClubInfo>(INITIAL_CLUB_INFO);
 
-  // Données officielles du club (chargées dynamiquement depuis Google Sheets)
-  const [clubInfo, setClubInfo] = useState<ClubInfo>(() => {
+  // Nettoyage proactif immédiat de tout ancien cache persistant
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem('tcm_club_info_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Ne jamais réutiliser les vieilles données de test si elles contiennent l'ancien président ou enseignant factice
-        if (parsed.president === 'Laurent Le Guennec' || parsed.secretaire === 'Sophie Bourdon') {
-          localStorage.removeItem('tcm_club_info_v2');
-        } else {
-          return sanitizeLoadedTarifs(parsed);
-        }
+      localStorage.removeItem('tcm_adherents_v2');
+      localStorage.removeItem('tcm_rencontres_v3');
+      localStorage.removeItem('tcm_club_info_v2');
+      const currentStored = localStorage.getItem('tcm_gas_url');
+      if (currentStored && currentStored.includes('AKfycbwq9bSE7K0zujyK-zP3KdxMuHLfaFlnvRHwGPsO9MJ_C6KmuATVIPC7K6KToI_7mM7ZDA')) {
+        localStorage.setItem('tcm_gas_url', TCM_APPS_SCRIPT_URL);
       }
-    } catch (e) {
-      console.warn(e);
+      sessionStorage.clear();
+    } catch {
+      // Ignorer
     }
-    return INITIAL_CLUB_INFO;
-  });
+  }, []);
 
   // Modales
   const [selectedAdherent, setSelectedAdherent] = useState<Adherent | null>(null);
@@ -178,10 +156,18 @@ export default function App() {
   const [googleUser, setGoogleUser] = useState<User | null>(null);
   const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
   const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string | null>(() => {
-    return localStorage.getItem('tcm_spreadsheet_id') || null;
+    try {
+      return localStorage.getItem('tcm_spreadsheet_id') || TCM_DEFAULT_SHEET_ID;
+    } catch {
+      return TCM_DEFAULT_SHEET_ID;
+    }
   });
   const [spreadsheetName, setSpreadsheetName] = useState<string>(() => {
-    return localStorage.getItem('tcm_spreadsheet_name') || 'Données_appli';
+    try {
+      return localStorage.getItem('tcm_spreadsheet_name') || 'Données_appli';
+    } catch {
+      return 'Données_appli';
+    }
   });
 
   // Écouteur d'authentification Google
@@ -195,116 +181,78 @@ export default function App() {
     };
   }, []);
 
-  // État synchronisation Google Apps Script
+  // État de chargement et erreurs
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
-    return localStorage.getItem('tcm_last_sync_v2');
-  });
-
-  // État de chargement et lecture directe du fichier officiel Données_appli
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
 
-  // Fonction de lecture systématique sans cache du fichier local officiel Données_appli
-  const handleLoadFromRealFile = async (isInitial = false) => {
+  /**
+   * RÈGLES 1 & 2 : CHARGEMENT EN DIRECT VIA APPS SCRIPT ANTI-CACHE
+   * GET direct vers TCM_APPS_SCRIPT_URL avec ?action=getAll&_t=Date.now()
+   */
+  const handleLoadFromRealFile = useCallback(async (isInitial = false) => {
     setIsLoadingFile(true);
     setFileLoadError(null);
+
     try {
-      const currentSheetId = selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID;
+      const activeUrl = gasUrl || TCM_APPS_SCRIPT_URL;
 
-      // Chargement en parallèle de tous les 6 onglets du Google Sheet via les exports GID dédiés (sans restriction CORS)
-      const [sheetAdherents, sheetRencontres, compMap, bureauData, installData, tarifsData] = await Promise.all([
-        readAdherentsFromSheet(currentSheetId),
-        readRencontresFromSheet(currentSheetId),
-        readCompositionsFromSheet(currentSheetId),
-        readBureauFromSheet(currentSheetId),
-        readInstallationsFromSheet(currentSheetId),
-        readTarifsFromSheet(currentSheetId)
-      ]);
-
-      const errorIssues: string[] = [];
+      // Requête directe sans cache vers le Web App Apps Script
+      const data = await fetchAllDataFromAppsScript(activeUrl);
 
       // 1. Mise à jour des Adhérents réels
-      if (sheetAdherents && sheetAdherents.length > 0) {
-        const sorted = sortAdherentsByRankingDesc(sheetAdherents);
-        setAdherents(sorted);
-        localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
+      if (data.adherents && data.adherents.length > 0) {
+        setAdherents(sortAdherentsByRankingDesc(data.adherents));
       } else {
-        errorIssues.push("onglet 'Adhérents'");
+        setAdherents([]);
       }
 
-      // 2. Fusion des Rencontres réelles avec les Compositions d'équipes
-      if (sheetRencontres && sheetRencontres.length > 0) {
-        const mergedRencontres = sheetRencontres.map(r => {
-          const cleanId = normalizeSheetMatchKey(r.id);
-          const dateClean = normalizeSheetMatchKey(r.dateRencontre);
-          const eqClean = normalizeSheetMatchKey(r.numeroEquipe);
-          const compositeKey = `date_${dateClean}_eq_${eqClean}`;
-
-          const entry = compMap.get(r.id) || compMap.get(cleanId) || compMap.get(compositeKey);
-          if (entry && entry.composition) {
-            return {
-              ...r,
-              composition: {
-                ...r.composition,
-                ...entry.composition,
-                lieuRencontre: entry.composition.lieuRencontre || r.composition?.lieuRencontre,
-                heureDebut: entry.composition.heureDebut || r.composition?.heureDebut || '09:00',
-                nombreCourts: entry.composition.nombreCourts || r.composition?.nombreCourts || 2,
-                frozenPlayers: entry.frozenSlots || entry.composition.frozenPlayers || [],
-              }
-            };
-          }
-          return r;
-        });
-
-        setRencontres(mergedRencontres);
-        localStorage.setItem('tcm_rencontres_v3', JSON.stringify(mergedRencontres));
+      // 2. Mise à jour des Rencontres réelles fusionnées avec les compositions
+      if (data.rencontres && data.rencontres.length > 0) {
+        setRencontres(data.rencontres);
       } else {
-        errorIssues.push("onglet 'Rencontres'");
+        setRencontres([]);
       }
 
-      // 3. Mise à jour du Bureau, Enseignants, Installations et Tarifs réels
-      if (bureauData || installData || tarifsData) {
+      // 3. Mise à jour des Infos Club réelles (Bureau, Enseignants, Installations, Tarifs)
+      if (data.bureau || data.installations || data.tarifs) {
         setClubInfo(prev => {
           const updated = { ...prev };
-          if (bureauData) {
-            if (bureauData.president?.nom) {
-              updated.president = bureauData.president.nom;
-              if (bureauData.president.tel) updated.presidentTelephone = bureauData.president.tel;
-              if (bureauData.president.email) updated.presidentEmail = bureauData.president.email;
+          if (data.bureau) {
+            if (data.bureau.president?.nom) {
+              updated.president = data.bureau.president.nom;
+              if (data.bureau.president.tel) updated.presidentTelephone = data.bureau.president.tel;
+              if (data.bureau.president.email) updated.presidentEmail = data.bureau.president.email;
             }
-            if (bureauData.secretaire?.nom) {
-              updated.secretaire = bureauData.secretaire.nom;
-              if (bureauData.secretaire.tel) updated.secretaireTelephone = bureauData.secretaire.tel;
-              if (bureauData.secretaire.email) updated.secretaireEmail = bureauData.secretaire.email;
+            if (data.bureau.secretaire?.nom) {
+              updated.secretaire = data.bureau.secretaire.nom;
+              if (data.bureau.secretaire.tel) updated.secretaireTelephone = data.bureau.secretaire.tel;
+              if (data.bureau.secretaire.email) updated.secretaireEmail = data.bureau.secretaire.email;
             }
-            if (bureauData.tresorier?.nom) {
-              updated.tresorier = bureauData.tresorier.nom;
-              if (bureauData.tresorier.tel) updated.tresorierTelephone = bureauData.tresorier.tel;
-              if (bureauData.tresorier.email) updated.tresorierEmail = bureauData.tresorier.email;
+            if (data.bureau.tresorier?.nom) {
+              updated.tresorier = data.bureau.tresorier.nom;
+              if (data.bureau.tresorier.tel) updated.tresorierTelephone = data.bureau.tresorier.tel;
+              if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
             }
-            if (bureauData.enseignants && bureauData.enseignants.length > 0) {
-              updated.enseignants = bureauData.enseignants;
-              updated.enseignant = `${bureauData.enseignants[0].nomPrenom} (${bureauData.enseignants[0].diplome})`;
+            if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
+              updated.enseignants = data.bureau.enseignants;
+              updated.enseignant = `${data.bureau.enseignants[0].nomPrenom} (${data.bureau.enseignants[0].diplome})`;
             }
           }
-          if (installData && installData.length > 0) {
-            updated.installations = installData;
+          if (data.installations && data.installations.length > 0) {
+            updated.installations = data.installations;
           }
-          if (tarifsData && tarifsData.length > 0) {
-            updated.tarifs = tarifsData;
+          if (data.tarifs && data.tarifs.length > 0) {
+            updated.tarifs = data.tarifs;
           }
-          const sanitized = sanitizeLoadedTarifs(updated);
-          localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
-          return sanitized;
+          return sanitizeLoadedTarifs(updated);
         });
       }
 
-      // Si les données principales n'ont pas pu être reçues du tableur, afficher l'erreur explicite
-      if (errorIssues.length > 0) {
-        setFileLoadError(`Erreur de connexion avec le tableur Google : impossible de lire ${errorIssues.join(' et ')}. Vérifiez le partage du fichier.`);
+      if ((!data.adherents || data.adherents.length === 0) && (!data.rencontres || data.rencontres.length === 0)) {
+        setFileLoadError("Erreur de connexion avec le tableur Google : aucune donnée disponible. Vérifiez le partage du fichier.");
       } else {
         setFileLoadError(null);
       }
@@ -315,14 +263,15 @@ export default function App() {
         second: '2-digit'
       });
       setLastSyncTime(now);
-      localStorage.setItem('tcm_last_sync_v2', now);
     } catch (err: any) {
-      console.warn('Erreur lecture directe Données_appli:', err);
-      setFileLoadError(`Erreur de connexion avec le tableur Google (${err.message || 'accès réseau bloqué'}).`);
+      console.warn('Erreur lecture Apps Script:', err);
+      setAdherents([]);
+      setRencontres([]);
+      setFileLoadError(`Erreur de connexion avec le tableur Google (${err.message || 'accès réseau indisponible'}). Aucune donnée fictive n'est affichée.`);
     } finally {
       setIsLoadingFile(false);
     }
-  };
+  }, [gasUrl]);
 
   // Chargement systématique au montage + relecture automatique quand la fenêtre reprend le focus
   useEffect(() => {
@@ -345,56 +294,39 @@ export default function App() {
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [handleLoadFromRealFile]);
 
-  // Sauvegarde automatique locale
-  useEffect(() => {
-    try {
-      localStorage.setItem('tcm_adherents_v2', JSON.stringify(adherents));
-    } catch (e) {
-      console.warn(e);
-    }
-  }, [adherents]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('tcm_rencontres_v3', JSON.stringify(rencontres));
-    } catch (e) {
-      console.warn(e);
-    }
-  }, [rencontres]);
-
-  // Synchronisation en direct avec une URL Web App Google Apps Script
+  // Synchronisation manuelle avec URL Web App Google Apps Script
   const handleSyncWithUrl = async (url: string): Promise<boolean> => {
     setIsSyncing(true);
     setSyncError(null);
 
     try {
-      const sep = url.includes('?') ? '&' : '?';
-      const fetchUrl = `${url}${sep}action=getAll`;
+      const trimmedUrl = url.trim() || TCM_APPS_SCRIPT_URL;
+      const data = await fetchAllDataFromAppsScript(trimmedUrl);
 
-      const res = await fetch(fetchUrl);
-      if (!res.ok) {
-        throw new Error(`Erreur réseau (${res.status} ${res.statusText})`);
+      try {
+        localStorage.setItem('tcm_gas_url', trimmedUrl);
+      } catch (e) {
+        console.warn(e);
+      }
+      setGasUrl(trimmedUrl);
+
+      if (data.adherents && data.adherents.length > 0) {
+        setAdherents(sortAdherentsByRankingDesc(data.adherents));
+      } else {
+        setAdherents([]);
       }
 
-      const json = await res.json();
-      if (!json || (!json.adherents && !json.data)) {
-        throw new Error("Format de réponse inattendu depuis Google Apps Script.");
+      if (data.rencontres && data.rencontres.length > 0) {
+        setRencontres(data.rencontres);
+      } else {
+        setRencontres([]);
       }
 
-      const fetchedAdherents = json.adherents || (Array.isArray(json.data) ? json.data : null);
-      if (fetchedAdherents && Array.isArray(fetchedAdherents)) {
-        setAdherents(sortAdherentsByRankingDesc(fetchedAdherents));
-      }
-
-      if (json.rencontres && Array.isArray(json.rencontres)) {
-        setRencontres(json.rencontres);
-      }
-
-      const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setLastSyncTime(now);
-      localStorage.setItem('tcm_last_sync_v2', now);
+      setFileLoadError(null);
       setIsSyncing(false);
       return true;
     } catch (err: any) {
@@ -405,16 +337,16 @@ export default function App() {
     }
   };
 
-  // Réinitialiser les données aux valeurs de base Muzillac TC
+  // Réinitialiser les données (recharge les données en direct, zéro fallback fictif)
   const handleResetData = () => {
-    setAdherents(sortAdherentsByRankingDesc(INITIAL_ADHERENTS));
-    setRencontres(INITIAL_RENCONTRES);
+    setAdherents([]);
+    setRencontres([]);
     setLastSyncTime(null);
-    localStorage.removeItem('tcm_last_sync_v2');
     setSyncError(null);
+    handleLoadFromRealFile(false);
   };
 
-  // Modification du solde d'un adhérent (règlement en direct)
+  // Modification du solde d'un adhérent en mémoire
   const handleUpdateSolde = (id: string, newSolde: number) => {
     setAdherents(prev => prev.map(a => {
       if (a.id === id) {
@@ -428,8 +360,8 @@ export default function App() {
     }));
   };
 
-  // Sauvegarde de la composition d'une rencontre (avec sauvegarde automatique 20 colonnes dans GSheet)
-  const handleSaveComposition = (rencontreId: string, composition: MatchComposition) => {
+  // RÈGLE 3 : Sauvegarde de la composition d'une rencontre via requête HTTP POST JSON
+  const handleSaveComposition = async (rencontreId: string, composition: MatchComposition) => {
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
         return { ...r, composition };
@@ -440,9 +372,24 @@ export default function App() {
     if (selectedRencontreForComposition && selectedRencontreForComposition.id === rencontreId) {
       setSelectedRencontreForComposition(prev => prev ? { ...prev, composition } : null);
     }
+
+    const ren = rencontres.find(r => r.id === rencontreId) || selectedRencontreForComposition;
+    if (ren) {
+      const adherentsById = new Map<string, Adherent>();
+      adherents.forEach(a => {
+        adherentsById.set(a.id, a);
+        if (a.licence) adherentsById.set(a.licence, a);
+        adherentsById.set(a.nomPrenom, a);
+      });
+      try {
+        await saveCompositionViaAppsScript(ren, composition, adherentsById, gasUrl || TCM_APPS_SCRIPT_URL);
+      } catch (err) {
+        console.warn('Erreur envoi POST composition vers Apps Script:', err);
+      }
+    }
   };
 
-  // Modification de l'horaire d'une rencontre (9h00, 14h00 ou personnalisé)
+  // Modification de l'horaire d'une rencontre
   const handleUpdateMatchHour = (rencontreId: string, hour: string) => {
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
@@ -452,7 +399,7 @@ export default function App() {
     }));
   };
 
-  // Enregistrement des réponses de disponibilité des joueurs pour une rencontre
+  // Enregistrement des disponibilités
   const handleUpdateDisponibilites = (rencontreId: string, dispos: JoueurDisponibilite[]) => {
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
@@ -468,31 +415,29 @@ export default function App() {
     }
   };
 
-  // Licenciés de la saison active officiels du club (Colonnes X = millésime et AB = 'MUZILLAC TENNIS CLUB')
+  // Licenciés officiels de la saison active
   const licenciesActive = useMemo(() => {
     return filterLicenciesMuzillac2027(adherents, saison);
   }, [adherents, saison]);
 
-  // Ajout d'un nouvel adhérent
+  // Ajout d'un nouvel adhérent en mémoire
   const handleAddMember = (newMember: Adherent) => {
     setAdherents(prev => sortAdherentsByRankingDesc([newMember, ...prev]));
   };
 
-  // Ajout d'une nouvelle rencontre
+  // Ajout d'une nouvelle rencontre en mémoire
   const handleAddMatch = (newMatch: Rencontre) => {
     setRencontres(prev => [newMatch, ...prev]);
   };
 
-  // Sauvegarde des modifications du club (enseignants, installations, tarifs assainis, permanences)
+  // RÈGLE 3 : Sauvegarde des informations du club via requête HTTP POST JSON
   const handleSaveClubInfo = async (updatedInfo: ClubInfo) => {
     const sanitized = sanitizeLoadedTarifs(updatedInfo);
     setClubInfo(sanitized);
     try {
-      localStorage.setItem('tcm_club_info_v2', JSON.stringify(sanitized));
-      const token = await getAccessToken();
-      await saveClubInfoToSheet(sanitized, selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID, token || undefined);
+      await saveClubInfoViaAppsScript(sanitized, gasUrl || TCM_APPS_SCRIPT_URL);
     } catch (e) {
-      console.warn('Erreur sauvegarde Google Sheets ClubInfo:', e);
+      console.warn('Erreur envoi POST ClubInfo vers Apps Script:', e);
     }
   };
 
@@ -521,10 +466,10 @@ export default function App() {
         onUpdateSaison={handleUpdateSaison}
       />
 
-      {/* 2. CONTENU PRINCIPAL (ESPACEMENT SOUS LA NAV FIXE SUR 2 LIGNES) */}
+      {/* 2. CONTENU PRINCIPAL */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-28 sm:pt-32 pb-16">
         
-        {/* BANNIÈRE D'ERREUR EXPLICITE SI LE TABLEUR GOOGLE EST INACCESSIBLE */}
+        {/* BANNIÈRE D'ERREUR EXPLICITE SI LA CONNEXION ÉCHOUE (AUCUNE DONNÉE FICTIVE) */}
         {fileLoadError && (
           <div className="mb-6 bg-rose-500/15 border-2 border-rose-500/40 rounded-2xl p-4 sm:p-5 text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
             <div className="flex items-start sm:items-center space-x-3.5">
@@ -535,14 +480,14 @@ export default function App() {
                 <h3 className="font-heading font-black text-white text-base sm:text-lg flex items-center gap-2">
                   <span>Erreur de connexion avec le tableur Google</span>
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-500/25 text-rose-300 font-mono font-bold border border-rose-500/40">
-                    Données_appli
+                    Apps Script
                   </span>
                 </h3>
                 <p className="text-xs sm:text-sm text-rose-200/90 mt-0.5 leading-relaxed">
                   {fileLoadError}
                 </p>
                 <p className="text-[11px] text-zinc-400 mt-1">
-                  Les anciennes données factices ont été neutralisées. Aucune fausse information n'est affichée.
+                  Les données fictives ont été totalement supprimées. Aucune information inventée n'est affichée.
                 </p>
               </div>
             </div>
@@ -557,7 +502,7 @@ export default function App() {
           </div>
         )}
         
-        {/* Onglet 'Rencontres' (Accessible à tous, avec boutons de composition pour Capitaines et Bureau) */}
+        {/* Onglet 'Rencontres' */}
         {activeTab === 'rencontres' && (
           <RencontresTab
             rencontres={rencontres}
@@ -572,7 +517,7 @@ export default function App() {
           />
         )}
 
-        {/* Onglet 'Licenciés' (Officiels FFT Muzillac Tennis Club - Masqué pour les simples adhérents) */}
+        {/* Onglet 'Licenciés' */}
         {activeTab === 'licencies' && userRole !== 'adherent' && (
           <LicenciesTab
             adherents={adherents}
@@ -583,7 +528,7 @@ export default function App() {
           />
         )}
 
-        {/* Onglet 'Infos Club' (Accessible à tous, avec modification des données si Bureau ou Admin) */}
+        {/* Onglet 'Infos Club' */}
         {activeTab === 'infos' && (
           <InfosClubTab
             clubInfo={clubInfo}
@@ -606,7 +551,7 @@ export default function App() {
           />
         )}
 
-        {/* Onglet 'Enseignants' (Accessible uniquement aux Profs, Membres du Bureau et Admin) */}
+        {/* Onglet 'Enseignants' */}
         {activeTab === 'enseignants' && (userRole === 'admin' || userRole === 'prof' || userRole === 'bureau') && (
           <EnseignantsTab
             adherents={adherents}
@@ -615,7 +560,7 @@ export default function App() {
           />
         )}
 
-        {/* Onglet 'Adhérents' (Réservé aux Membres du Bureau et Admin) */}
+        {/* Onglet 'Adhérents' */}
         {activeTab === 'adherents' && (userRole === 'admin' || userRole === 'bureau') && (
           <AdherentsTab
             adherents={adherents}
@@ -643,7 +588,7 @@ export default function App() {
         onUpdateSolde={handleUpdateSolde}
       />
 
-      {/* Module de composition d'équipe des capitaines (Éligibilité FFT Millésime 2027, rotations horaires & courts) */}
+      {/* Module de composition d'équipe des capitaines */}
       <CompositionModal
         rencontre={selectedRencontreForComposition}
         adherents={adherents}
@@ -657,7 +602,7 @@ export default function App() {
         saison={saison}
       />
 
-      {/* Sondage des disponibilités des joueurs (SMS/WhatsApp, jour, heure, Simple/Double) */}
+      {/* Sondage des disponibilités des joueurs */}
       <SondageDisponibilitesModal
         rencontre={selectedRencontreForSondage}
         adherents={adherents}
@@ -671,7 +616,7 @@ export default function App() {
         saison={saison}
       />
 
-      {/* Synchronisation Directe Google Sheets (Données_appli) sans CSV */}
+      {/* Synchronisation Directe Google Sheets */}
       <GoogleSheetsSyncModal
         isOpen={isGoogleSyncModalOpen}
         onClose={() => setIsGoogleSyncModalOpen(false)}
@@ -681,8 +626,12 @@ export default function App() {
         onSelectSpreadsheet={(id, name) => {
           setSelectedSpreadsheetId(id);
           setSpreadsheetName(name);
-          localStorage.setItem('tcm_spreadsheet_id', id);
-          localStorage.setItem('tcm_spreadsheet_name', name);
+          try {
+            localStorage.setItem('tcm_spreadsheet_id', id);
+            localStorage.setItem('tcm_spreadsheet_name', name);
+          } catch (e) {
+            console.warn(e);
+          }
         }}
         spreadsheetName={spreadsheetName}
         onDataLoaded={(newAdh, newRen) => {
@@ -691,13 +640,10 @@ export default function App() {
           setRencontres(newRen);
           const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
           setLastSyncTime(now);
-          localStorage.setItem('tcm_last_sync_v2', now);
-          localStorage.setItem('tcm_adherents_v2', JSON.stringify(sorted));
-          localStorage.setItem('tcm_rencontres_v3', JSON.stringify(newRen));
         }}
       />
 
-      {/* Cartographie et architecture des colonnes GSheet Données_appli (sans CSV) */}
+      {/* Cartographie et architecture des colonnes GSheet */}
       <GsheetDataModal
         isOpen={isGsheetModalOpen}
         onClose={() => setIsGsheetModalOpen(false)}
@@ -708,7 +654,7 @@ export default function App() {
         isLoadingFile={isLoadingFile}
       />
 
-      {/* Modal d'édition complète des informations du club (Enseignants DE/BPJEPS, installations, tarifs, permanences) */}
+      {/* Modal d'édition des informations du club */}
       <EditClubInfoModal
         isOpen={isEditClubModalOpen}
         onClose={() => setIsEditClubModalOpen(false)}
@@ -737,7 +683,7 @@ export default function App() {
         onAddMatch={handleAddMatch}
       />
 
-      {/* 4. FOOTER DISCRET DU CLUB */}
+      {/* 4. FOOTER */}
       <footer className="border-t border-[#1e232d] bg-[#090b0e] py-6 px-4 text-center text-xs text-zinc-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
