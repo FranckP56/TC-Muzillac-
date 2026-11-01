@@ -144,3 +144,91 @@ export function checkSinglesRankingOrder(
     warnings,
   };
 }
+
+/**
+ * Calcule la date du dernier premier mardi du mois (heure 06h00 parution FFT)
+ * antérieur ou égal à la date de référence.
+ */
+export function getMostRecentFirstTuesday(refDate = new Date()): Date {
+  const year = refDate.getFullYear();
+  const month = refDate.getMonth();
+
+  const firstTuesdayThisMonth = getFirstTuesdayOfMonth(year, month);
+
+  if (refDate.getTime() >= firstTuesdayThisMonth.getTime()) {
+    return firstTuesdayThisMonth;
+  } else {
+    // Si nous sommes avant le 1er mardi de ce mois, le plus récent était le 1er mardi du mois précédent
+    const prevMonth = month === 0 ? 11 : month - 1;
+    const prevYear = month === 0 ? year - 1 : year;
+    return getFirstTuesdayOfMonth(prevYear, prevMonth);
+  }
+}
+
+export interface DataStalenessInfo {
+  isStale: boolean;
+  isOlderThanOneWeek: boolean;
+  hasPassedFirstTuesday: boolean;
+  reasons: string[];
+  message?: string;
+  lastSyncFormatted?: string;
+}
+
+/**
+ * Règle d'obsolescence demandée :
+ * - Date de plus d'une semaine (> 7 jours)
+ * - OU dépassement du 1er mardi du mois (date officielle de changement de classement FFT)
+ */
+export function evaluateDataStaleness(lastSyncTimestamp: number | null | undefined, now = new Date()): DataStalenessInfo {
+  if (!lastSyncTimestamp) {
+    return {
+      isStale: true,
+      isOlderThanOneWeek: false,
+      hasPassedFirstTuesday: false,
+      reasons: ["Aucune extraction enregistrée"],
+      message: "Aucune extraction enregistrée. Veuillez synchroniser avec Google Sheets."
+    };
+  }
+
+  const syncDate = new Date(lastSyncTimestamp);
+  const diffMs = now.getTime() - syncDate.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const isOlderThanOneWeek = diffDays >= 7;
+
+  // Calcul du premier mardi de parution FFT le plus récent
+  const mostRecentFirstTuesday = getMostRecentFirstTuesday(now);
+  const hasPassedFirstTuesday = syncDate.getTime() < mostRecentFirstTuesday.getTime();
+
+  const isStale = isOlderThanOneWeek || hasPassedFirstTuesday;
+  const reasons: string[] = [];
+
+  if (hasPassedFirstTuesday) {
+    const formattedTue = mostRecentFirstTuesday.toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+    });
+    reasons.push(`Nouveau classement mensuel FFT paru (${formattedTue})`);
+  }
+
+  if (isOlderThanOneWeek) {
+    reasons.push(`Dernière extraction de plus de 7 jours (${diffDays} j)`);
+  }
+
+  const lastSyncFormatted = syncDate.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  return {
+    isStale,
+    isOlderThanOneWeek,
+    hasPassedFirstTuesday,
+    reasons,
+    message: isStale ? `Attention : données obsolètes (${reasons.join(', ')}). Synchronisez pour afficher les classements FFT officiels.` : undefined,
+    lastSyncFormatted
+  };
+}
+

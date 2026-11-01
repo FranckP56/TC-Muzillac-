@@ -36,6 +36,8 @@ interface HeaderProps {
   googleUserEmail?: string | null;
   saison?: string;
   onUpdateSaison?: (newSaison: string) => void;
+  lastSyncFormatted?: string | null;
+  isStale?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   googleUserEmail,
   saison = '2027',
   onUpdateSaison,
+  lastSyncFormatted,
+  isStale = false,
 }) => {
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const [isAdminSettingsOpen, setIsAdminSettingsOpen] = useState(false);
@@ -181,8 +185,31 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Côté Droit épuré : Réglage Saison Admin + Sélecteur de rôle */}
+          {/* Côté Droit : Actualisation GSheet + Réglage Saison Admin + Sélecteur de rôle */}
           <div className="flex items-center space-x-2 shrink-0">
+            {onRefreshFromFile && (
+              <button
+                onClick={() => onRefreshFromFile()}
+                disabled={isRefreshing}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 ${
+                  isStale 
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300' 
+                    : 'bg-zinc-800/80 hover:bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                }`}
+                title={lastSyncFormatted ? `Dernière extraction : ${lastSyncFormatted}${isStale ? ' (Attention : données obsolètes)' : ''}` : 'Actualiser depuis le Google Sheet'}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-orange-400' : isStale ? 'text-amber-400' : 'text-zinc-400'}`} />
+                <span className="hidden sm:inline">
+                  {isRefreshing ? 'Actualisation...' : isStale ? 'Obsolète' : 'Actualiser'}
+                </span>
+                {lastSyncFormatted && !isRefreshing && (
+                  <span className="hidden lg:inline text-[10px] text-zinc-400 font-mono font-normal">
+                    {lastSyncFormatted.split('à')[1]?.trim() || lastSyncFormatted}
+                  </span>
+                )}
+              </button>
+            )}
+
             {userRole === 'admin' && (
               <button
                 onClick={() => setIsAdminSettingsOpen(true)}

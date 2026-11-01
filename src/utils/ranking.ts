@@ -20,12 +20,39 @@ export function isRankingND(rank: string | undefined): boolean {
 }
 
 /**
+ * Nettoie et rétablit un classement FFT si Google Sheets l'a converti automatiquement en date ISO.
+ * Ex : "30/1" converti en "2026-01-29T23:00:00.000Z" -> "30/1"
+ * Ex : "30/3" converti en "2026-03-29T22:00:00.000Z" -> "30/3"
+ * Ex : 30 (nombre) -> "30"
+ */
+export function cleanRanking(val: any): string {
+  if (val === undefined || val === null || val === '') return 'NC';
+  const str = String(val).trim();
+  if (str.includes('T') && str.endsWith('Z')) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      // Décalage pour fuseau horaire français
+      const localD = new Date(d.getTime() + 2 * 3600 * 1000);
+      const day = localD.getUTCDate();
+      const month = localD.getUTCMonth() + 1;
+      if (day >= 28 && day <= 31) {
+        return `30/${month}`;
+      }
+      if (day === 15) {
+        return `15/${month}`;
+      }
+    }
+  }
+  return str.toUpperCase();
+}
+
+/**
  * Poids de chaque classement FFT (Fédération Française de Tennis).
  * Plus le score est élevé, meilleur est le classement (1ère série > 2ème > 3ème > 4ème > NC > ND).
  */
 export function getRankingWeight(rank: string | undefined): number {
   if (!rank) return 0;
-  const clean = rank.trim().toUpperCase().replace(/\s+/g, '');
+  const clean = cleanRanking(rank).replace(/\s+/g, '');
 
   // Classement ND (Non Déterminé) : inéligible compétition, poids négatif pour être classé après NC
   if (isRankingND(clean)) {

@@ -27,12 +27,16 @@ import {
   saveCompositionViaAppsScript,
   saveClubInfoViaAppsScript,
   TCM_APPS_SCRIPT_URL,
-  TCM_DEFAULT_SHEET_ID 
+  TCM_DEFAULT_SHEET_ID,
+  saveDatasetToCache,
+  loadDatasetFromCache,
+  getLastSyncTimestamp
 } from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc } from './utils/ranking';
+import { evaluateDataStaleness } from './utils/fftCalendar';
 
 // Assainissement des tarifs : catégories correctes et modalités de paiement
 const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
@@ -120,12 +124,49 @@ export default function App() {
     }
   });
 
-  // RÈGLE 1 : Zéro localStorage/sessionStorage pour les données. Les données résident UNIQUEMENT en mémoire.
-  const [adherents, setAdherents] = useState<Adherent[]>([]);
-  const [rencontres, setRencontres] = useState<Rencontre[]>([]);
-  const [clubInfo, setClubInfo] = useState<ClubInfo>(INITIAL_CLUB_INFO);
+  // RÈGLE : Données issues UNIQUEMENT du Google Sheet.
+  // Initialisation depuis le cache localStorage s'il existe (avec suivi d'obsolescence), sinon tableau vide [] (zéro mock data).
+  const initialCached = useMemo(() => loadDatasetFromCache(), []);
+  const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number | null>(() => getLastSyncTimestamp());
 
-  // Nettoyage proactif immédiat de tout ancien cache persistant
+  const [adherents, setAdherents] = useState<Adherent[]>(() => {
+    if (initialCached?.adherents && initialCached.adherents.length > 0) {
+      return sortAdherentsByRankingDesc(initialCached.adherents);
+    }
+    return [];
+  });
+  const [rencontres, setRencontres] = useState<Rencontre[]>(() => {
+    if (initialCached?.rencontres && initialCached.rencontres.length > 0) {
+      return initialCached.rencontres;
+    }
+    return [];
+  });
+  const [clubInfo, setClubInfo] = useState<ClubInfo>(() => {
+    const base = { ...INITIAL_CLUB_INFO };
+    if (initialCached?.bureau) {
+      if (initialCached.bureau.president?.nom) base.president = initialCached.bureau.president.nom;
+      if (initialCached.bureau.secretaire?.nom) base.secretaire = initialCached.bureau.secretaire.nom;
+      if (initialCached.bureau.tresorier?.nom) base.tresorier = initialCached.bureau.tresorier.nom;
+      if (initialCached.bureau.enseignants && initialCached.bureau.enseignants.length > 0) {
+        base.enseignants = initialCached.bureau.enseignants;
+        base.enseignant = `${initialCached.bureau.enseignants[0].nomPrenom} (${initialCached.bureau.enseignants[0].diplome})`;
+      }
+    }
+    if (initialCached?.installations && initialCached.installations.length > 0) {
+      base.installations = initialCached.installations;
+    }
+    if (initialCached?.tarifs && initialCached.tarifs.length > 0) {
+      base.tarifs = initialCached.tarifs;
+    }
+    return sanitizeLoadedTarifs(base);
+  });
+
+  // Évaluation de l'obsolescence (plus d'une semaine OU passage du 1er mardi du mois)
+  const staleness = useMemo(() => {
+    return evaluateDataStaleness(lastSyncTimestamp);
+  }, [lastSyncTimestamp]);
+
+  // Nettoyage proactif immédiat de tout ancien cache obsolète ou incorrect
   useEffect(() => {
     try {
       localStorage.removeItem('tcm_adherents_v2');
@@ -135,7 +176,6 @@ export default function App() {
       if (currentStored && currentStored.includes('AKfycbwq9bSE7K0zujyK-zP3KdxMuHLfaFlnvRHwGPsO9MJ_C6KmuATVIPC7K6KToI_7mM7ZDA')) {
         localStorage.setItem('tcm_gas_url', TCM_APPS_SCRIPT_URL);
       }
-      sessionStorage.clear();
     } catch {
       // Ignorer
     }
@@ -184,12 +224,15 @@ export default function App() {
   // État de chargement et erreurs
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
+    const ts = getLastSyncTimestamp();
+    return ts ? new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null;
+  });
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
 
   /**
-   * RÈGLES 1 & 2 : CHARGEMENT EN DIRECT VIA APPS SCRIPT ANTI-CACHE
+   * CHARGEMENT EN DIRECT VIA APPS SCRIPT ANTI-CACHE
    * GET direct vers TCM_APPS_SCRIPT_URL avec ?action=getAll&_t=Date.now()
    */
   const handleLoadFromRealFile = useCallback(async (isInitial = false) => {
@@ -202,76 +245,80 @@ export default function App() {
       // Requête directe sans cache vers le Web App Apps Script
       const data = await fetchAllDataFromAppsScript(activeUrl);
 
-      // 1. Mise à jour des Adhérents réels
-      if (data.adherents && data.adherents.length > 0) {
-        setAdherents(sortAdherentsByRankingDesc(data.adherents));
-      } else {
-        setAdherents([]);
-      }
+      if (data.success && ((data.adherents && data.adherents.length > 0) || (data.rencontres && data.rencontres.length > 0))) {
+        // 1. Mise à jour des Adhérents réels
+        if (data.adherents && data.adherents.length > 0) {
+          setAdherents(sortAdherentsByRankingDesc(data.adherents));
+        }
 
-      // 2. Mise à jour des Rencontres réelles fusionnées avec les compositions
-      if (data.rencontres && data.rencontres.length > 0) {
-        setRencontres(data.rencontres);
-      } else {
-        setRencontres([]);
-      }
+        // 2. Mise à jour des Rencontres réelles fusionnées avec les compositions
+        if (data.rencontres && data.rencontres.length > 0) {
+          setRencontres(data.rencontres);
+        }
 
-      // 3. Mise à jour des Infos Club réelles (Bureau, Enseignants, Installations, Tarifs)
-      if (data.bureau || data.installations || data.tarifs) {
-        setClubInfo(prev => {
-          const updated = { ...prev };
-          if (data.bureau) {
-            if (data.bureau.president?.nom) {
-              updated.president = data.bureau.president.nom;
-              if (data.bureau.president.tel) updated.presidentTelephone = data.bureau.president.tel;
-              if (data.bureau.president.email) updated.presidentEmail = data.bureau.president.email;
+        // 3. Mise à jour des Infos Club réelles (Bureau, Enseignants, Installations, Tarifs)
+        if (data.bureau || data.installations || data.tarifs) {
+          setClubInfo(prev => {
+            const updated = { ...prev };
+            if (data.bureau) {
+              if (data.bureau.president?.nom) {
+                updated.president = data.bureau.president.nom;
+                if (data.bureau.president.tel) updated.presidentTelephone = String(data.bureau.president.tel);
+                if (data.bureau.president.email) updated.presidentEmail = data.bureau.president.email;
+              }
+              if (data.bureau.secretaire?.nom) {
+                updated.secretaire = data.bureau.secretaire.nom;
+                if (data.bureau.secretaire.tel) updated.secretaireTelephone = String(data.bureau.secretaire.tel);
+                if (data.bureau.secretaire.email) updated.secretaireEmail = data.bureau.secretaire.email;
+              }
+              if (data.bureau.tresorier?.nom) {
+                updated.tresorier = data.bureau.tresorier.nom;
+                if (data.bureau.tresorier.tel) updated.tresorierTelephone = String(data.bureau.tresorier.tel);
+                if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
+              }
+              if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
+                updated.enseignants = data.bureau.enseignants;
+                updated.enseignant = `${data.bureau.enseignants[0].nomPrenom} (${data.bureau.enseignants[0].diplome})`;
+              }
             }
-            if (data.bureau.secretaire?.nom) {
-              updated.secretaire = data.bureau.secretaire.nom;
-              if (data.bureau.secretaire.tel) updated.secretaireTelephone = data.bureau.secretaire.tel;
-              if (data.bureau.secretaire.email) updated.secretaireEmail = data.bureau.secretaire.email;
+            if (data.installations && data.installations.length > 0) {
+              updated.installations = data.installations;
             }
-            if (data.bureau.tresorier?.nom) {
-              updated.tresorier = data.bureau.tresorier.nom;
-              if (data.bureau.tresorier.tel) updated.tresorierTelephone = data.bureau.tresorier.tel;
-              if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
+            if (data.tarifs && data.tarifs.length > 0) {
+              updated.tarifs = data.tarifs;
             }
-            if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
-              updated.enseignants = data.bureau.enseignants;
-              updated.enseignant = `${data.bureau.enseignants[0].nomPrenom} (${data.bureau.enseignants[0].diplome})`;
-            }
-          }
-          if (data.installations && data.installations.length > 0) {
-            updated.installations = data.installations;
-          }
-          if (data.tarifs && data.tarifs.length > 0) {
-            updated.tarifs = data.tarifs;
-          }
-          return sanitizeLoadedTarifs(updated);
-        });
-      }
+            return sanitizeLoadedTarifs(updated);
+          });
+        }
 
-      if ((!data.adherents || data.adherents.length === 0) && (!data.rencontres || data.rencontres.length === 0)) {
-        setFileLoadError("Erreur de connexion avec le tableur Google : aucune donnée disponible. Vérifiez le partage du fichier.");
-      } else {
+        // Enregistrement dans le cache localStorage
+        saveDatasetToCache(data);
+        const nowTs = Date.now();
+        setLastSyncTimestamp(nowTs);
+        setLastSyncTime(new Date(nowTs).toLocaleTimeString('fr-FR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          second: '2-digit'
+        }));
         setFileLoadError(null);
+      } else {
+        if (adherents.length === 0 && rencontres.length === 0) {
+          setFileLoadError("Erreur de connexion avec le tableur Google : aucune donnée reçue. Vérifiez le partage de votre tableur.");
+        } else {
+          setFileLoadError("Impossible d'actualiser les données depuis Google Sheets. Les données affichées proviennent de votre dernière extraction.");
+        }
       }
-
-      const now = new Date().toLocaleTimeString('fr-FR', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      setLastSyncTime(now);
     } catch (err: any) {
       console.warn('Erreur lecture Apps Script:', err);
-      setAdherents([]);
-      setRencontres([]);
-      setFileLoadError(`Erreur de connexion avec le tableur Google (${err.message || 'accès réseau indisponible'}). Aucune donnée fictive n'est affichée.`);
+      if (adherents.length === 0 && rencontres.length === 0) {
+        setFileLoadError(`Erreur de connexion avec le tableur Google (${err.message || 'accès réseau indisponible'}). Aucune donnée fictive n'est affichée.`);
+      } else {
+        setFileLoadError(`Échec d'actualisation (${err.message || 'erreur réseau'}). Affichage des données de la dernière synchronisation.`);
+      }
     } finally {
       setIsLoadingFile(false);
     }
-  }, [gasUrl]);
+  }, [gasUrl, adherents.length, rencontres.length]);
 
   // Chargement systématique au montage + relecture automatique quand la fenêtre reprend le focus
   useEffect(() => {
@@ -464,6 +511,8 @@ export default function App() {
         isRefreshing={isLoadingFile}
         saison={saison}
         onUpdateSaison={handleUpdateSaison}
+        lastSyncFormatted={staleness.lastSyncFormatted}
+        isStale={staleness.isStale}
       />
 
       {/* 2. CONTENU PRINCIPAL */}
@@ -498,6 +547,42 @@ export default function App() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFile ? 'animate-spin' : ''}`} />
               <span>Réessayer la connexion</span>
+            </button>
+          </div>
+        )}
+
+        {/* AVERTISSEMENT : DONNÉES OBSOLÈTES (DATE > 7 JOURS OU 1ER MARDI DU MOIS DÉPASSÉ) */}
+        {staleness.isStale && !fileLoadError && (adherents.length > 0 || rencontres.length > 0) && (
+          <div className="mb-6 bg-amber-500/10 border-2 border-amber-500/35 rounded-2xl p-4 sm:p-5 text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
+            <div className="flex items-start sm:items-center space-x-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 font-bold">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-heading font-black text-white text-base sm:text-lg">
+                    Attention : données potentiellement obsolètes
+                  </h3>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40">
+                    {staleness.lastSyncFormatted ? `Extraction du ${staleness.lastSyncFormatted}` : 'Non synchronisé'}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-amber-200/90 mt-1 leading-relaxed">
+                  {staleness.reasons.join(' et ')}.
+                  {' '}Les classements FFT officiels des licenciés ou les programmations de rencontres ont pu évoluer depuis.
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Cliquez sur "Actualiser" pour récupérer la version la plus fraîche directement depuis Google Sheets.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleLoadFromRealFile(false)}
+              disabled={isLoadingFile}
+              className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-zinc-950 font-black rounded-xl text-xs transition flex items-center space-x-2 shrink-0 cursor-pointer shadow-md disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFile ? 'animate-spin' : ''}`} />
+              <span>Actualiser les données</span>
             </button>
           </div>
         )}

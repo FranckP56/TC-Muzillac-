@@ -1,5 +1,7 @@
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
+import { cleanRanking } from '../utils/ranking';
+import { normalizeDateString } from '../utils/dateUtils';
 
 // URL Google Apps Script Web App (action=getAll / doPost)
 export const APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec";
@@ -12,6 +14,9 @@ export const COMPOSITIONS_SHEET_TITLE = 'Compositions_Equipes';
 export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
+
+export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
+export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
 
 export interface GoogleDriveFile {
   id: string;
@@ -34,6 +39,66 @@ export interface AppsScriptDataResult {
   installations?: string[];
   tarifs?: ClubTarif[];
   raw?: any;
+}
+
+export interface CachedDataset {
+  timestamp: number;
+  adherents: Adherent[];
+  rencontres: Rencontre[];
+  bureau?: {
+    president?: { nom: string; tel?: string; email?: string };
+    secretaire?: { nom: string; tel?: string; email?: string };
+    tresorier?: { nom: string; tel?: string; email?: string };
+    enseignants: Enseignant[];
+  };
+  installations?: string[];
+  tarifs?: ClubTarif[];
+}
+
+export function saveDatasetToCache(data: AppsScriptDataResult): void {
+  try {
+    const dataset: CachedDataset = {
+      timestamp: Date.now(),
+      adherents: data.adherents,
+      rencontres: data.rencontres,
+      bureau: data.bureau,
+      installations: data.installations,
+      tarifs: data.tarifs,
+    };
+    localStorage.setItem(TCM_CACHE_KEY, JSON.stringify(dataset));
+    localStorage.setItem(TCM_LAST_SYNC_KEY, String(dataset.timestamp));
+  } catch (err) {
+    console.warn("Erreur sauvegarde localStorage cache:", err);
+  }
+}
+
+export function loadDatasetFromCache(): CachedDataset | null {
+  try {
+    const raw = localStorage.getItem(TCM_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.adherents) || !Array.isArray(parsed.rencontres)) {
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    console.warn("Erreur lecture localStorage cache:", err);
+    return null;
+  }
+}
+
+export function getLastSyncTimestamp(): number | null {
+  try {
+    const stored = localStorage.getItem(TCM_LAST_SYNC_KEY);
+    if (stored) {
+      const num = parseInt(stored, 10);
+      if (!isNaN(num) && num > 0) return num;
+    }
+    const cache = loadDatasetFromCache();
+    return cache?.timestamp || null;
+  } catch {
+    return null;
+  }
 }
 
 // Cache court en mémoire pour éviter les rafales d'appels HTTP simultanés
@@ -64,8 +129,9 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
     const poste = String(row[8] || '').trim();
     const nomPrenom = String(row[9] || '').trim();
     const licence = String(row[10] || '').trim();
-    const classementGele = String(row[11] || '').trim();
-    const dateNaissance = String(row[12] || '').trim();
+    const rawClassementGele = String(row[11] || '').trim();
+    const classementGele = cleanRanking(rawClassementGele);
+    const dateNaissance = normalizeDateString(row[12] || '');
     const ageSportif = String(row[13] || '').trim();
     const typeLicence = String(row[14] || '').trim();
 
@@ -77,6 +143,13 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
 
     if (row.length > 17) {
       heureDebut = String(row[15] || '09:00').trim();
+      // Si l'heure est au format ISO 1899-12-30T13:50:39, extraire l'heure
+      if (heureDebut.includes('T')) {
+        const dObj = new Date(heureDebut);
+        if (!isNaN(dObj.getTime())) {
+          heureDebut = dObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }
+      }
       lieuRencontre = String(row[16] || 'Clos des Moines (Muzillac)').trim();
       nombreCourts = parseInt(String(row[17]), 10) || 2;
       dateEnreg = String(row[18] || '').trim();
@@ -88,13 +161,15 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
 
     if (!matchId || !poste || !nomPrenom) continue;
 
+    const normDateVal = normalizeDateString(dateVal);
+
     let entry = map.get(matchId);
     if (!entry) {
       entry = {
         composition: {
           valideParCapitaine: valide,
           dateValidation: dateEnreg,
-          dateRencontreValidee: dateVal || undefined,
+          dateRencontreValidee: normDateVal || dateVal || undefined,
           heureDebut,
           lieuRencontre,
           nombreCourts,
@@ -106,6 +181,9 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
       map.set(normalizeSheetMatchKey(matchId), entry);
       if (dateVal && numEqVal) {
         map.set(`date_${normalizeSheetMatchKey(dateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
+        if (normDateVal) {
+          map.set(`date_${normalizeSheetMatchKey(normDateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
+        }
       }
     }
 
@@ -124,6 +202,28 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
     entry.frozenSlots.push(slot);
     if (entry.composition.frozenPlayers) {
       entry.composition.frozenPlayers.push(slot);
+    }
+
+    // Assigner les clés de postes directes pour que les modales et fiches de match les reconnaissent instantanément
+    const cleanPoste = poste.toLowerCase().trim();
+    if (cleanPoste.includes('simple 1') || cleanPoste === 's1') {
+      entry.composition.simple1Id = playerId;
+    } else if (cleanPoste.includes('simple 2') || cleanPoste === 's2') {
+      entry.composition.simple2Id = playerId;
+    } else if (cleanPoste.includes('simple 3') || cleanPoste === 's3') {
+      entry.composition.simple3Id = playerId;
+    } else if (cleanPoste.includes('simple 4') || cleanPoste === 's4') {
+      entry.composition.simple4Id = playerId;
+    } else if (cleanPoste.includes('simple 5') || cleanPoste === 's5') {
+      entry.composition.simple5Id = playerId;
+    } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
+      entry.composition.double1Player1Id = playerId;
+    } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
+      entry.composition.double1Player2Id = playerId;
+    } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
+      entry.composition.double2Player1Id = playerId;
+    } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
+      entry.composition.double2Player2Id = playerId;
     }
   }
 
@@ -260,18 +360,28 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
   } else {
     try {
       const url = `${urlToUse}?action=getAll&_t=${now}`;
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          "Pragma": "no-cache",
-          "Expires": "0"
-        },
-        cache: "no-store"
-      });
+      let response: Response | null = null;
 
-      if (!response.ok) {
-        throw new Error(`Erreur HTTP Apps Script : ${response.status}`);
+      // 1. Tentative de fetch direct (sans en-têtes personnalisés pour éviter tout blocage CORS OPTIONS)
+      try {
+        response = await fetch(url, {
+          method: "GET",
+          redirect: "follow",
+        });
+      } catch (directError) {
+        console.warn("[AppsScript] Échec du fetch direct, tentative via le proxy de dev :", directError);
+        // 2. Si le fetch direct est bloqué par l'environnement iframe/sandbox, passage par le proxy local
+        try {
+          const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(url)}`;
+          response = await fetch(proxyUrl, { method: "GET" });
+        } catch (proxyError) {
+          console.error("[AppsScript] Erreur combinée direct + proxy :", directError, proxyError);
+          throw directError;
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw new Error(`Erreur HTTP Apps Script : ${response ? response.status : 'Connexion impossible'}`);
       }
 
       rawJson = await response.json();
@@ -296,7 +406,6 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
   const adherents: Adherent[] = [];
   const rawAdh = rawJson?.adherents || [];
   if (Array.isArray(rawAdh) && rawAdh.length > 1) {
-    // Si c'est un tableau 2D [ [headers...], [row1...], ... ]
     if (Array.isArray(rawAdh[0])) {
       const headers = rawAdh[0].map((h: any) => String(h || '').trim());
       for (let i = 1; i < rawAdh.length; i++) {
@@ -304,7 +413,6 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
         if (parsed) adherents.push(parsed);
       }
     } else if (rawAdh[0]?.nomPrenom) {
-      // Déjà des objets Adherent
       adherents.push(...rawAdh);
     }
   }
@@ -318,11 +426,17 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
       for (let i = 1; i < rawRen.length; i++) {
         const parsed = parseRencontreRow(rawRen[i], headers, i);
         if (parsed) {
-          const compEntry = compositionsMap.get(parsed.id) ||
+          const parsedNumOnly = (parsed.numeroEquipe || '').replace(/\D/g, '');
+          const normDate = normalizeSheetMatchKey(parsed.dateRencontre);
+          
+          const compEntry = 
+            compositionsMap.get(parsed.id) ||
             compositionsMap.get(normalizeSheetMatchKey(parsed.id)) ||
             (parsed.dateRencontre && parsed.numeroEquipe ? 
-              compositionsMap.get(`date_${normalizeSheetMatchKey(parsed.dateRencontre)}_eq_${normalizeSheetMatchKey(parsed.numeroEquipe)}`) : 
+              (compositionsMap.get(`date_${normDate}_eq_${normalizeSheetMatchKey(parsed.numeroEquipe)}`) ||
+               (parsedNumOnly ? compositionsMap.get(`date_${normDate}_eq_${parsedNumOnly}`) : undefined)) : 
               undefined);
+
           if (compEntry) {
             parsed.composition = compEntry.composition;
           }
