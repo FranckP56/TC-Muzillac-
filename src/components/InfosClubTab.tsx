@@ -289,12 +289,14 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             )))}
           </div>
 
-          <div className="pt-2 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
-            <span>Permanences pédagogiques</span>
-            <span className="text-orange-400 font-bold">
-              {clubInfo.horairesPermanence || 'Mercredi après-midi & Samedi matin'}
-            </span>
-          </div>
+          {clubInfo.permanencePedagogiqueVisible !== false && (clubInfo.horairesPermanence || clubInfo.permanencePedagogiqueLibelle) && (
+            <div className="pt-2 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
+              <span>{clubInfo.permanencePedagogiqueLibelle || 'Permanences pédagogiques'}</span>
+              <span className="text-orange-400 font-bold">
+                {clubInfo.horairesPermanence || 'Mercredi après-midi & Samedi matin'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Bureau & Localisation */}
@@ -484,13 +486,23 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
         
         {/* Installations & Terrains */}
         <div className="bg-[#161a22] p-5 sm:p-6 rounded-3xl border border-[#252b37] shadow-sm space-y-4">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-orange-500/15 text-[#FF6D00] flex items-center justify-center">
-              <Layers className="w-4 h-4" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-xl bg-orange-500/15 text-[#FF6D00] flex items-center justify-center">
+                <Layers className="w-4 h-4" />
+              </div>
+              <h2 className="font-heading font-black text-white text-base">
+                Infrastructures & Terrains ({clubInfo.installations?.length || 0})
+              </h2>
             </div>
-            <h2 className="font-heading font-black text-white text-base">
-              Infrastructures & Terrains ({clubInfo.installations.length})
-            </h2>
+            {isBureauMember && onOpenEditClubModal && (
+              <button
+                onClick={onOpenEditClubModal}
+                className="text-xs text-orange-400 hover:text-orange-300 font-semibold cursor-pointer"
+              >
+                Gérer
+              </button>
+            )}
           </div>
 
           {(!clubInfo.installations || clubInfo.installations.length === 0) ? (
@@ -506,13 +518,15 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             </ul>
           )}
 
-          <div className="pt-3 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
-            <span>Accès sécurisé par badge</span>
-            <span className="text-emerald-400 font-bold flex items-center gap-1">
-              <CheckCircle className="w-3.5 h-3.5" />
-              Courts ouverts 7j/7
-            </span>
-          </div>
+          {clubInfo.badgeAccesVisible !== false && (clubInfo.badgeAccesMessage || clubInfo.ouvertureCourtsMessage) && (
+            <div className="pt-3 border-t border-[#232934] flex items-center justify-between text-xs text-zinc-400">
+              <span>{clubInfo.badgeAccesMessage || 'Accès sécurisé par badge'}</span>
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" />
+                {clubInfo.ouvertureCourtsMessage || 'Courts ouverts 7j/7'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Tarifs & Cotisations */}

@@ -195,6 +195,11 @@ export interface ClubInfo {
   installations: string[];
   tarifs?: ClubTarif[];
   horairesPermanence?: string;
+  permanencePedagogiqueLibelle?: string;
+  permanencePedagogiqueVisible?: boolean;
+  badgeAccesMessage?: string;
+  ouvertureCourtsMessage?: string;
+  badgeAccesVisible?: boolean;
   modalitesPaiement?: string;
   helloAssoUrl?: string;
 }

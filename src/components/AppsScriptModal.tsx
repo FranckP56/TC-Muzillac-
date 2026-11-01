@@ -152,9 +152,48 @@ function handleSaveComposition(payload) {
 
 function handleSaveClubInfo(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var info = payload.clubInfo || {};
+  var info = payload.clubInfo || payload || {};
 
-  // Mise à jour de Bureau_Profs
+  // 1. Mise à jour ou création de l'onglet Club_Info
+  var cSheet = ss.getSheetByName('Club_Info');
+  if (!cSheet) {
+    cSheet = ss.insertSheet('Club_Info');
+    cSheet.setTabColor('#0284C7');
+  }
+  var cRows = [
+    ["Paramètre", "Valeur"],
+    ["Nom du Club", info.nom || "Muzillac Tennis Club"],
+    ["Sigle", info.sigle || "TCM"],
+    ["Ligue", info.ligue || "Ligue de Bretagne de Tennis"],
+    ["Comité", info.comite || "Comité Départemental du Morbihan (56)"],
+    ["Code Club", info.codeClub || "52 56 0212"],
+    ["Adresse", info.adresse || "Complexe du Clos des Moines, 56190 Muzillac"],
+    ["Code Postal", info.codePostal || "56190"],
+    ["Ville", info.ville || "Muzillac"],
+    ["Téléphone", info.telephone || ""],
+    ["Email", info.email || "tennisclubmuzillac@gmail.com"],
+    ["Site Web", info.siteWeb || "https://www.tennisclubmuzillac.fr"],
+    ["Horaires Permanence", info.horairesPermanence || ""],
+    ["Libellé Permanences Pédagogiques", info.permanencePedagogiqueLibelle || "Permanences pédagogiques"],
+    ["Afficher Permanences Pédagogiques", info.permanencePedagogiqueVisible !== false ? "OUI" : "NON"],
+    ["Message Accès Badge", info.badgeAccesMessage || "Accès sécurisé par badge"],
+    ["Message Ouverture Courts", info.ouvertureCourtsMessage || "Courts ouverts 7j/7"],
+    ["Afficher Accès Badge", info.badgeAccesVisible !== false ? "OUI" : "NON"],
+    ["Modalités Paiement", info.modalitesPaiement || ""],
+    ["Président", info.president || ""],
+    ["Téléphone Président", info.presidentTelephone || ""],
+    ["Email Président", info.presidentEmail || ""],
+    ["Secrétaire", info.secretaire || ""],
+    ["Téléphone Secrétaire", info.secretaireTelephone || ""],
+    ["Email Secrétaire", info.secretaireEmail || ""],
+    ["Trésorier", info.tresorier || ""],
+    ["Téléphone Trésorier", info.tresorierTelephone || ""],
+    ["Email Trésorier", info.tresorierEmail || ""]
+  ];
+  cSheet.clearContents();
+  cSheet.getRange(1, 1, cRows.length, 2).setValues(cRows);
+
+  // 2. Mise à jour de Bureau_Profs si l'onglet existe
   var bSheet = ss.getSheetByName('Bureau_Profs');
   if (bSheet && (info.president || info.secretaire || info.tresorier)) {
     var bRows = [
@@ -171,7 +210,7 @@ function handleSaveClubInfo(payload) {
     bSheet.getRange(1, 1, bRows.length, bRows[0].length).setValues(bRows);
   }
 
-  return createJsonResponse({ success: true });
+  return createJsonResponse({ success: true, rowsSaved: cRows.length });
 }`;
 
   const handleCopy = (content: string) => {

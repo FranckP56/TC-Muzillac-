@@ -16,8 +16,19 @@ export default defineConfig(() => {
               const url = new URL(req.url || '', `http://${req.headers.host || 'localhost:3000'}`);
               const targetUrl = url.searchParams.get('url') || 'https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec?action=getAll';
               
+              let body: string | undefined = undefined;
+              if (req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                for await (const chunk of req) {
+                  chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                }
+                body = Buffer.concat(chunks).toString('utf-8');
+              }
+
               const gasRes = await fetch(targetUrl, {
                 method: req.method || 'GET',
+                headers: req.method === 'POST' ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined,
+                body: body || undefined,
                 redirect: 'follow',
               });
               

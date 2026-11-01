@@ -30,13 +30,16 @@ import {
   TCM_DEFAULT_SHEET_ID,
   saveDatasetToCache,
   loadDatasetFromCache,
-  getLastSyncTimestamp
+  getLastSyncTimestamp,
+  saveClubInfoToLocal,
+  loadClubInfoFromLocal
 } from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc } from './utils/ranking';
 import { evaluateDataStaleness } from './utils/fftCalendar';
+import { formatFrenchPhoneNumber } from './utils/phoneUtils';
 
 // Assainissement des tarifs : catégories correctes et modalités de paiement
 const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
@@ -158,6 +161,14 @@ export default function App() {
     if (initialCached?.tarifs && initialCached.tarifs.length > 0) {
       base.tarifs = initialCached.tarifs;
     }
+    if (initialCached?.clubInfo) {
+      Object.assign(base, initialCached.clubInfo);
+    }
+    // Fusion des informations réelles saisies et sauvegardées localement
+    const localCustom = loadClubInfoFromLocal();
+    if (localCustom) {
+      Object.assign(base, localCustom);
+    }
     return sanitizeLoadedTarifs(base);
   });
 
@@ -256,24 +267,27 @@ export default function App() {
           setRencontres(data.rencontres);
         }
 
-        // 3. Mise à jour des Infos Club réelles (Bureau, Enseignants, Installations, Tarifs)
-        if (data.bureau || data.installations || data.tarifs) {
+        // 3. Mise à jour des Infos Club réelles (Bureau, Enseignants, Installations, Tarifs, Club_Info)
+        if (data.bureau || data.installations || data.tarifs || data.clubInfo) {
           setClubInfo(prev => {
             const updated = { ...prev };
+            if (data.clubInfo) {
+              Object.assign(updated, data.clubInfo);
+            }
             if (data.bureau) {
               if (data.bureau.president?.nom) {
                 updated.president = data.bureau.president.nom;
-                if (data.bureau.president.tel) updated.presidentTelephone = String(data.bureau.president.tel);
+                if (data.bureau.president.tel) updated.presidentTelephone = formatFrenchPhoneNumber(data.bureau.president.tel);
                 if (data.bureau.president.email) updated.presidentEmail = data.bureau.president.email;
               }
               if (data.bureau.secretaire?.nom) {
                 updated.secretaire = data.bureau.secretaire.nom;
-                if (data.bureau.secretaire.tel) updated.secretaireTelephone = String(data.bureau.secretaire.tel);
+                if (data.bureau.secretaire.tel) updated.secretaireTelephone = formatFrenchPhoneNumber(data.bureau.secretaire.tel);
                 if (data.bureau.secretaire.email) updated.secretaireEmail = data.bureau.secretaire.email;
               }
               if (data.bureau.tresorier?.nom) {
                 updated.tresorier = data.bureau.tresorier.nom;
-                if (data.bureau.tresorier.tel) updated.tresorierTelephone = String(data.bureau.tresorier.tel);
+                if (data.bureau.tresorier.tel) updated.tresorierTelephone = formatFrenchPhoneNumber(data.bureau.tresorier.tel);
                 if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
               }
               if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
@@ -286,6 +300,20 @@ export default function App() {
             }
             if (data.tarifs && data.tarifs.length > 0) {
               updated.tarifs = data.tarifs;
+            }
+            // Conserver également l'adresse réelle ou les coordonnées locales personnalisées si le Sheet n'a pas encore l'onglet Club_Info
+            const localCustom = loadClubInfoFromLocal();
+            if (localCustom) {
+              if (localCustom.adresse && (!data.clubInfo || !data.clubInfo.adresse)) updated.adresse = localCustom.adresse;
+              if (localCustom.telephone && (!data.clubInfo || !data.clubInfo.telephone)) updated.telephone = localCustom.telephone;
+              if (localCustom.email && (!data.clubInfo || !data.clubInfo.email)) updated.email = localCustom.email;
+              if (localCustom.siteWeb && (!data.clubInfo || !data.clubInfo.siteWeb)) updated.siteWeb = localCustom.siteWeb;
+              if (localCustom.permanencePedagogiqueLibelle && (!data.clubInfo || !data.clubInfo.permanencePedagogiqueLibelle)) updated.permanencePedagogiqueLibelle = localCustom.permanencePedagogiqueLibelle;
+              if (localCustom.permanencePedagogiqueVisible !== undefined && (!data.clubInfo || data.clubInfo.permanencePedagogiqueVisible === undefined)) updated.permanencePedagogiqueVisible = localCustom.permanencePedagogiqueVisible;
+              if (localCustom.horairesPermanence && (!data.clubInfo || !data.clubInfo.horairesPermanence)) updated.horairesPermanence = localCustom.horairesPermanence;
+              if (localCustom.badgeAccesMessage && (!data.clubInfo || !data.clubInfo.badgeAccesMessage)) updated.badgeAccesMessage = localCustom.badgeAccesMessage;
+              if (localCustom.ouvertureCourtsMessage && (!data.clubInfo || !data.clubInfo.ouvertureCourtsMessage)) updated.ouvertureCourtsMessage = localCustom.ouvertureCourtsMessage;
+              if (localCustom.badgeAccesVisible !== undefined && (!data.clubInfo || data.clubInfo.badgeAccesVisible === undefined)) updated.badgeAccesVisible = localCustom.badgeAccesVisible;
             }
             return sanitizeLoadedTarifs(updated);
           });
@@ -481,6 +509,7 @@ export default function App() {
   const handleSaveClubInfo = async (updatedInfo: ClubInfo) => {
     const sanitized = sanitizeLoadedTarifs(updatedInfo);
     setClubInfo(sanitized);
+    saveClubInfoToLocal(sanitized);
     try {
       await saveClubInfoViaAppsScript(sanitized, gasUrl || TCM_APPS_SCRIPT_URL);
     } catch (e) {

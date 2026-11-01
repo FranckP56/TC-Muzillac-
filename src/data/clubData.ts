@@ -1,4 +1,5 @@
 import { Adherent, ClubInfo, Rencontre, SexeHomologation } from '../types/tennis';
+import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
 export const TCM_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec";
 
 export const INITIAL_CLUB_INFO: ClubInfo = {
@@ -7,7 +8,7 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   ligue: 'Ligue de Bretagne de Tennis',
   comite: 'Comité Départemental du Morbihan (56)',
   codeClub: '52 56 0212',
-  adresse: 'Complexe sportif du Chêne Rond, Rue du Stade',
+  adresse: 'Complexe du Clos des Moines',
   codePostal: '56190',
   ville: 'Muzillac',
   email: 'tennisclubmuzillac@gmail.com',
@@ -26,7 +27,12 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   enseignants: [],
   installations: [],
   tarifs: [],
-  horairesPermanence: 'Mercredi 14h-18h et Samedi 10h-12h au Club-house',
+  horairesPermanence: 'Mercredi après-midi & Samedi matin',
+  permanencePedagogiqueLibelle: 'Permanences pédagogiques',
+  permanencePedagogiqueVisible: true,
+  badgeAccesMessage: 'Accès sécurisé par badge',
+  ouvertureCourtsMessage: 'Courts ouverts 7j/7',
+  badgeAccesVisible: true,
   modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
   helloAssoUrl: "https://www.helloasso.com/associations/tennis-club-muzillac",
 };
@@ -165,10 +171,7 @@ export function parseAdherentsCsv(rawCsv: string): Adherent[] {
       typeLicence = `Expirée (${millesime})`;
     }
 
-    let tel = cols[idxTelPort >= 0 ? idxTelPort : 18] || '';
-    if (tel.startsWith('33')) {
-      tel = '0' + tel.slice(2).trim();
-    }
+    const tel = formatFrenchPhoneNumber(cols[idxTelPort >= 0 ? idxTelPort : 18]);
 
     const dernierClass = (cols[idxClassTennis >= 0 ? idxClassTennis : 29] || 'NC').toUpperCase();
     const meilleurClass = (cols[idxMeilleurClass >= 0 ? idxMeilleurClass : 32] || dernierClass).toUpperCase();
@@ -289,15 +292,8 @@ export function parseRencontresCsv(rawCsv: string): Rencontre[] {
       sexeHomologation = 'Messieurs';
     }
 
-    let telCap = (cols[idxPortableCapitaine >= 0 ? idxPortableCapitaine : 20] || '').trim();
-    if (telCap.startsWith('33')) {
-      telCap = '0' + telCap.slice(2).trim();
-    }
-
-    let telCapAdv = (cols[idxPortableCapitaineAdv >= 0 ? idxPortableCapitaineAdv : 25] || '').trim();
-    if (telCapAdv.startsWith('33')) {
-      telCapAdv = '0' + telCapAdv.slice(2).trim();
-    }
+    const telCap = formatFrenchPhoneNumber(cols[idxPortableCapitaine >= 0 ? idxPortableCapitaine : 20]);
+    const telCapAdv = formatFrenchPhoneNumber(cols[idxPortableCapitaineAdv >= 0 ? idxPortableCapitaineAdv : 25]);
 
     list.push({
       id: `rencontre-${i}`,

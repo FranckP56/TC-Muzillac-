@@ -2,18 +2,43 @@
  * =========================================================================
  * MUZILLAC TENNIS CLUB (TCM) - GOOGLE APPS SCRIPT BACKEND
  * Fichier : Code.gs (Millésime FFT 2027)
- * Description : Script pour servir la Web App et extraire les données 
- *               des onglets 'Adhérents' et 'Rencontres' du Google Sheet,
- *               avec validation d'éligibilité FFT 2027 des capitaines.
+ * Description : Script pour servir la Web App et synchroniser les données
+ *               des onglets du Google Sheet ('Adhérents', 'Rencontres',
+ *               'Compositions_Equipes', 'Bureau_Profs', 'Installations',
+ *               'Cotisations_Tarifs', 'Club_Info').
  * =========================================================================
  */
 
 const SHEET_ADHERENTS = 'Adhérents';
 const SHEET_RENCONTRES = 'Rencontres';
 const SHEET_COMPOSITIONS = 'Compositions_Equipes';
+const SHEET_BUREAU = 'Bureau_Profs';
+const SHEET_INSTALLATIONS = 'Installations';
+const SHEET_TARIFS = 'Cotisations_Tarifs';
+const SHEET_CLUB_INFO = 'Club_Info';
 
 /**
- * Fonction doPost() pour enregistrer les compositions d'équipes avec données gelées
+ * Normalisation des numéros de téléphone au format officiel français (10 chiffres, 0 initial)
+ */
+function formatPhoneNumber(raw) {
+  if (!raw) return '';
+  let s = String(raw).replace(/\D/g, '');
+  if (s.startsWith('33') && s.length === 11) {
+    s = '0' + s.slice(2);
+  }
+  if (s.length === 9) {
+    s = '0' + s;
+  }
+  if (s.length === 10) {
+    return s.replace(/(\d{2})(?=\d)/g, '$1 ');
+  }
+  return String(raw).trim();
+}
+
+/**
+ * Fonction doPost() pour enregistrer :
+ * 1. Les compositions d'équipes avec données gelées ('saveComposition')
+ * 2. Les informations du club dans l'onglet Club_Info ('saveClubInfo')
  */
 function doPost(e) {
   let result = {};
@@ -28,6 +53,8 @@ function doPost(e) {
     const action = payload.action || (e && e.parameter ? e.parameter.action : '');
     if (action === 'saveComposition') {
       result = saveFrozenComposition(payload);
+    } else if (action === 'saveClubInfo') {
+      result = saveClubInfo(payload);
     } else {
       result = { success: false, error: 'Action inconnue : ' + action };
     }
@@ -55,17 +82,18 @@ function doGet(e) {
         result = { success: true, data: getRencontres() };
       } else if (action === 'getCompositions' || action === 'compositions') {
         result = { success: true, data: getSavedCompositions() };
+      } else if (action === 'getClubInfo' || action === 'clubInfo') {
+        result = { success: true, data: getClubInfo() };
       } else if (action === 'getAll' || action === 'all') {
         result = { 
           success: true, 
           adherents: getAdherents(),
           rencontres: getRencontres(),
           compositions: getSavedCompositions(),
-          clubInfo: {
-            nom: "Tennis Club de Muzillac (TCM)",
-            adresse: "Complexe sportif du Chêne Rond, 56190 Muzillac",
-            email: "tennisclubmuzillac@gmail.com"
-          }
+          clubInfo: getClubInfo(),
+          bureau: getBureauData(),
+          installations: getInstallationsData(),
+          tarifs: getTarifsData()
         };
       } else {
         result = { success: false, error: "Action inconnue : " + action };
@@ -92,6 +120,149 @@ function doGet(e) {
 }
 
 /**
+ * Récupère les données de l'onglet Club_Info si disponible, avec repli sur les coordonnées officielles réelles
+ */
+function getClubInfo() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_CLUB_INFO);
+
+  const defaultInfo = {
+    nom: "Muzillac Tennis Club",
+    sigle: "TCM",
+    ligue: "Ligue de Bretagne de Tennis",
+    comite: "Comité Départemental du Morbihan (56)",
+    codeClub: "52 56 0212",
+    adresse: "Complexe du Clos des Moines, 56190 Muzillac",
+    codePostal: "56190",
+    ville: "Muzillac",
+    telephone: "06 62 43 24 64",
+    email: "tennisclubmuzillac@gmail.com",
+    siteWeb: "https://www.tennisclubmuzillac.fr",
+    horairesPermanence: "Mercredi après-midi & Samedi matin",
+    permanencePedagogiqueLibelle: "Permanences pédagogiques",
+    permanencePedagogiqueVisible: true,
+    badgeAccesMessage: "Accès sécurisé par badge",
+    ouvertureCourtsMessage: "Courts ouverts 7j/7",
+    badgeAccesVisible: true,
+    modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
+    helloAssoUrl: "https://www.helloasso.com/associations/tennis-club-muzillac"
+  };
+
+  if (!sheet) return defaultInfo;
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return defaultInfo;
+
+  const info = { ...defaultInfo };
+  for (let i = 1; i < values.length; i++) {
+    const key = String(values[i][0] || '').trim().toLowerCase();
+    const val = String(values[i][1] || '').trim();
+    if (!key) continue;
+
+    if (key.includes('adress')) info.adresse = val;
+    else if (key.includes('nom')) info.nom = val;
+    else if (key === 'telephone' || key === 'téléphone' || key === 'tel') info.telephone = formatPhoneNumber(val);
+    else if (key.includes('email') || key.includes('mail')) info.email = val;
+    else if (key.includes('site') || key.includes('web')) info.siteWeb = val;
+    else if (key.includes('code postal') || key === 'cp') info.codePostal = val;
+    else if (key.includes('ville')) info.ville = val;
+    else if (key.includes('sigle')) info.sigle = val;
+    else if (key.includes('ligue')) info.ligue = val;
+    else if (key.includes('comite') || key.includes('comité')) info.comite = val;
+    else if (key.includes('code club')) info.codeClub = val;
+    else if (key.includes('libellé permanence') || key.includes('titre permanence')) info.permanencePedagogiqueLibelle = val;
+    else if (key.includes('permanence visible') || key.includes('afficher permanence')) info.permanencePedagogiqueVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+    else if (key.includes('permanence')) info.horairesPermanence = val;
+    else if (key.includes('badge') && (key.includes('message') || key.includes('texte') || key.includes('accès') || key.includes('acces'))) info.badgeAccesMessage = val;
+    else if (key.includes('badge visible') || key.includes('afficher badge')) info.badgeAccesVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+    else if (key.includes('ouverture') || key.includes('7/7') || key.includes('7j/7') || key.includes('court ouvert')) info.ouvertureCourtsMessage = val;
+    else if (key.includes('modalite') || key.includes('paiement')) info.modalitesPaiement = val;
+    else if (key.includes('helloasso')) info.helloAssoUrl = val;
+    else if (key.includes('president') && (key.includes('tel') || key.includes('portable'))) info.presidentTelephone = formatPhoneNumber(val);
+    else if (key.includes('president') && key.includes('mail')) info.presidentEmail = val;
+    else if (key.includes('president') || key.includes('président')) info.president = val;
+    else if (key.includes('secretaire') && (key.includes('tel') || key.includes('portable'))) info.secretaireTelephone = formatPhoneNumber(val);
+    else if (key.includes('secretaire') && key.includes('mail')) info.secretaireEmail = val;
+    else if (key.includes('secretaire') || key.includes('secrétaire')) info.secretaire = val;
+    else if (key.includes('tresorier') && (key.includes('tel') || key.includes('portable'))) info.tresorierTelephone = formatPhoneNumber(val);
+    else if (key.includes('tresorier') && key.includes('mail')) info.tresorierEmail = val;
+    else if (key.includes('tresorier') || key.includes('trésorier')) info.tresorier = val;
+  }
+
+  return info;
+}
+
+/**
+ * Enregistre ou met à jour les informations du club dans l'onglet Club_Info (créé automatiquement si absent)
+ */
+function saveClubInfo(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_CLUB_INFO);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_CLUB_INFO);
+    sheet.setTabColor('#0284C7');
+  }
+
+  const info = payload.clubInfo || payload;
+
+  const rows = [
+    ["Paramètre", "Valeur"],
+    ["Nom du Club", info.nom || "Muzillac Tennis Club"],
+    ["Sigle", info.sigle || "TCM"],
+    ["Ligue", info.ligue || "Ligue de Bretagne de Tennis"],
+    ["Comité", info.comite || "Comité Départemental du Morbihan (56)"],
+    ["Code Club", info.codeClub || "52 56 0212"],
+    ["Adresse", info.adresse || "Complexe du Clos des Moines, 56190 Muzillac"],
+    ["Code Postal", info.codePostal || "56190"],
+    ["Ville", info.ville || "Muzillac"],
+    ["Téléphone", formatPhoneNumber(info.telephone)],
+    ["Email", info.email || "tennisclubmuzillac@gmail.com"],
+    ["Site Web", info.siteWeb || "https://www.tennisclubmuzillac.fr"],
+    ["Horaires Permanence", info.horairesPermanence || ""],
+    ["Libellé Permanences Pédagogiques", info.permanencePedagogiqueLibelle || "Permanences pédagogiques"],
+    ["Afficher Permanences Pédagogiques", info.permanencePedagogiqueVisible !== false ? "OUI" : "NON"],
+    ["Message Accès Badge", info.badgeAccesMessage || "Accès sécurisé par badge"],
+    ["Message Ouverture Courts", info.ouvertureCourtsMessage || "Courts ouverts 7j/7"],
+    ["Afficher Accès Badge", info.badgeAccesVisible !== false ? "OUI" : "NON"],
+    ["Modalités Paiement", info.modalitesPaiement || ""],
+    ["Président", info.president || ""],
+    ["Téléphone Président", formatPhoneNumber(info.presidentTelephone)],
+    ["Email Président", info.presidentEmail || ""],
+    ["Secrétaire", info.secretaire || ""],
+    ["Téléphone Secrétaire", formatPhoneNumber(info.secretaireTelephone)],
+    ["Email Secrétaire", info.secretaireEmail || ""],
+    ["Trésorier", info.tresorier || ""],
+    ["Téléphone Trésorier", formatPhoneNumber(info.tresorierTelephone)],
+    ["Email Trésorier", info.tresorierEmail || ""]
+  ];
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  return { success: true, rowsSaved: rows.length };
+}
+
+/**
+ * Récupère les données brutes des onglets optionnels s'ils existent
+ */
+function getBureauData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_BUREAU);
+  return sheet ? sheet.getDataRange().getValues() : [];
+}
+
+function getInstallationsData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_INSTALLATIONS);
+  return sheet ? sheet.getDataRange().getValues() : [];
+}
+
+function getTarifsData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_TARIFS);
+  return sheet ? sheet.getDataRange().getValues() : [];
+}
+
+/**
  * Récupère les adhérents sous forme d'objets JSON avec colonnes étendues (Civilité, Date Naiss., Type Licence)
  */
 function getAdherents() {
@@ -102,7 +273,6 @@ function getAdherents() {
   const values = sheet.getDataRange().getValues();
   if (values.length <= 1) return [];
 
-  // Détection automatique des indices selon les en-têtes
   const headers = values[0].map(h => String(h || '').trim().toLowerCase());
   const idxNom = getColIndex(headers, ['nom prénom', 'nom', 'adhérent'], 0);
   const idxCivilite = getColIndex(headers, ['civilité', 'civilite', 'sexe'], -1);
@@ -132,12 +302,8 @@ function getAdherents() {
       solde = parseFloat(clean) || 0;
     }
 
-    let tel = idxTel >= 0 ? String(row[idxTel] || '').trim() : '';
-    if (tel && !tel.startsWith('+') && !tel.startsWith('0') && tel.length === 9) {
-      tel = '0' + tel;
-    }
+    const tel = idxTel >= 0 ? formatPhoneNumber(row[idxTel]) : '';
 
-    // Civilité
     let civilite = 'Monsieur';
     if (idxCivilite >= 0 && row[idxCivilite]) {
       const c = String(row[idxCivilite]).toLowerCase();
@@ -146,7 +312,6 @@ function getAdherents() {
       }
     }
 
-    // Date de naissance
     let dateNaissStr = '1990';
     if (idxDateNaiss >= 0 && row[idxDateNaiss]) {
       const dRaw = row[idxDateNaiss];
@@ -159,7 +324,6 @@ function getAdherents() {
       }
     }
 
-    // Type de Licence (C, W, D, S, etc.)
     let typeLicence = 'C';
     if (idxTypeLicence >= 0 && row[idxTypeLicence]) {
       typeLicence = String(row[idxTypeLicence]).trim().toUpperCase();
@@ -182,12 +346,11 @@ function getAdherents() {
     });
   }
 
-  // Tri automatique FFT décroissant
   return sortAdherentsByRanking(adherents);
 }
 
 /**
- * Récupère les rencontres sous forme d'objets JSON avec les 41 colonnes officielles du GSheet
+ * Récupère les rencontres sous forme d'objets JSON avec les colonnes officielles du GSheet
  */
 function getRencontres() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -245,17 +408,9 @@ function getRencontres() {
       dateStr = String(dateRaw || '').trim();
     }
 
-    let telCapitaine = idxCapTel >= 0 ? String(row[idxCapTel] || '').trim() : '';
-    if (telCapitaine && !telCapitaine.startsWith('+') && !telCapitaine.startsWith('0') && telCapitaine.length === 9) {
-      telCapitaine = '0' + telCapitaine;
-    }
+    const telCapitaine = idxCapTel >= 0 ? formatPhoneNumber(row[idxCapTel]) : '';
+    const telCapAdv = idxCapAdvTel >= 0 ? formatPhoneNumber(row[idxCapAdvTel]) : '';
 
-    let telCapAdv = idxCapAdvTel >= 0 ? String(row[idxCapAdvTel] || '').trim() : '';
-    if (telCapAdv && !telCapAdv.startsWith('+') && !telCapAdv.startsWith('0') && telCapAdv.length === 9) {
-      telCapAdv = '0' + telCapAdv;
-    }
-
-    // Déduction du sexe de l'homologation
     let sexe = 'Messieurs';
     if (idxSexe >= 0 && row[idxSexe]) {
       const s = String(row[idxSexe]).toLowerCase();
@@ -316,7 +471,7 @@ function getColIndex(headers, matchKeywords, defaultIndex) {
 
 function getRankingWeight(rank) {
   if (!rank) return 0;
-  const clean = rank.trim().toUpperCase().replace(/\\s+/g, '');
+  const clean = rank.trim().toUpperCase().replace(/\s+/g, '');
   if (clean.startsWith('N') && clean !== 'NC') {
     const num = parseInt(clean.replace('N', ''), 10) || 100;
     return 1000 - num;
@@ -388,7 +543,6 @@ function saveFrozenComposition(payload) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_COMPOSITIONS);
   
-  // Créer l'onglet si inexistant
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_COMPOSITIONS);
     sheet.setTabColor('#E65100');
@@ -436,7 +590,7 @@ function saveFrozenComposition(payload) {
       pl.poste || '',
       pl.nomPrenom || '',
       pl.licence || '',
-      pl.classementGele || pl.dernierClassTennis || 'NC', // GEL DU CLASSEMENT
+      pl.classementGele || pl.dernierClassTennis || 'NC',
       pl.dateNaissance || '',
       pl.ageSportif || '',
       pl.typeLicence || '',

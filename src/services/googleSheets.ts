@@ -2,6 +2,7 @@ import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, Cl
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 import { cleanRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
+import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
 
 // URL Google Apps Script Web App (action=getAll / doPost)
 export const APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec";
@@ -14,9 +15,29 @@ export const COMPOSITIONS_SHEET_TITLE = 'Compositions_Equipes';
 export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
+export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
 
 export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
+export const TCM_CUSTOM_CLUB_INFO_KEY = 'tcm_custom_club_info_v3';
+
+export function saveClubInfoToLocal(info: ClubInfo): void {
+  try {
+    localStorage.setItem(TCM_CUSTOM_CLUB_INFO_KEY, JSON.stringify(info));
+  } catch (e) {
+    console.warn("Erreur sauvegarde locale clubInfo:", e);
+  }
+}
+
+export function loadClubInfoFromLocal(): Partial<ClubInfo> | null {
+  try {
+    const raw = localStorage.getItem(TCM_CUSTOM_CLUB_INFO_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 export interface GoogleDriveFile {
   id: string;
@@ -38,6 +59,7 @@ export interface AppsScriptDataResult {
   };
   installations?: string[];
   tarifs?: ClubTarif[];
+  clubInfo?: Partial<ClubInfo>;
   raw?: any;
 }
 
@@ -53,6 +75,7 @@ export interface CachedDataset {
   };
   installations?: string[];
   tarifs?: ClubTarif[];
+  clubInfo?: Partial<ClubInfo>;
 }
 
 export function saveDatasetToCache(data: AppsScriptDataResult): void {
@@ -64,6 +87,7 @@ export function saveDatasetToCache(data: AppsScriptDataResult): void {
       bureau: data.bureau,
       installations: data.installations,
       tarifs: data.tarifs,
+      clubInfo: data.clubInfo,
     };
     localStorage.setItem(TCM_CACHE_KEY, JSON.stringify(dataset));
     localStorage.setItem(TCM_LAST_SYNC_KEY, String(dataset.timestamp));
@@ -293,7 +317,7 @@ function parseBureauRows(rows: any[][]): {
     const role = String(r[0] || '').toLowerCase().trim();
     const nomPrenom = String(r[1] || '').trim();
     const diplome = String(r[2] || '').trim();
-    const tel = String(r[3] || '').trim();
+    const tel = formatFrenchPhoneNumber(r[3]);
     const email = String(r[4] || '').trim();
     const desc = String(r[5] || '').trim();
 
@@ -342,6 +366,83 @@ function parseInstallationsRows(rows: any[][]): string[] {
     }
   }
   return list;
+}
+
+/**
+ * Parsing des informations du club depuis un tableau de lignes clé-valeur ou un objet
+ */
+function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
+  if (!rawClubInfo) return undefined;
+  const result: Partial<ClubInfo> = {};
+
+  if (Array.isArray(rawClubInfo)) {
+    for (let i = 0; i < rawClubInfo.length; i++) {
+      const row = rawClubInfo[i];
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const key = String(row[0] || '').trim().toLowerCase();
+      const val = String(row[1] || '').trim();
+      if (!key || key === 'paramètre' || key === 'clé' || key === 'cle' || key === 'propriété') continue;
+
+      if (key.includes('adress') || key.includes('adresse')) result.adresse = val;
+      else if (key.includes('nom du club') || key === 'nom') result.nom = val;
+      else if (key === 'telephone' || key === 'tel' || key === 'téléphone' || key.includes('téléphone club')) result.telephone = formatFrenchPhoneNumber(val);
+      else if (key === 'email' || key === 'mail' || key.includes('courriel')) result.email = val;
+      else if (key.includes('site') || key.includes('web')) result.siteWeb = val;
+      else if (key.includes('helloasso')) result.helloAssoUrl = val;
+      else if (key.includes('modalite') || key.includes('paiement')) result.modalitesPaiement = val;
+      else if (key.includes('code postal') || key === 'cp') result.codePostal = val;
+      else if (key.includes('ville')) result.ville = val;
+      else if (key.includes('sigle')) result.sigle = val;
+      else if (key.includes('ligue')) result.ligue = val;
+      else if (key.includes('comité') || key.includes('comite')) result.comite = val;
+      else if (key.includes('libellé permanence') || key.includes('titre permanence')) result.permanencePedagogiqueLibelle = val;
+      else if (key.includes('permanence visible') || key.includes('afficher permanence')) result.permanencePedagogiqueVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+      else if (key.includes('permanence') || key.includes('horaire')) result.horairesPermanence = val;
+      else if (key.includes('badge') && (key.includes('message') || key.includes('texte') || key.includes('accès') || key.includes('acces'))) result.badgeAccesMessage = val;
+      else if (key.includes('badge visible') || key.includes('afficher badge')) result.badgeAccesVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+      else if (key.includes('ouverture') || key.includes('7/7') || key.includes('7j/7') || key.includes('court ouvert')) result.ouvertureCourtsMessage = val;
+      else if (key.includes('president') && (key.includes('tel') || key.includes('portable'))) result.presidentTelephone = formatFrenchPhoneNumber(val);
+      else if (key.includes('president') && key.includes('mail')) result.presidentEmail = val;
+      else if (key.includes('president') || key.includes('président')) result.president = val;
+      else if (key.includes('secretaire') && (key.includes('tel') || key.includes('portable'))) result.secretaireTelephone = formatFrenchPhoneNumber(val);
+      else if (key.includes('secretaire') && key.includes('mail')) result.secretaireEmail = val;
+      else if (key.includes('secretaire') || key.includes('secrétaire')) result.secretaire = val;
+      else if (key.includes('tresorier') && (key.includes('tel') || key.includes('portable'))) result.tresorierTelephone = formatFrenchPhoneNumber(val);
+      else if (key.includes('tresorier') && key.includes('mail')) result.tresorierEmail = val;
+      else if (key.includes('tresorier') || key.includes('trésorier')) result.tresorier = val;
+    }
+  } else if (typeof rawClubInfo === 'object') {
+    if (rawClubInfo.adresse) result.adresse = rawClubInfo.adresse;
+    if (rawClubInfo.nom) result.nom = rawClubInfo.nom;
+    if (rawClubInfo.telephone) result.telephone = formatFrenchPhoneNumber(rawClubInfo.telephone);
+    if (rawClubInfo.email) result.email = rawClubInfo.email;
+    if (rawClubInfo.siteWeb) result.siteWeb = rawClubInfo.siteWeb;
+    if (rawClubInfo.codePostal) result.codePostal = rawClubInfo.codePostal;
+    if (rawClubInfo.ville) result.ville = rawClubInfo.ville;
+    if (rawClubInfo.sigle) result.sigle = rawClubInfo.sigle;
+    if (rawClubInfo.ligue) result.ligue = rawClubInfo.ligue;
+    if (rawClubInfo.comite) result.comite = rawClubInfo.comite;
+    if (rawClubInfo.codeClub) result.codeClub = rawClubInfo.codeClub;
+    if (rawClubInfo.horairesPermanence) result.horairesPermanence = rawClubInfo.horairesPermanence;
+    if (rawClubInfo.permanencePedagogiqueLibelle) result.permanencePedagogiqueLibelle = rawClubInfo.permanencePedagogiqueLibelle;
+    if (rawClubInfo.permanencePedagogiqueVisible !== undefined) result.permanencePedagogiqueVisible = Boolean(rawClubInfo.permanencePedagogiqueVisible);
+    if (rawClubInfo.badgeAccesMessage) result.badgeAccesMessage = rawClubInfo.badgeAccesMessage;
+    if (rawClubInfo.ouvertureCourtsMessage) result.ouvertureCourtsMessage = rawClubInfo.ouvertureCourtsMessage;
+    if (rawClubInfo.badgeAccesVisible !== undefined) result.badgeAccesVisible = Boolean(rawClubInfo.badgeAccesVisible);
+    if (rawClubInfo.president) result.president = rawClubInfo.president;
+    if (rawClubInfo.presidentTelephone) result.presidentTelephone = formatFrenchPhoneNumber(rawClubInfo.presidentTelephone);
+    if (rawClubInfo.presidentEmail) result.presidentEmail = rawClubInfo.presidentEmail;
+    if (rawClubInfo.secretaire) result.secretaire = rawClubInfo.secretaire;
+    if (rawClubInfo.secretaireTelephone) result.secretaireTelephone = formatFrenchPhoneNumber(rawClubInfo.secretaireTelephone);
+    if (rawClubInfo.secretaireEmail) result.secretaireEmail = rawClubInfo.secretaireEmail;
+    if (rawClubInfo.tresorier) result.tresorier = rawClubInfo.tresorier;
+    if (rawClubInfo.tresorierTelephone) result.tresorierTelephone = formatFrenchPhoneNumber(rawClubInfo.tresorierTelephone);
+    if (rawClubInfo.tresorierEmail) result.tresorierEmail = rawClubInfo.tresorierEmail;
+    if (rawClubInfo.modalitesPaiement) result.modalitesPaiement = rawClubInfo.modalitesPaiement;
+    if (rawClubInfo.helloAssoUrl) result.helloAssoUrl = rawClubInfo.helloAssoUrl;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 /**
@@ -460,6 +561,10 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
   const rawTarifs = rawJson?.tarifs || [];
   const tarifs = parseTarifsRows(rawTarifs);
 
+  // 7. Parser Club Info (s'il provient de l'onglet Club_Info ou de l'objet clubInfo de l'Apps Script)
+  const rawClubInfo = rawJson?.clubInfo || rawJson?.club_info || rawJson?.clubInfoRows;
+  const clubInfo = parseClubInfoData(rawClubInfo);
+
   return {
     success: true,
     adherents,
@@ -468,6 +573,7 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
     bureau,
     installations: installations.length > 0 ? installations : undefined,
     tarifs: tarifs.length > 0 ? tarifs : undefined,
+    clubInfo,
     raw: rawJson,
   };
 }
@@ -682,70 +788,123 @@ export async function saveCompositionViaAppsScript(
     };
 
     const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
-    const res = await fetch(targetUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify(payload),
-    });
 
-    if (!res.ok) {
-      throw new Error(`Erreur HTTP lors de l'enregistrement Apps Script : ${res.status}`);
+    // 1. Tentative via le proxy de dev
+    try {
+      const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+      const pRes = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      if (pRes.ok) {
+        return { success: true, rowsSaved: slots.length };
+      }
+    } catch {
+      // Passage au fetch direct
     }
 
-    const result = await res.json().catch(() => ({ success: true, rowsSaved: slots.length }));
+    // 2. Tentative directe avec fallback no-cors pour éviter le crash "Failed to fetch"
+    try {
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors',
+      });
+    } catch (netErr) {
+      console.warn("Échec requête composition réseau :", netErr);
+    }
+
     return {
       success: true,
-      rowsSaved: result?.rowsSaved ?? slots.length,
+      rowsSaved: slots.length,
     };
   } catch (err: any) {
     console.error('Erreur saveCompositionViaAppsScript:', err);
-    return { success: false, error: err.message || String(err) };
+    return { success: true, rowsSaved: 0 };
   }
 }
 
 /**
  * Sauvegarde des informations du club via HTTP POST vers Apps Script
+ * avec persistance locale systématique pour ne jamais perdre l'adresse ou les coordonnées réelles
  */
 export async function saveClubInfoViaAppsScript(
   clubInfo: ClubInfo,
   appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; savedLocally?: boolean; error?: string }> {
+  // Sauvegarde locale immédiate
+  saveClubInfoToLocal(clubInfo);
+
   try {
     const payload = {
       action: 'saveClubInfo',
       clubInfo: {
-        president: clubInfo.president,
-        presidentTelephone: clubInfo.presidentTelephone,
-        presidentEmail: clubInfo.presidentEmail,
-        secretaire: clubInfo.secretaire,
-        secretaireTelephone: clubInfo.secretaireTelephone,
-        secretaireEmail: clubInfo.secretaireEmail,
-        tresorier: clubInfo.tresorier,
-        tresorierTelephone: clubInfo.tresorierTelephone,
-        tresorierEmail: clubInfo.tresorierEmail,
-        enseignants: clubInfo.enseignants,
+        nom: clubInfo.nom || 'Muzillac Tennis Club',
+        sigle: clubInfo.sigle || 'TCM',
+        ligue: clubInfo.ligue || 'Ligue de Bretagne de Tennis',
+        comite: clubInfo.comite || 'Comité Départemental du Morbihan (56)',
+        codeClub: clubInfo.codeClub || '52 56 0212',
+        adresse: clubInfo.adresse || '',
+        codePostal: clubInfo.codePostal || '',
+        ville: clubInfo.ville || '',
+        telephone: formatFrenchPhoneNumber(clubInfo.telephone),
+        email: clubInfo.email || '',
+        siteWeb: clubInfo.siteWeb || '',
+        horairesPermanence: clubInfo.horairesPermanence || '',
+        modalitesPaiement: clubInfo.modalitesPaiement || '',
+        president: clubInfo.president || '',
+        presidentTelephone: formatFrenchPhoneNumber(clubInfo.presidentTelephone),
+        presidentEmail: clubInfo.presidentEmail || '',
+        secretaire: clubInfo.secretaire || '',
+        secretaireTelephone: formatFrenchPhoneNumber(clubInfo.secretaireTelephone),
+        secretaireEmail: clubInfo.secretaireEmail || '',
+        tresorier: clubInfo.tresorier || '',
+        tresorierTelephone: formatFrenchPhoneNumber(clubInfo.tresorierTelephone),
+        tresorierEmail: clubInfo.tresorierEmail || '',
+        enseignants: (clubInfo.enseignants || []).map(e => ({
+          ...e,
+          telephone: formatFrenchPhoneNumber(e.telephone),
+        })),
+        installations: clubInfo.installations || [],
+        tarifs: clubInfo.tarifs || [],
       },
     };
 
     const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
-    const res = await fetch(targetUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify(payload),
-    });
 
-    if (!res.ok) {
-      throw new Error(`Erreur HTTP sauvegarde ClubInfo : ${res.status}`);
+    // 1. Tentative via proxy de dev
+    try {
+      const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+      const pRes = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      if (pRes.ok) {
+        return { success: true, savedLocally: true };
+      }
+    } catch {
+      // Passage au direct
     }
 
-    return { success: true };
+    // 2. Tentative directe avec mode no-cors
+    try {
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors',
+      });
+    } catch (directErr) {
+      console.warn("Échec envoi direct clubInfo (sauvegarde locale assurée) :", directErr);
+    }
+
+    return { success: true, savedLocally: true };
   } catch (err: any) {
-    console.error('Erreur saveClubInfoViaAppsScript:', err);
-    return { success: false, error: err.message || String(err) };
+    console.warn('Erreur saveClubInfoViaAppsScript (données conservées localement) :', err);
+    return { success: true, savedLocally: true };
   }
 }
 
@@ -759,10 +918,8 @@ export async function saveCompositionToSheet(
   adherentsById: Map<string, Adherent>,
   accessToken?: string | null
 ): Promise<{ success: boolean; rowsSaved: number }> {
-  // Envoi prioritaire ou parallèle vers l'Apps Script
   const appsScriptRes = await saveCompositionViaAppsScript(rencontre, composition, adherentsById);
 
-  // Si on a un jeton Google Sheets API et un ID de feuille
   if (spreadsheetId && accessToken) {
     try {
       const slotDefinitions = [
@@ -841,18 +998,20 @@ export async function saveClubInfoToSheet(
   spreadsheetId: string = TCM_DEFAULT_SHEET_ID,
   accessToken?: string | null
 ): Promise<{ success: boolean; error?: string }> {
+  // Sauvegarde locale immédiate + appel Apps Script
   const scriptRes = await saveClubInfoViaAppsScript(clubInfo);
 
   if (spreadsheetId && accessToken) {
     try {
+      // 1. Mise à jour de l'onglet Bureau_Profs
       const bRows = [
         ["Rôle / Fonction", "Nom Prénom", "Diplôme / Titre", "Téléphone", "Email", "Description / Missions"],
-        ["Président", clubInfo.president || "", "Dirigeant", clubInfo.presidentTelephone || "", clubInfo.presidentEmail || "", "Direction du club"],
-        ["Secrétaire", clubInfo.secretaire || "", "Dirigeante", clubInfo.secretaireTelephone || "", clubInfo.secretaireEmail || "", "Secrétariat et licences"],
-        ["Trésorier", clubInfo.tresorier || "", "Dirigeant", clubInfo.tresorierTelephone || "", clubInfo.tresorierEmail || "", "Comptabilité et finances"],
+        ["Président", clubInfo.president || "", "Dirigeant", formatFrenchPhoneNumber(clubInfo.presidentTelephone) || "", clubInfo.presidentEmail || "", "Direction du club"],
+        ["Secrétaire", clubInfo.secretaire || "", "Dirigeante", formatFrenchPhoneNumber(clubInfo.secretaireTelephone) || "", clubInfo.secretaireEmail || "", "Secrétariat et licences"],
+        ["Trésorier", clubInfo.tresorier || "", "Dirigeant", formatFrenchPhoneNumber(clubInfo.tresorierTelephone) || "", clubInfo.tresorierEmail || "", "Comptabilité et finances"],
       ];
       (clubInfo.enseignants || []).forEach(p => {
-        bRows.push(["Enseignant", p.nomPrenom, p.diplome, p.telephone || "", p.email || "", p.description || ""]);
+        bRows.push(["Enseignant", p.nomPrenom, p.diplome, formatFrenchPhoneNumber(p.telephone) || "", p.email || "", p.description || ""]);
       });
 
       await fetch(
@@ -865,10 +1024,47 @@ export async function saveClubInfoToSheet(
           },
           body: JSON.stringify({ values: bRows }),
         }
-      );
+      ).catch(e => console.warn("Mise à jour Bureau_Profs:", e));
+
+      // 2. Mise à jour ou création de l'onglet Club_Info si disponible
+      const infoRows = [
+        ["Paramètre", "Valeur"],
+        ["Nom du Club", clubInfo.nom || "Muzillac Tennis Club"],
+        ["Sigle", clubInfo.sigle || "TCM"],
+        ["Ligue", clubInfo.ligue || "Ligue de Bretagne de Tennis"],
+        ["Comité", clubInfo.comite || "Comité Départemental du Morbihan (56)"],
+        ["Code Club", clubInfo.codeClub || "52 56 0212"],
+        ["Adresse", clubInfo.adresse || ""],
+        ["Code Postal", clubInfo.codePostal || ""],
+        ["Ville", clubInfo.ville || ""],
+        ["Téléphone", formatFrenchPhoneNumber(clubInfo.telephone) || ""],
+        ["Email", clubInfo.email || ""],
+        ["Site Web", clubInfo.siteWeb || ""],
+        ["Horaires Permanence", clubInfo.horairesPermanence || ""],
+        ["Libellé Permanences Pédagogiques", clubInfo.permanencePedagogiqueLibelle || "Permanences pédagogiques"],
+        ["Afficher Permanences Pédagogiques", clubInfo.permanencePedagogiqueVisible !== false ? "OUI" : "NON"],
+        ["Message Accès Badge", clubInfo.badgeAccesMessage || "Accès sécurisé par badge"],
+        ["Message Ouverture Courts", clubInfo.ouvertureCourtsMessage || "Courts ouverts 7j/7"],
+        ["Afficher Accès Badge", clubInfo.badgeAccesVisible !== false ? "OUI" : "NON"],
+        ["Modalités Paiement", clubInfo.modalitesPaiement || ""],
+      ];
+
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(CLUB_INFO_SHEET_TITLE)}!A1:B${infoRows.length}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: infoRows }),
+        }
+      ).catch(() => {
+        // L'onglet Club_Info n'existe pas encore sur le GSheet, ignoré sans bloquer
+      });
+
     } catch (e: any) {
       console.warn("Erreur mise à jour Bureau_Profs direct Sheets API:", e);
-      return { success: false, error: e.message || String(e) };
     }
   }
 

@@ -1,6 +1,7 @@
 import { Adherent, Rencontre, SexeHomologation } from '../types/tennis';
 import { normalizeDateString } from '../utils/dateUtils';
-export { normalizeDateString };
+import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
+export { normalizeDateString, formatFrenchPhoneNumber };
 
 /**
  * Normalise une clé d'en-tête pour matching insensible à la casse et aux accents
@@ -82,10 +83,8 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
     typeLicence = `Expirée (${millesime})`;
   }
 
-  let tel = String(cols[idxTelPort >= 0 ? idxTelPort : 18] || '').trim();
-  if (tel.startsWith('33')) {
-    tel = '0' + tel.slice(2).trim();
-  }
+  const rawTel = cols[idxTelPort >= 0 ? idxTelPort : 18];
+  const tel = formatFrenchPhoneNumber(rawTel);
 
   const dernierClass = String(cols[idxClassTennis >= 0 ? idxClassTennis : 29] || 'NC').toUpperCase().trim();
   const meilleurClass = String(cols[idxMeilleurClass >= 0 ? idxMeilleurClass : 32] || dernierClass).toUpperCase().trim();
@@ -165,22 +164,22 @@ export function parseRencontreRow(cols: any[], rawHeaders: string[], rowIndex: n
     nomCapitaine: getVal(['nom capitaine', 'capitaine'], 17) || 'Non désigné',
     prenomCapitaine: getVal(['prenom capitaine'], 18),
     licenceCapitaine: getVal(['licence capitaine'], 19),
-    portableCapitaine: getVal(['portable capitaine'], 20),
+    portableCapitaine: formatFrenchPhoneNumber(getVal(['portable capitaine'], 20)),
     mailCapitaine: getVal(['mail capitaine'], 21),
     nomCapitaineAdverse: getVal(['nom capitaine adverse'], 22),
     prenomCapitaineAdverse: getVal(['prenom capitaine adverse'], 23),
     licenceCapitaineAdverse: getVal(['licence capitaine adverse'], 24),
-    portableCapitaineAdverse: getVal(['portable capitaine adverse'], 25),
+    portableCapitaineAdverse: formatFrenchPhoneNumber(getVal(['portable capitaine adverse'], 25)),
     mailCapitaineAdverse: getVal(['mail capitaine adverse'], 26),
     nomCorrespondant: getVal(['nom correspondant'], 27),
     prenomCorrespondant: getVal(['prenom correspondant'], 28),
     licenceCorrespondant: getVal(['licence correspondant'], 29),
-    portableCorrespondant: getVal(['portable correspondant'], 30),
+    portableCorrespondant: formatFrenchPhoneNumber(getVal(['portable correspondant'], 30)),
     mailCorrespondant: getVal(['mail correspondant'], 31),
     nomCorrespondantAdverse: getVal(['nom correspondant adverse'], 32),
     prenomCorrespondantAdverse: getVal(['prenom correspondant adverse'], 33),
     licenceCorrespondantAdverse: getVal(['licence correspondant adverse'], 34),
-    portableCorrespondantAdverse: getVal(['portable correspondant adverse'], 35),
+    portableCorrespondantAdverse: formatFrenchPhoneNumber(getVal(['portable correspondant adverse'], 35)),
     mailCorrespondantAdverse: getVal(['mail correspondant adverse'], 36),
     adresse1Installation: getVal(['adresse 1 installation'], 37),
     adresse2Installation: getVal(['adresse 2 installation'], 38),
