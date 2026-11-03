@@ -18,7 +18,7 @@ import {
   User
 } from 'lucide-react';
 import { Adherent } from '../types/tennis';
-import { getRankingMeta } from '../utils/ranking';
+import { getRankingMeta, getClubAffiliationBadge, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
 
 interface AdherentModalProps {
@@ -39,6 +39,7 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
   const meta = getRankingMeta(adherent.dernierClassTennis);
   const isOwed = adherent.soldeDu < 0;
   const isCredit = adherent.soldeDu > 0;
+  const affil = getClubAffiliationBadge(adherent);
   const rawLicenceType = (adherent.typeLicence || '').toUpperCase();
   const isLicenceCompValid = rawLicenceType === 'C' || rawLicenceType === 'W';
   const birthYear = extractBirthYear(adherent.dateNaissance);
@@ -88,12 +89,23 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
               <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">
                 {meta.serie}
               </span>
+              {(() => {
+                const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
+                if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                  return (
+                    <span className="text-[9px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
+                      Max: {maxRank}
+                    </span>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wide bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
-                  Adhérent TCM
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${affil.badgeClass}`}>
+                  {affil.label}
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
                   {adherent.civilite === 'Madame' ? 'Madame (F)' : 'Monsieur (H)'}
@@ -250,25 +262,42 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
               </div>
             </div>
 
+            {/* Club de rattachement / Affiliation */}
+            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
+              <span className="text-zinc-400 flex items-center gap-2">
+                <Award className="w-3.5 h-3.5 text-zinc-500" />
+                Club d'affiliation
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${affil.badgeClass}`}>
+                {affil.label}
+              </span>
+            </div>
+
             {/* Numéro de Licence & Statut Type */}
             <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
               <span className="text-zinc-400 flex items-center gap-2">
                 <CreditCard className="w-3.5 h-3.5 text-zinc-500" />
-                Licence FFT & Type
+                Licence FFT & Statut
               </span>
               <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-[#FF6D00]">{adherent.licence || 'Non renseignée'}</span>
-                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-zinc-800 text-white">
-                  Type {adherent.typeLicence}
-                </span>
-                {adherent.licence && (
-                  <button
-                    onClick={() => copyToClipboard(adherent.licence, 'licence')}
-                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                    title="Copier le numéro de licence"
-                  >
-                    {copiedField === 'licence' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
+                {adherent.licence ? (
+                  <>
+                    <span className="font-mono font-bold text-[#FF6D00]">{adherent.licence}</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-zinc-800 text-white">
+                      Type {adherent.typeLicence}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(adherent.licence, 'licence')}
+                      className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                      title="Copier le numéro de licence"
+                    >
+                      {copiedField === 'licence' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-zinc-400 italic">
+                    Sans licence (Parent / Adhésion libre)
+                  </span>
                 )}
               </div>
             </div>

@@ -21,7 +21,14 @@ import {
   X
 } from 'lucide-react';
 import { Adherent, UserRole } from '../types/tennis';
-import { getRankingMeta, getRankingWeight, isRankingND } from '../utils/ranking';
+import { 
+  getRankingMeta, 
+  getRankingWeight, 
+  isRankingND, 
+  cleanRanking, 
+  isValidTennisRanking, 
+  getClubAffiliationBadge 
+} from '../utils/ranking';
 import { FileSpreadsheet } from 'lucide-react';
 import { DataSyncBanner } from './DataSyncBanner';
 
@@ -494,24 +501,39 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                       <span className={`px-2.5 py-1 rounded-xl text-xs font-black border block ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
                         {adh.dernierClassTennis || 'NC'}
                       </span>
-                      {adh.meilleurClassTennis && adh.meilleurClassTennis !== adh.dernierClassTennis && (
-                        <span className="text-[9px] text-zinc-500 block mt-0.5">
-                          Max: {adh.meilleurClassTennis}
-                        </span>
-                      )}
+                      {(() => {
+                        const maxRank = cleanRanking(adh.meilleurClassTennis, '');
+                        if (maxRank && maxRank !== adh.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                          return (
+                            <span className="text-[9px] text-zinc-500 block mt-0.5" title="Meilleur classement FFT">
+                              Max: {maxRank}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
 
-                  {/* Ligne 2 : Badges Licence, Groupe d'entraînement & Solde */}
+                  {/* Ligne 2 : Badges Club (TCM / Autre club / Sans licence), Licence & Solde */}
                   <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
-                    {adh.licence ? (
+                    {/* Badge Club d'appartenance / Affiliation FFT */}
+                    {(() => {
+                      const affil = getClubAffiliationBadge(adh);
+                      return (
+                        <span 
+                          className={`px-2 py-0.5 rounded font-bold border ${affil.badgeClass}`}
+                          title={`Affiliation : ${affil.label}`}
+                        >
+                          {affil.shortLabel}
+                        </span>
+                      );
+                    })()}
+
+                    {adh.licence && (
                       <span className="px-2 py-0.5 rounded font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                         <span>Licence {adh.millesimeLicence || '2027'}</span>
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
-                        Sans licence
                       </span>
                     )}
 

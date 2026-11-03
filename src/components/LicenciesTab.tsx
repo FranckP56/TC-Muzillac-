@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { Adherent, UserRole } from '../types/tennis';
 import { filterLicenciesMuzillac2027, getLicenciesStats } from '../utils/licencies';
-import { getRankingMeta } from '../utils/ranking';
+import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 
 interface LicenciesTabProps {
   adherents: Adherent[];
@@ -321,23 +321,25 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                       <span className={`px-2.5 py-1 rounded-xl text-xs font-black border block ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
                         {adh.dernierClassTennis}
                       </span>
-                      {adh.meilleurClassTennis && adh.meilleurClassTennis !== adh.dernierClassTennis && (
-                        <span className="text-[9px] text-zinc-500 block mt-0.5">
-                          Max: {adh.meilleurClassTennis}
-                        </span>
-                      )}
+                      {(() => {
+                        const maxRank = cleanRanking(adh.meilleurClassTennis, '');
+                        if (maxRank && maxRank !== adh.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                          return (
+                            <span className="text-[9px] text-zinc-500 block mt-0.5" title="Meilleur classement FFT">
+                              Max: {maxRank}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
 
-                  {/* Ligne 2 : Badges Licence 2027 & Club Muzillac */}
+                  {/* Ligne 2 : Badges Licence 2027 & Solde (mention TCM retirée car tous licenciés TCM) */}
                   <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
                     <span className="px-2 py-0.5 rounded font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                       <span>Licence {adh.millesimeLicence || '2027'} : {adh.licence}</span>
-                    </span>
-
-                    <span className="px-2 py-0.5 rounded font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">
-                      TCM Muzillac
                     </span>
 
                     {adh.soldeDu < 0 ? (

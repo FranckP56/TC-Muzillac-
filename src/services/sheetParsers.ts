@@ -1,6 +1,7 @@
 import { Adherent, Rencontre, SexeHomologation } from '../types/tennis';
 import { normalizeDateString } from '../utils/dateUtils';
 import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
+import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 export { normalizeDateString, formatFrenchPhoneNumber };
 
 /**
@@ -15,16 +16,24 @@ function normalizeHeader(h: string): string {
     .trim();
 }
 
-function findColIdx(headers: string[], candidates: string[], fallbackIdx: number = -1): number {
+function findColIdx(
+  headers: string[], 
+  candidates: string[], 
+  fallbackIdx: number = -1,
+  exclude: string[] = []
+): number {
   const normHeaders = headers.map(normalizeHeader);
+  const normExclude = exclude.map(normalizeHeader);
+  const isExcluded = (h: string) => normExclude.some(ex => h.includes(ex));
+
   for (const cand of candidates) {
     const normCand = normalizeHeader(cand);
-    const idx = normHeaders.indexOf(normCand);
+    const idx = normHeaders.findIndex(h => h === normCand && !isExcluded(h));
     if (idx >= 0) return idx;
   }
   for (const cand of candidates) {
     const normCand = normalizeHeader(cand);
-    const idx = normHeaders.findIndex(h => h.includes(normCand));
+    const idx = normHeaders.findIndex(h => h.includes(normCand) && !isExcluded(h));
     if (idx >= 0) return idx;
   }
   return fallbackIdx;
@@ -42,13 +51,13 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const idxMillesime = findColIdx(rawHeaders, ['millesime derniere licence', 'millesime'], 23);
   const idxTelPort = findColIdx(rawHeaders, ['telephone portable', 'portable'], 18);
   const idxEmail = findColIdx(rawHeaders, ['email', 'mail'], 20);
-  const idxClassTennis = findColIdx(rawHeaders, ['dernier class. tennis', 'classement'], 29);
-  const idxMeilleurClass = findColIdx(rawHeaders, ['meilleur class. tennis', 'meilleur'], 32);
+  const idxClassTennis = findColIdx(rawHeaders, ['dernier class. tennis', 'dernier classement', 'classement'], 29, ['date']);
+  const idxMeilleurClass = findColIdx(rawHeaders, ['meilleur class. tennis', 'meilleur class.', 'meilleur class', 'meilleur classement', 'classement max', 'meilleur'], -1, ['date']);
   const idxAgeSportif = findColIdx(rawHeaders, ['age sportif', 'echelon'], 39);
   const idxGroupe = findColIdx(rawHeaders, ['groupe enseignement', 'cours', 'groupe'], 54);
   const idxTenUp = findColIdx(rawHeaders, ["compte ten'up", 'tenup'], 65);
   const idxVille = findColIdx(rawHeaders, ['ville', 'commune'], 13);
-  const idxClub = findColIdx(rawHeaders, ['nom du club', 'club'], 27);
+  const idxClub = findColIdx(rawHeaders, ['nom du club', 'club de rattachement', 'club'], 27);
   const idxCommentaire = findColIdx(rawHeaders, ['commentaire'], 62);
 
   // Parsing Solde
@@ -76,9 +85,13 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const licence = String(cols[idxLicence >= 0 ? idxLicence : 22] || '').trim();
   const millesime = String(cols[idxMillesime >= 0 ? idxMillesime : 23] || '').trim();
 
+  let rawGroupe = String(cols[idxGroupe >= 0 ? idxGroupe : 54] || '').trim();
+  if (!rawGroupe) rawGroupe = 'Pratique libre';
+  const groupe = rawGroupe.split('(')[0].trim() || rawGroupe;
+
   let typeLicence = 'C';
   if (!licence || !millesime) {
-    typeLicence = 'Non renouvelée';
+    typeLicence = groupe.toLowerCase().includes('parent') ? "Sans licence (Parent d'élève)" : 'Sans licence';
   } else if (millesime !== '2027') {
     typeLicence = `Expirée (${millesime})`;
   }
@@ -86,16 +99,30 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const rawTel = cols[idxTelPort >= 0 ? idxTelPort : 18];
   const tel = formatFrenchPhoneNumber(rawTel);
 
-  const dernierClass = String(cols[idxClassTennis >= 0 ? idxClassTennis : 29] || 'NC').toUpperCase().trim();
-  const meilleurClass = String(cols[idxMeilleurClass >= 0 ? idxMeilleurClass : 32] || dernierClass).toUpperCase().trim();
+  // Assainissement du Dernier Classement
+  const dernierClass = cleanRanking(cols[idxClassTennis >= 0 ? idxClassTennis : 29], 'NC');
 
-  let rawGroupe = String(cols[idxGroupe >= 0 ? idxGroupe : 54] || '').trim();
-  if (!rawGroupe) rawGroupe = 'Pratique libre';
-  const groupe = rawGroupe.split('(')[0].trim() || rawGroupe;
+  // Assainissement du Meilleur Classement (en évitant la colonne Date)
+  let rawMeilleur: any = '';
+  if (idxMeilleurClass >= 0 && cols[idxMeilleurClass] !== undefined) {
+    rawMeilleur = cols[idxMeilleurClass];
+  } else if (cols[32] !== undefined && isValidTennisRanking(cleanRanking(cols[32], ''))) {
+    rawMeilleur = cols[32];
+  } else if (cols[31] !== undefined && isValidTennisRanking(cleanRanking(cols[31], ''))) {
+    rawMeilleur = cols[31];
+  } else if (cols[33] !== undefined && isValidTennisRanking(cleanRanking(cols[33], ''))) {
+    rawMeilleur = cols[33];
+  }
+
+  let meilleurClass = cleanRanking(rawMeilleur, dernierClass);
+  if (!isValidTennisRanking(meilleurClass)) {
+    meilleurClass = dernierClass;
+  }
 
   const tenUp = String(cols[idxTenUp >= 0 ? idxTenUp : 65] || 'Non créé').trim();
   const ville = String(cols[idxVille >= 0 ? idxVille : 13] || 'MUZILLAC').trim();
-  const club = String(cols[idxClub >= 0 ? idxClub : 27] || 'MUZILLAC TENNIS CLUB').trim();
+  const rawClub = cols[idxClub >= 0 ? idxClub : 27];
+  const club = rawClub ? String(rawClub).trim() : 'MUZILLAC TENNIS CLUB';
   const commentaire = String(cols[idxCommentaire >= 0 ? idxCommentaire : 62] || '').trim();
   const ageSportif = String(cols[idxAgeSportif >= 0 ? idxAgeSportif : 39] || '').trim();
 

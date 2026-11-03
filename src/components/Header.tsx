@@ -180,7 +180,7 @@ export const Header: React.FC<HeaderProps> = ({
               <p className="text-[10px] text-zinc-400 flex items-center gap-1.5">
                 <span>FFT 52 56 0212</span>
                 <span className="hidden xs:inline">•</span>
-                <span className="text-zinc-500 hidden xs:inline">Complexe du Chêne Rond</span>
+                <span className="text-zinc-500 hidden xs:inline">Complexe du Clos des Moines</span>
               </p>
             </div>
           </div>

@@ -20,30 +20,149 @@ export function isRankingND(rank: string | undefined): boolean {
 }
 
 /**
- * Nettoie et rétablit un classement FFT si Google Sheets l'a converti automatiquement en date ISO.
- * Ex : "30/1" converti en "2026-01-29T23:00:00.000Z" -> "30/1"
- * Ex : "30/3" converti en "2026-03-29T22:00:00.000Z" -> "30/3"
- * Ex : 30 (nombre) -> "30"
+ * Vérifie si une valeur correspond à un classement officiel FFT valide
+ * (ex: 'NC', '40', '30/1', '15/2', '15', '5/6', '0', '-2/6', 'N25', 'ND'...)
  */
-export function cleanRanking(val: any): string {
-  if (val === undefined || val === null || val === '') return 'NC';
+export function isValidTennisRanking(val: any): boolean {
+  if (!val) return false;
+  const s = String(val).trim().toUpperCase();
+  if (isRankingND(s)) return true;
+  // Classements numérotés Top 100 français (ex: N20, N85)
+  if (/^N\d{1,3}$/.test(s)) return true;
+  // Classements standards FFT
+  return /^(NC|NON CLASS[EÉ]|40|30\/[1-5]|30|15\/[1-5]|15|[1-5]\/6|0|-[24]\/6|-15|-30)$/.test(s);
+}
+
+/**
+ * Nettoie et rétablit un classement FFT si Google Sheets l'a converti automatiquement en date ISO.
+ * Ex : "15/1" converti par GSheets en "2026-01-14T23:00:00.000Z" -> rétabli en "15/1"
+ * Ex : "15/2" converti par GSheets en "2026-02-14T23:00:00.000Z" -> rétabli en "15/2"
+ * Ex : "30/1" converti par GSheets en "2026-01-29T23:00:00.000Z" -> rétabli en "30/1"
+ * Ex : "5/6" converti par GSheets en "2026-06-04T22:00:00.000Z" -> rétabli en "5/6"
+ * Ex : 15 (nombre ou texte) -> "15"
+ * Si la valeur est une vraie date non reconvertible, retourne le fallback fourni (par défaut 'NC')
+ * et JAMAIS une chaîne de date brute.
+ */
+export function cleanRanking(val: any, fallback: string = 'NC'): string {
+  if (val === undefined || val === null || val === '') return fallback;
   const str = String(val).trim();
-  if (str.includes('T') && str.endsWith('Z')) {
+
+  // Si c'est déjà un classement FFT valide
+  if (isValidTennisRanking(str)) {
+    return str.toUpperCase();
+  }
+
+  // Si Google Sheets a transformé un classement avec slash (15/1, 30/1, 5/6...) en Date ISO
+  if (str.includes('T') || str.includes('Z') || (str.includes('-') && str.length >= 10)) {
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      // Décalage pour fuseau horaire français
-      const localD = new Date(d.getTime() + 2 * 3600 * 1000);
+      // Décalage pour fuseau horaire français (+4h permet de tomber au cœur de la journée locale)
+      const localD = new Date(d.getTime() + 4 * 3600 * 1000);
       const day = localD.getUTCDate();
       const month = localD.getUTCMonth() + 1;
-      if (day >= 28 && day <= 31) {
+
+      // Série 15/1 à 15/5 (GSheets comprend jour 15 du mois 1 à 5)
+      if (day === 15 && month >= 1 && month <= 5) {
+        return `15/${month}`;
+      }
+
+      // Série 30/1 à 30/5 (GSheets comprend jour 30 ou fin de mois 1 à 5)
+      if ((day >= 28 && day <= 31) && month >= 1 && month <= 5) {
         return `30/${month}`;
       }
-      if (day === 15) {
-        return `15/${month}`;
+
+      // Séries 1/6 à 5/6
+      if (month === 6 && day >= 1 && day <= 5) {
+        return `${day}/6`;
+      }
+      if (day === 6 && month >= 1 && month <= 5) {
+        return `${month}/6`;
       }
     }
   }
-  return str.toUpperCase();
+
+  // Nettoyage standard si format proche (ex: " 15 / 2 ")
+  const simplified = str.replace(/\s+/g, '').toUpperCase();
+  if (isValidTennisRanking(simplified)) {
+    return simplified;
+  }
+
+  // Si la valeur contient encore des tirets de date ou un T d'ISO, ne JAMAIS la renvoyer comme classement
+  if (str.includes('T') || (str.includes('-') && /\d{4}/.test(str))) {
+    return fallback;
+  }
+
+  return str.toUpperCase() || fallback;
+}
+
+/**
+ * Détermine le statut d'affiliation club et de licence de l'adhérent
+ * Permet de distinguer :
+ * 1. Licencié au TCM Muzillac
+ * 2. Licencié dans un autre club FFT (ex: TC Vannes, Sarzeau...)
+ * 3. Sans licence (ex: Formule Parent d'élève, adhésion loisir seule)
+ */
+export function getClubAffiliationBadge(adh: {
+  licence?: string;
+  typeLicence?: string;
+  clubRattachement?: string;
+  groupeEnseignement?: string;
+}) {
+  const rawLicence = (adh.licence || '').trim();
+  const rawType = (adh.typeLicence || '').trim();
+  const rawGroupe = (adh.groupeEnseignement || '').toLowerCase();
+  const isParent = rawGroupe.includes('parent');
+
+  // Adhérent sans licence FFT active
+  const hasNoLicence = 
+    !rawLicence || 
+    rawLicence === '-' || 
+    rawLicence === '0' ||
+    rawType.toLowerCase().includes('sans licence') ||
+    rawType === 'Non renouvelée' ||
+    (isParent && !rawLicence);
+
+  if (hasNoLicence) {
+    return {
+      type: 'sans_licence' as const,
+      isTCM: false,
+      hasLicence: false,
+      label: isParent ? "Sans licence (Parent d'élève)" : "Sans licence",
+      shortLabel: isParent ? "Parent d'élève" : "Sans licence",
+      badgeClass: "bg-zinc-800 text-zinc-300 border-zinc-700",
+    };
+  }
+
+  // Adhérent licencié : vérification du club de rattachement
+  const rawClub = (adh.clubRattachement || '').trim();
+  const clubNorm = rawClub.toLowerCase();
+  const isTCM = 
+    !rawClub || 
+    clubNorm.includes('muzillac') || 
+    clubNorm.includes('tcm') || 
+    rawClub.includes('52 56 0212') ||
+    rawClub.includes('52560212');
+
+  if (isTCM) {
+    return {
+      type: 'tcm' as const,
+      isTCM: true,
+      hasLicence: true,
+      label: "TCM Muzillac",
+      shortLabel: "TCM Muzillac",
+      badgeClass: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+    };
+  }
+
+  // Licencié dans un autre club FFT
+  return {
+    type: 'autre_club' as const,
+    isTCM: false,
+    hasLicence: true,
+    label: `Licencié ${rawClub}`,
+    shortLabel: rawClub,
+    badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  };
 }
 
 /**

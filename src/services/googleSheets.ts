@@ -1,6 +1,6 @@
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
-import { cleanRanking } from '../utils/ranking';
+import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
 import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
 
@@ -514,7 +514,19 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
         if (parsed) adherents.push(parsed);
       }
     } else if (rawAdh[0]?.nomPrenom) {
-      adherents.push(...rawAdh);
+      for (const item of rawAdh) {
+        if (!item) continue;
+        const dernierClass = cleanRanking(item.dernierClassTennis, 'NC');
+        let meilleurClass = cleanRanking(item.meilleurClassTennis, dernierClass);
+        if (!isValidTennisRanking(meilleurClass)) {
+          meilleurClass = dernierClass;
+        }
+        adherents.push({
+          ...item,
+          dernierClassTennis: dernierClass,
+          meilleurClassTennis: meilleurClass,
+        });
+      }
     }
   }
 

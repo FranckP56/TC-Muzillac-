@@ -282,10 +282,12 @@ function getAdherents() {
   const idxTel = getColIndex(headers, ['téléphone portable', 'telephone portable', 'portable', 'téléphone'], 2);
   const idxEmail = getColIndex(headers, ['email', 'mail', 'courriel'], 3);
   const idxClass = getColIndex(headers, ['dernier class. tennis', 'classement', 'class.'], 4);
+  const idxMeilleurClass = getColIndex(headers, ['meilleur class. tennis', 'meilleur class', 'meilleur'], -1);
   const idxLicence = getColIndex(headers, ['licence', 'n° licence'], 5);
   const idxAgeSportif = getColIndex(headers, ['age sportif', 'âge sportif', 'catégorie'], 6);
   const idxGroupe = getColIndex(headers, ['groupe enseignement', 'groupe'], 7);
   const idxTenUp = getColIndex(headers, ['compte ten\'up', 'tenup', 'ten\'up'], 8);
+  const idxClub = getColIndex(headers, ['nom du club', 'club de rattachement', 'club'], -1);
 
   const adherents = [];
   for (let i = 1; i < values.length; i++) {
@@ -324,10 +326,24 @@ function getAdherents() {
       }
     }
 
+    let rawGroupe = idxGroupe >= 0 ? String(row[idxGroupe] || 'Loisir').trim() : 'Loisir';
     let typeLicence = 'C';
     if (idxTypeLicence >= 0 && row[idxTypeLicence]) {
       typeLicence = String(row[idxTypeLicence]).trim().toUpperCase();
+    } else {
+      const rawLic = idxLicence >= 0 ? String(row[idxLicence] || '').trim() : '';
+      if (!rawLic) {
+        typeLicence = rawGroupe.toLowerCase().includes('parent') ? "Sans licence (Parent d'élève)" : 'Sans licence';
+      }
     }
+
+    const dernierClass = idxClass >= 0 ? cleanRankingGas(row[idxClass]) : 'NC';
+    let meilleurClass = idxMeilleurClass >= 0 ? cleanRankingGas(row[idxMeilleurClass]) : dernierClass;
+    if (!meilleurClass || meilleurClass.indexOf('T') >= 0 || (meilleurClass.indexOf('-') >= 0 && meilleurClass.length > 5)) {
+      meilleurClass = dernierClass;
+    }
+
+    const club = idxClub >= 0 && row[idxClub] ? String(row[idxClub]).trim() : 'MUZILLAC TENNIS CLUB';
 
     adherents.push({
       id: 'adh-' + i,
@@ -338,11 +354,13 @@ function getAdherents() {
       soldeDu: solde,
       telephonePortable: tel,
       email: idxEmail >= 0 ? String(row[idxEmail] || '').trim() : '',
-      dernierClassTennis: idxClass >= 0 ? String(row[idxClass] || 'NC').trim().toUpperCase() : 'NC',
+      dernierClassTennis: dernierClass,
+      meilleurClassTennis: meilleurClass,
       licence: idxLicence >= 0 ? String(row[idxLicence] || '').trim() : '',
       ageSportif: idxAgeSportif >= 0 ? String(row[idxAgeSportif] || '').trim() : 'Senior',
-      groupeEnseignement: idxGroupe >= 0 ? String(row[idxGroupe] || 'Loisir').trim() : 'Loisir',
-      compteTenUp: idxTenUp >= 0 ? String(row[idxTenUp] || 'Actif').trim() : 'Actif'
+      groupeEnseignement: rawGroupe,
+      compteTenUp: idxTenUp >= 0 ? String(row[idxTenUp] || 'Actif').trim() : 'Actif',
+      clubRattachement: club
     });
   }
 
@@ -467,6 +485,33 @@ function getColIndex(headers, matchKeywords, defaultIndex) {
     }
   }
   return defaultIndex;
+}
+
+function cleanRankingGas(val) {
+  if (!val) return 'NC';
+  if (val instanceof Date) {
+    var day = val.getDate();
+    var month = val.getMonth() + 1;
+    if (day === 15 && month >= 1 && month <= 5) return '15/' + month;
+    if (day >= 28 && month >= 1 && month <= 5) return '30/' + month;
+    if (month === 6 && day >= 1 && day <= 5) return day + '/6';
+    if (day === 6 && month >= 1 && month <= 5) return month + '/6';
+    return 'NC';
+  }
+  var s = String(val).trim().toUpperCase();
+  if (s.indexOf('T') >= 0 && s.indexOf('Z') >= 0) {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      var localD = new Date(d.getTime() + 4 * 3600 * 1000);
+      var day = localD.getUTCDate();
+      var month = localD.getUTCMonth() + 1;
+      if (day === 15 && month >= 1 && month <= 5) return '15/' + month;
+      if (day >= 28 && month >= 1 && month <= 5) return '30/' + month;
+      if (month === 6 && day >= 1 && day <= 5) return day + '/6';
+      if (day === 6 && month >= 1 && month <= 5) return month + '/6';
+    }
+  }
+  return s;
 }
 
 function getRankingWeight(rank) {

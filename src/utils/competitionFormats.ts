@@ -36,14 +36,14 @@ export const TCM_VENUES = [
     name: 'Clos des Moines - 2 courts couverts résine (TCM)',
     courtsCount: 2,
     type: 'home',
-    description: 'Complexe sportif du Chêne Rond, Rue du Stade, Muzillac'
+    description: 'Complexe du Clos des Moines, Rue du Stade, 56190 Muzillac'
   },
   {
     id: 'clos_des_moines_exterieur',
     name: 'Clos des Moines - 2 courts extérieurs béton poreux (TCM)',
     courtsCount: 2,
     type: 'home',
-    description: 'Complexe du Chêne Rond, courts extérieurs'
+    description: 'Complexe du Clos des Moines, courts extérieurs'
   },
   {
     id: 'tc_nivillac',

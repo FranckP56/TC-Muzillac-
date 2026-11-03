@@ -13,7 +13,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { Adherent } from '../types/tennis';
-import { getRankingMeta } from '../utils/ranking';
+import { getRankingMeta, getClubAffiliationBadge, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
 
 interface AdherentCardProps {
@@ -62,6 +62,17 @@ export const AdherentCard: React.FC<AdherentCardProps> = ({ adherent, onSelect }
                 {meta.serie.replace(' Série', '')}
               </span>
             </div>
+            {(() => {
+              const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
+              if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                return (
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-1" title="Meilleur classement FFT">
+                    Max: {maxRank}
+                  </span>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Nom, Prénom, Licence, Catégorie */}
@@ -71,10 +82,23 @@ export const AdherentCard: React.FC<AdherentCardProps> = ({ adherent, onSelect }
                 {adherent.nomPrenom}
               </h3>
 
-              {/* Badge Civilité & Type Licence */}
+              {/* Badge Civilité */}
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
                 {adherent.civilite === 'Madame' ? 'F' : 'H'}
               </span>
+
+              {/* Badge Affiliation Club (TCM Muzillac / Autre Club / Sans Licence) */}
+              {(() => {
+                const affil = getClubAffiliationBadge(adherent);
+                return (
+                  <span 
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border ${affil.badgeClass}`}
+                    title={`Affiliation : ${affil.label}`}
+                  >
+                    {affil.shortLabel}
+                  </span>
+                );
+              })()}
 
               {/* Statut ND : Reclassement FFT requis (Inéligible compétition) */}
               {meta.isND ? (
@@ -90,12 +114,12 @@ export const AdherentCard: React.FC<AdherentCardProps> = ({ adherent, onSelect }
                   <ShieldCheck className="w-3 h-3" />
                   Licence {adherent.typeLicence}
                 </span>
-              ) : (
+              ) : adherent.licence ? (
                 <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1" title="Licence non autorisée en compétition officielle">
                   <ShieldAlert className="w-3 h-3 text-rose-400" />
                   Licence {adherent.typeLicence || 'Non C/W'}
                 </span>
-              )}
+              ) : null}
 
               {/* Badge Solde Dû / À Régulariser / À Jour */}
               {isOwed ? (

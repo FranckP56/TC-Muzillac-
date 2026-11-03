@@ -18,6 +18,7 @@ import { CompositionModal } from './components/CompositionModal';
 import { SondageDisponibilitesModal } from './components/SondageDisponibilitesModal';
 import { GsheetDataModal } from './components/GsheetDataModal';
 import { EditClubInfoModal } from './components/EditClubInfoModal';
+import { ReglesFftModal } from './components/ReglesFftModal';
 import { User } from 'firebase/auth';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { initAuth, getAccessToken } from './services/auth';
@@ -37,7 +38,7 @@ import {
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
-import { sortAdherentsByRankingDesc } from './utils/ranking';
+import { sortAdherentsByRankingDesc, cleanRanking, isValidTennisRanking } from './utils/ranking';
 import { evaluateDataStaleness } from './utils/fftCalendar';
 import { formatFrenchPhoneNumber } from './utils/phoneUtils';
 
@@ -134,7 +135,17 @@ export default function App() {
 
   const [adherents, setAdherents] = useState<Adherent[]>(() => {
     if (initialCached?.adherents && initialCached.adherents.length > 0) {
-      return sortAdherentsByRankingDesc(initialCached.adherents);
+      const sanitized = initialCached.adherents.map((a: Adherent) => {
+        const dernierClass = cleanRanking(a.dernierClassTennis, 'NC');
+        let meilleurClass = cleanRanking(a.meilleurClassTennis, dernierClass);
+        if (!isValidTennisRanking(meilleurClass)) meilleurClass = dernierClass;
+        return {
+          ...a,
+          dernierClassTennis: dernierClass,
+          meilleurClassTennis: meilleurClass,
+        };
+      });
+      return sortAdherentsByRankingDesc(sanitized);
     }
     return [];
   });
@@ -202,6 +213,7 @@ export default function App() {
   const [isNewMemberModalOpen, setIsNewMemberModalOpen] = useState(false);
   const [isNewMatchModalOpen, setIsNewMatchModalOpen] = useState(false);
   const [isEditClubModalOpen, setIsEditClubModalOpen] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
 
   // Authentification Google & Données_appli Direct
   const [googleUser, setGoogleUser] = useState<User | null>(null);
@@ -757,16 +769,18 @@ export default function App() {
         }}
       />
 
-      {/* Cartographie et architecture des colonnes GSheet */}
-      <GsheetDataModal
-        isOpen={isGsheetModalOpen}
-        onClose={() => setIsGsheetModalOpen(false)}
-        totalMembers={adherents.length}
-        totalRencontres={rencontres.length}
-        defaultTab={gsheetModalDefaultTab}
-        onRefreshFromFile={() => handleLoadFromRealFile(false)}
-        isLoadingFile={isLoadingFile}
-      />
+      {/* Cartographie et architecture des colonnes GSheet (Réservé Admin) */}
+      {userRole === 'admin' && (
+        <GsheetDataModal
+          isOpen={isGsheetModalOpen}
+          onClose={() => setIsGsheetModalOpen(false)}
+          totalMembers={adherents.length}
+          totalRencontres={rencontres.length}
+          defaultTab={gsheetModalDefaultTab}
+          onRefreshFromFile={() => handleLoadFromRealFile(false)}
+          isLoadingFile={isLoadingFile}
+        />
+      )}
 
       {/* Modal d'édition des informations du club */}
       <EditClubInfoModal
@@ -777,10 +791,18 @@ export default function App() {
         selectedSpreadsheetId={selectedSpreadsheetId}
       />
 
-      {/* Visionneuse Code.gs Google Apps Script & Déploiement */}
-      <AppsScriptModal
-        isOpen={isScriptModalOpen}
-        onClose={() => setIsScriptModalOpen(false)}
+      {/* Visionneuse Code.gs Google Apps Script & Déploiement (Réservé Admin) */}
+      {userRole === 'admin' && (
+        <AppsScriptModal
+          isOpen={isScriptModalOpen}
+          onClose={() => setIsScriptModalOpen(false)}
+        />
+      )}
+
+      {/* Modale des Règles FFT 2027 & Barème (Accessible à tous les accès) */}
+      <ReglesFftModal
+        isOpen={isRulesModalOpen}
+        onClose={() => setIsRulesModalOpen(false)}
       />
 
       {/* Ajout d'un membre */}
@@ -803,29 +825,49 @@ export default function App() {
           <div className="flex items-center space-x-2">
             <span className="font-heading font-black text-white text-sm">Muzillac Tennis Club (TCM)</span>
             <span>•</span>
-            <span>Complexe du Chêne Rond & Clos des Moines</span>
+            <span className="text-zinc-400">
+              {clubInfo.adresse 
+                ? `${clubInfo.adresse}${clubInfo.codePostal || clubInfo.ville ? `, ${clubInfo.codePostal || ''} ${clubInfo.ville || ''}` : ''}` 
+                : 'Complexe du Clos des Moines, 56190 Muzillac'}
+            </span>
           </div>
 
-          <div className="flex items-center space-x-4 text-zinc-400">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-3 gap-y-1.5 text-zinc-400">
+            {/* Liens techniques d'administration réservés UNIQUEMENT au profil Admin */}
+            {userRole === 'admin' && (
+              <>
+                <button
+                  onClick={() => setIsGsheetModalOpen(true)}
+                  className="text-emerald-400 hover:text-emerald-300 font-semibold transition cursor-pointer"
+                  title="Réservé aux Administrateurs"
+                >
+                  Architecture GSheet (Données_appli)
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => setIsScriptModalOpen(true)}
+                  className="text-amber-400 hover:text-amber-300 font-semibold transition cursor-pointer"
+                  title="Réservé aux Administrateurs"
+                >
+                  Fichiers Code.gs
+                </button>
+                <span>•</span>
+              </>
+            )}
+
+            {/* Règles FFT et Portail FFT accessibles à TOUS les accès */}
             <button
-              onClick={() => setIsGsheetModalOpen(true)}
-              className="text-emerald-400 hover:text-emerald-300 font-semibold transition cursor-pointer"
+              onClick={() => setIsRulesModalOpen(true)}
+              className="text-orange-400 hover:text-orange-300 font-semibold transition cursor-pointer"
             >
-              Architecture GSheet (Données_appli)
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => setIsScriptModalOpen(true)}
-              className="hover:text-orange-400 transition cursor-pointer"
-            >
-              Fichiers Code.gs & Règles FFT 2027
+              Règles FFT 2027
             </button>
             <span>•</span>
             <a
               href="https://tenup.fft.fr"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#FF6D00] hover:underline"
+              className="text-zinc-300 hover:text-white transition font-medium"
             >
               Portail FFT Ten'Up
             </a>
