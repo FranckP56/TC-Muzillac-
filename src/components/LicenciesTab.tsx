@@ -1,27 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  ShieldCheck, 
   Users, 
   Search, 
-  Filter, 
-  Trophy, 
-  Phone, 
-  MessageSquare, 
-  Mail, 
   CheckCircle2, 
-  AlertCircle, 
-  Calendar, 
-  MapPin, 
-  Check, 
-  CreditCard, 
-  ExternalLink,
-  Sparkles,
-  Award,
-  UserCheck
 } from 'lucide-react';
 import { Adherent, UserRole } from '../types/tennis';
 import { filterLicenciesMuzillac2027, getLicenciesStats } from '../utils/licencies';
 import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
+import { extractBirthYear } from '../utils/fftEligibility';
 
 interface LicenciesTabProps {
   adherents: Adherent[];
@@ -31,17 +17,25 @@ interface LicenciesTabProps {
   saison?: string;
 }
 
+function getAdherentAge(adh: Adherent): number {
+  const parsed = parseInt(adh.ageSportif || '', 10);
+  if (!isNaN(parsed) && parsed > 0 && parsed < 120) {
+    return parsed;
+  }
+  const year = extractBirthYear(adh.dateNaissance);
+  if (year && year > 1900 && year < 2027) {
+    return 2027 - year;
+  }
+  return 30;
+}
+
 export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   adherents,
-  userRole = 'bureau',
   onSelectAdherent,
-  onNavigateToRencontres,
   saison = '2027',
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>('all');
-  const [filterCategory, setFilterCategory] = useState<'all' | 'seniors' | 'seniors_plus' | 'jeunes'>('all');
-  const [filterSerie, setFilterSerie] = useState<'all' | '2' | '3' | '4' | 'nc'>('all');
 
   // Filtrage exclusif des licenciés rattachés à MUZILLAC TENNIS CLUB pour la saison active
   const licenciesMuzillac = useMemo(() => {
@@ -52,10 +46,43 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
     return getLicenciesStats(licenciesMuzillac);
   }, [licenciesMuzillac]);
 
+  // Calcul dynamique des limites mini/maxi selon le sexe sélectionné (Tous, Hommes ou Femmes)
+  const { minClubAge, maxClubAge } = useMemo(() => {
+    const listForSex = licenciesMuzillac.filter(adh => {
+      if (filterSex === 'Messieurs') return adh.civilite !== 'Madame';
+      if (filterSex === 'Dames') return adh.civilite === 'Madame';
+      return true;
+    });
+
+    if (listForSex.length === 0) {
+      return { minClubAge: 7, maxClubAge: 85 };
+    }
+
+    let min = 999;
+    let max = 0;
+    listForSex.forEach(adh => {
+      const age = getAdherentAge(adh);
+      if (age < min) min = age;
+      if (age > max) max = age;
+    });
+
+    return { 
+      minClubAge: min === 999 ? 7 : min, 
+      maxClubAge: max === 0 ? 85 : max 
+    };
+  }, [licenciesMuzillac, filterSex]);
+
+  // Intervalle d'âge actif (initialisé et mis à jour automatiquement selon les limites de sexe)
+  const [ageRange, setAgeRange] = useState<[number, number]>([minClubAge, maxClubAge]);
+
+  useEffect(() => {
+    setAgeRange([minClubAge, maxClubAge]);
+  }, [minClubAge, maxClubAge]);
+
   // Filtrage utilisateur interactif
   const filteredList = useMemo(() => {
     return licenciesMuzillac.filter(adh => {
-      // 1. Recherche texte
+      // 1. Recherche texte (nom, classement, licence, ville)
       const q = searchQuery.toLowerCase().trim();
       if (q) {
         const matchName = adh.nomPrenom.toLowerCase().includes(q);
@@ -71,337 +98,247 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         if (adhSex !== filterSex) return false;
       }
 
-      // 3. Filtre Catégorie d'âge
-      if (filterCategory !== 'all') {
-        const age = parseInt(adh.ageSportif || '25', 10);
-        if (filterCategory === 'seniors_plus' && age < 35) return false;
-        if (filterCategory === 'seniors' && (age < 18 || age >= 35)) return false;
-        if (filterCategory === 'jeunes' && age >= 18) return false;
-      }
-
-      // 4. Filtre Série
-      if (filterSerie !== 'all') {
-        const meta = getRankingMeta(adh.dernierClassTennis);
-        const rank = (adh.dernierClassTennis || 'NC').toUpperCase();
-        if (filterSerie === 'nc' && rank !== 'NC') return false;
-        if (filterSerie === '4' && !meta.serie.includes('4')) return false;
-        if (filterSerie === '3' && !meta.serie.includes('3')) return false;
-        if (filterSerie === '2' && !meta.serie.includes('2') && !meta.serie.includes('1')) return false;
+      // 3. Filtre Âge via slider d'intervalle
+      const age = getAdherentAge(adh);
+      if (age < ageRange[0] || age > ageRange[1]) {
+        return false;
       }
 
       return true;
     });
-  }, [licenciesMuzillac, searchQuery, filterSex, filterCategory, filterSerie]);
+  }, [licenciesMuzillac, searchQuery, filterSex, ageRange]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3.5">
       
-      {/* ==================== EN-TÊTE DE LA SECTION ==================== */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
-              Licenciés du Club (Saison {saison})
-            </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-              {licenciesMuzillac.length} licenciés actifs
+      {/* ==================== BULLE UNIQUE REGROUPÉE (EFFECTIF & PYRAMIDE FFT) ==================== */}
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-[#141820] border border-[#252b37] flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 text-xs shadow-sm">
+        
+        {/* Partie Effectif Licencié & Répartition Sexe */}
+        <div className="flex items-center space-x-4">
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Effectif Licencié</span>
+            <div className="flex items-baseline space-x-2">
+              <span className="text-xl sm:text-2xl font-heading font-black text-white">{stats.total}</span>
+              <span className="text-xs text-zinc-400">joueurs</span>
+            </div>
+          </div>
+          <div className="h-8 w-px bg-zinc-800" />
+          <div className="flex flex-col gap-0.5 text-xs">
+            <span className="text-blue-400 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500" />
+              {stats.hommes} Hommes
+            </span>
+            <span className="text-pink-400 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-pink-500" />
+              {stats.femmes} Femmes
             </span>
           </div>
-          <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>Membres titulaires d'une licence FFT {saison} (Colonne X) • MUZILLAC TENNIS CLUB (Colonne AB)</span>
-          </p>
         </div>
 
-        {onNavigateToRencontres && (
-          <button
-            onClick={onNavigateToRencontres}
-            className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-bold transition shadow-lg hover:brightness-110 cursor-pointer self-start sm:self-auto"
-          >
-            <Trophy className="w-4 h-4" />
-            <span>Voir les rencontres d'équipes</span>
-          </button>
-        )}
-      </div>
+        {/* Séparateur vertical */}
+        <div className="hidden md:block h-9 w-px bg-zinc-800" />
 
-      {/* ==================== STATISTIQUES DES LICENCIÉS 2027 ==================== */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-        
-        {/* Total & Répartition Sexe */}
-        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Effectif Licencié 2027</span>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-xl font-heading font-black text-white">{stats.total}</span>
-            <span className="text-[11px] text-zinc-400">joueurs</span>
-          </div>
-          <div className="flex items-center gap-2 pt-1 text-[11px]">
-            <span className="text-blue-400 font-bold">{stats.hommes} H</span>
-            <span className="text-zinc-600">•</span>
-            <span className="text-pink-400 font-bold">{stats.femmes} F</span>
-          </div>
-        </div>
-
-        {/* Pyramide des Classements */}
-        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
+        {/* Partie Pyramide FFT : 4 bulles alignées sur la même ligne */}
+        <div className="space-y-1 w-full md:w-auto">
           <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Pyramide FFT</span>
-          <div className="flex items-baseline space-x-1.5 flex-wrap font-mono text-[11px] font-bold pt-0.5">
-            <span className="text-purple-300">{stats.series.deuxieme} en 2e</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-blue-300">{stats.series.troisieme} en 3e</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-amber-300">{stats.series.quatrieme} en 4e</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400">{stats.series.nc} NC</span>
-          </div>
-          <p className="text-[10px] text-zinc-500 mt-1">Éligibles aux simples & doubles</p>
-        </div>
-
-        {/* Comptes Ten'Up */}
-        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Comptes Ten'Up</span>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-xl font-heading font-black text-emerald-400">{stats.avecTenUp}</span>
-            <span className="text-[11px] text-zinc-400">/{stats.total} activés</span>
-          </div>
-          <p className="text-[10px] text-zinc-500 pt-1">Réservations et licences en ligne</p>
-        </div>
-
-        {/* Cotisations & Soldes */}
-        <div className="p-3.5 rounded-2xl bg-[#141820] border border-[#252b37] space-y-1">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Statut Cotisations</span>
-          <div className="flex items-baseline space-x-2">
-            <span className={`text-xl font-heading font-black ${stats.avecSoldeDu > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-              {stats.total - stats.avecSoldeDu}
+          <div className="grid grid-cols-4 gap-1.5 sm:flex sm:items-center sm:space-x-2 font-mono text-[11px] sm:text-xs font-bold text-center">
+            <span className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap">
+              {stats.series.deuxieme} en 2e
             </span>
-            <span className="text-[11px] text-zinc-400">à jour ({stats.avecSoldeDu} dû)</span>
+            <span className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/30 whitespace-nowrap">
+              {stats.series.troisieme} en 3e
+            </span>
+            <span className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap">
+              {stats.series.quatrieme} en 4e
+            </span>
+            <span className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400 border border-zinc-700 whitespace-nowrap">
+              {stats.series.nc} NC
+            </span>
           </div>
-          <p className="text-[10px] text-zinc-500 pt-1">
-            {stats.avecSoldeDu > 0 ? `${stats.totalSoldeDu.toFixed(0)} € restant à percevoir` : 'Tous soldes régularisés'}
-          </p>
         </div>
 
       </div>
 
-      {/* ==================== FILTRES INTERACTIFS ==================== */}
-      <div className="p-4 bg-[#141820] rounded-2xl border border-[#252b37] flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+      {/* ==================== RECHERCHE & FILTRES ALIGNÉS EN MOBILE & DESKTOP ==================== */}
+      <div className="p-3 sm:p-3.5 bg-[#141820] rounded-2xl border border-[#252b37] flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 text-xs shadow-sm">
         
-        {/* Recherche texte */}
-        <div className="relative w-full md:w-80">
+        {/* Recherche texte (pleine largeur sur mobile, calibrée sur desktop) */}
+        <div className="relative w-full lg:w-72 shrink-0">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rechercher par nom, classement, licence..."
-            className="w-full bg-[#1b202c] border border-[#2c3547] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+            className="w-full h-10 bg-[#1b202c] border border-[#2c3547] rounded-xl pl-9 pr-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition-colors"
           />
         </div>
 
-        {/* Boutons filtres */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+        {/* Filtres Sexe et Slider d'âge unifié : parfaitement alignés sur mobile */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto">
           
-          {/* Sexe */}
-          <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
+          {/* Choix Hommes / Femmes (grille 3 colonnes alignée en mobile) */}
+          <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center h-10 bg-[#1b202c] rounded-xl p-1 border border-[#2c3547] shrink-0">
             <button
               onClick={() => setFilterSex('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSex === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
+              className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
+                filterSex === 'all' ? 'bg-[#E65100] text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
             >
               Tous
             </button>
             <button
               onClick={() => setFilterSex('Messieurs')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSex === 'Messieurs' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+              className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
+                filterSex === 'Messieurs' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Messieurs ({stats.hommes})
+              Hommes ({stats.hommes})
             </button>
             <button
               onClick={() => setFilterSex('Dames')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSex === 'Dames' ? 'bg-pink-600 text-white' : 'text-zinc-400 hover:text-white'
+              className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
+                filterSex === 'Dames' ? 'bg-pink-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Dames ({stats.femmes})
+              Femmes ({stats.femmes})
             </button>
           </div>
 
-          {/* Séries */}
-          <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
-            <button
-              onClick={() => setFilterSerie('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSerie === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              Toutes séries
-            </button>
-            <button
-              onClick={() => setFilterSerie('2')}
-              className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSerie === '2' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="2ème série (15 et au-dessus)"
-            >
-              2e
-            </button>
-            <button
-              onClick={() => setFilterSerie('3')}
-              className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSerie === '3' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="3ème série (15/1 à 30)"
-            >
-              3e
-            </button>
-            <button
-              onClick={() => setFilterSerie('4')}
-              className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSerie === '4' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="4ème série (30/1 à 40)"
-            >
-              4e
-            </button>
-            <button
-              onClick={() => setFilterSerie('nc')}
-              className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                filterSerie === 'nc' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Non classés"
-            >
-              NC
-            </button>
+          {/* Slider d'âge unifié (pleine largeur alignée en mobile) */}
+          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-3 h-10 bg-[#1b202c] rounded-xl px-3.5 border border-[#2c3547]">
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-xs font-bold text-zinc-300">
+                Âge : <span className="text-orange-400 font-black">{ageRange[0]}</span>-<span className="text-amber-400 font-black">{ageRange[1]}</span>
+              </span>
+              {(ageRange[0] > minClubAge || ageRange[1] < maxClubAge) && (
+                <button
+                  type="button"
+                  onClick={() => setAgeRange([minClubAge, maxClubAge])}
+                  className="text-[10px] font-bold text-orange-400 hover:text-orange-300 underline cursor-pointer ml-1"
+                  title="Réinitialiser l'intervalle d'âge"
+                >
+                  Tous
+                </button>
+              )}
+            </div>
+
+            {/* Rail unifié compact */}
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
+              <span className="text-[10px] text-zinc-500 font-mono font-bold shrink-0">{minClubAge}</span>
+              <div className="relative w-full sm:w-36 h-5 flex items-center">
+                <div className="absolute w-full h-1.5 bg-[#2c3547] rounded-full" />
+                <div 
+                  className="absolute h-1.5 bg-gradient-to-r from-orange-500 to-amber-500 rounded-full pointer-events-none" 
+                  style={{
+                    left: `${((ageRange[0] - minClubAge) / Math.max(maxClubAge - minClubAge, 1)) * 100}%`,
+                    width: `${((ageRange[1] - ageRange[0]) / Math.max(maxClubAge - minClubAge, 1)) * 100}%`,
+                  }}
+                />
+                <input
+                  type="range"
+                  min={minClubAge}
+                  max={maxClubAge}
+                  value={ageRange[0]}
+                  onChange={(e) => {
+                    const val = Math.min(Number(e.target.value), ageRange[1]);
+                    setAgeRange([val, ageRange[1]]);
+                  }}
+                  className="absolute w-full h-1.5 appearance-none bg-transparent pointer-events-none cursor-pointer z-10
+                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110
+                    [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-orange-500 [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white"
+                  title={`Âge minimum : ${ageRange[0]} ans`}
+                />
+                <input
+                  type="range"
+                  min={minClubAge}
+                  max={maxClubAge}
+                  value={ageRange[1]}
+                  onChange={(e) => {
+                    const val = Math.max(Number(e.target.value), ageRange[0]);
+                    setAgeRange([ageRange[0], val]);
+                  }}
+                  className="absolute w-full h-1.5 appearance-none bg-transparent pointer-events-none cursor-pointer z-20
+                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110
+                    [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-amber-500 [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white"
+                  title={`Âge maximum : ${ageRange[1]} ans`}
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 font-mono font-bold shrink-0">{maxClubAge}</span>
+            </div>
           </div>
 
         </div>
 
       </div>
 
-      {/* ==================== GRILLE DES LICENCIÉS 2027 ==================== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+      {/* ==================== GRILLE COMPACTE DES BULLES DE LICENCIÉS ==================== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
         {filteredList.length > 0 ? (
           filteredList.map((adh) => {
             const meta = getRankingMeta(adh.dernierClassTennis);
             const isFemme = adh.civilite === 'Madame';
 
+            // Teinte complète de la bulle selon le sexe
+            const cardGenderStyle = isFemme
+              ? "bg-[#201321] hover:bg-[#281729] border-[#442340] hover:border-pink-500/60 shadow-pink-950/20"
+              : "bg-[#121927] hover:bg-[#162032] border-[#20324c] hover:border-blue-500/60 shadow-blue-950/20";
+
             return (
               <div
                 key={adh.id}
                 onClick={() => onSelectAdherent && onSelectAdherent(adh)}
-                className="bg-[#161a22] hover:bg-[#1a202a] border border-[#272e3b] hover:border-[#E65100]/50 rounded-2xl p-4 transition-all shadow-md flex flex-col justify-between space-y-3 cursor-pointer group"
+                className={`${cardGenderStyle} border rounded-xl px-3.5 py-2.5 transition-all shadow-sm hover:shadow-md cursor-pointer group flex items-center justify-between gap-3`}
               >
-                <div>
-                  {/* Ligne 1 : Nom, Prénom, Civilité et Classement */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center space-x-2 flex-wrap">
-                        <span className="font-heading font-black text-white text-sm group-hover:text-orange-400 transition truncate">
-                          {adh.nomPrenom}
-                        </span>
-                        <span className={`px-2 py-0.2 rounded text-[10px] font-black border ${
-                          isFemme 
-                            ? 'bg-pink-500/20 text-pink-300 border-pink-500/30' 
-                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                        }`}>
-                          {isFemme ? 'F' : 'H'}
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-1.5">
-                        <span>{adh.ageSportif ? `${adh.ageSportif} ans` : 'Senior'}</span>
-                        <span>•</span>
-                        <span>Né(e) en {adh.dateNaissance ? adh.dateNaissance.split('/')[2] || adh.dateNaissance : 'N/A'}</span>
-                      </p>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span className={`px-2.5 py-1 rounded-xl text-xs font-black border block ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
-                        {adh.dernierClassTennis}
-                      </span>
-                      {(() => {
-                        const maxRank = cleanRanking(adh.meilleurClassTennis, '');
-                        if (maxRank && maxRank !== adh.dernierClassTennis && isValidTennisRanking(maxRank)) {
-                          return (
-                            <span className="text-[9px] text-zinc-500 block mt-0.5" title="Meilleur classement FFT">
-                              Max: {maxRank}
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Ligne 2 : Badges Licence 2027 & Solde (mention TCM retirée car tous licenciés TCM) */}
-                  <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
-                    <span className="px-2 py-0.5 rounded font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                      <span>Licence {adh.millesimeLicence || '2027'} : {adh.licence}</span>
+                {/* Bloc Gauche : Nom, Prénom, Âge et Numéro de licence */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-1.5 truncate">
+                    <h3 className={`font-heading font-black text-sm transition truncate ${
+                      isFemme 
+                        ? 'text-pink-100 group-hover:text-pink-300' 
+                        : 'text-blue-100 group-hover:text-blue-300'
+                    }`}>
+                      {adh.nomPrenom}
+                    </h3>
+                    <span className="text-[11px] text-zinc-400 font-medium shrink-0">
+                      • {adh.ageSportif ? `${adh.ageSportif} ans` : 'Senior'}
                     </span>
+                  </div>
 
-                    {adh.soldeDu < 0 ? (
-                      <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        Dû : {Math.abs(adh.soldeDu).toFixed(0)} €
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
-                        À jour
-                      </span>
-                    )}
+                  {/* Numéro de licence FFT direct */}
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
+                    <span className="font-mono font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span>N° {adh.licence}</span>
+                    </span>
                   </div>
                 </div>
 
-                {/* Ligne 3 : Actions rapides & Coordonnées */}
-                <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
-                  <div className="flex items-center space-x-1">
-                    {adh.telephonePortable && (
-                      <a
-                        href={`tel:${adh.telephonePortable}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-emerald-500/20 hover:text-emerald-400 border border-zinc-800 transition"
-                        title={`Appeler ${adh.nomPrenom}`}
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                    {adh.telephonePortable && (
-                      <a
-                        href={`sms:${adh.telephonePortable}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-sky-500/20 hover:text-sky-400 border border-zinc-800 transition"
-                        title={`SMS à ${adh.nomPrenom}`}
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                    {adh.email && (
-                      <a
-                        href={`mailto:${adh.email}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-orange-500/20 hover:text-orange-400 border border-zinc-800 transition"
-                        title={`Email à ${adh.nomPrenom}`}
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                  </div>
-
-                  <span className="text-[10px] text-zinc-500 flex items-center gap-1 group-hover:text-orange-300 transition">
-                    <span>Fiche &amp; éligibilité</span>
-                    <span>→</span>
+                {/* Bloc Droit : Classement FFT actuel & Max */}
+                <div className="text-right shrink-0 flex flex-col items-end justify-center">
+                  <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black border ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
+                    {adh.dernierClassTennis}
                   </span>
+                  {(() => {
+                    const maxRank = cleanRanking(adh.meilleurClassTennis, '');
+                    if (maxRank && maxRank !== adh.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                      return (
+                        <span className="text-[9px] text-zinc-500 font-semibold mt-0.5" title="Meilleur classement FFT">
+                          Max {maxRank}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
-
               </div>
             );
           })
         ) : (
-          <div className="col-span-full p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37]">
-            <Users className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
-            <h3 className="font-heading font-black text-white text-base">Aucun licencié 2027 trouvé</h3>
+          <div className="col-span-full p-8 text-center bg-[#141820] rounded-2xl border border-[#252b37]">
+            <Users className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+            <h3 className="font-heading font-black text-white text-sm">Aucun licencié trouvé</h3>
             <p className="text-xs text-zinc-400 mt-1 max-w-sm mx-auto">
               Aucun membre ne correspond à vos filtres actuels.
             </p>
