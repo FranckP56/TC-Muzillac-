@@ -3,6 +3,7 @@ import {
   Users, 
   Search, 
   CheckCircle2, 
+  X,
 } from 'lucide-react';
 import { Adherent, UserRole } from '../types/tennis';
 import { filterLicenciesMuzillac2027, getLicenciesStats } from '../utils/licencies';
@@ -78,6 +79,8 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   useEffect(() => {
     setAgeRange([minClubAge, maxClubAge]);
   }, [minClubAge, maxClubAge]);
+
+  const isAgeFiltered = ageRange[0] > minClubAge || ageRange[1] < maxClubAge;
 
   // Filtrage utilisateur interactif
   const filteredList = useMemo(() => {
@@ -208,20 +211,26 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
 
           {/* Slider d'âge unifié (pleine largeur alignée en mobile) */}
           <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-3 h-10 bg-[#1b202c] rounded-xl px-3.5 border border-[#2c3547]">
-            <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
               <span className="text-xs font-bold text-zinc-300">
                 Âge : <span className="text-orange-400 font-black">{ageRange[0]}</span>-<span className="text-amber-400 font-black">{ageRange[1]}</span>
               </span>
-              {(ageRange[0] > minClubAge || ageRange[1] < maxClubAge) && (
-                <button
-                  type="button"
-                  onClick={() => setAgeRange([minClubAge, maxClubAge])}
-                  className="text-[10px] font-bold text-orange-400 hover:text-orange-300 underline cursor-pointer ml-1"
-                  title="Réinitialiser l'intervalle d'âge"
-                >
-                  Tous
-                </button>
-              )}
+              
+              {/* Bouton croix avec position fixe dédiée : aucun décalage visuel lors de la manipulation */}
+              <button
+                type="button"
+                onClick={() => setAgeRange([minClubAge, maxClubAge])}
+                disabled={!isAgeFiltered}
+                className={`w-5 h-5 rounded-md flex items-center justify-center transition-all shrink-0 ${
+                  isAgeFiltered
+                    ? 'bg-zinc-700/60 hover:bg-orange-500/25 text-zinc-300 hover:text-orange-400 cursor-pointer shadow-sm'
+                    : 'text-zinc-700 opacity-0 pointer-events-none'
+                }`}
+                title={isAgeFiltered ? "Réinitialiser l'intervalle d'âge" : undefined}
+                aria-label="Réinitialiser l'intervalle d'âge"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {/* Rail unifié compact */}
