@@ -15,7 +15,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Adherent } from '../types/tennis';
 import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
@@ -27,337 +27,6 @@ interface AdherentModalProps {
   adherentsList?: Adherent[];
   onSelectAdherent?: (adherent: Adherent) => void;
 }
-
-interface DeckCardProps {
-  adherent: Adherent;
-  direction: number;
-  hasMultiple: boolean;
-  theme: any;
-  meta: any;
-  ageDisplay: string | null;
-  birthYear: number | null;
-  copiedField: string | null;
-  copyToClipboard: (text: string, field: string) => void;
-  onClose: () => void;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
-}
-
-// Composant DeckCard isolé : possède son PROPRE MotionValue 'x'
-// Ceci garantit qu'il n'y a aucun conflit d'état lors des transitions gauche/droite
-const DeckCard: React.FC<DeckCardProps> = ({
-  adherent,
-  direction,
-  hasMultiple,
-  theme,
-  meta,
-  ageDisplay,
-  birthYear,
-  copiedField,
-  copyToClipboard,
-  onClose,
-  onSwipeLeft,
-  onSwipeRight,
-}) => {
-  // Motion value locale et indépendante pour cette carte uniquement
-  const x = useMotionValue(0);
-  const rotate = useTransform(x, [-250, 250], [-10, 10]);
-  const ageSportif2027 = birthYear ? 2027 - birthYear : null;
-
-  const handleDragEnd = (_event: any, info: { offset: { x: number }; velocity: { x: number } }) => {
-    const swipeThreshold = 50;
-    // Glissement vers la gauche -> suivant
-    if (info.offset.x < -swipeThreshold || info.velocity.x < -200) {
-      onSwipeLeft();
-    } 
-    // Glissement vers la droite -> précédent
-    else if (info.offset.x > swipeThreshold || info.velocity.x > 200) {
-      onSwipeRight();
-    }
-  };
-
-  return (
-    <motion.div
-      custom={direction}
-      variants={{
-        enter: (dir: number) => ({
-          x: dir > 0 ? 140 : -140,
-          rotate: dir > 0 ? 6 : -6,
-          opacity: 0,
-          scale: 0.95,
-        }),
-        center: {
-          x: 0,
-          rotate: 0,
-          opacity: 1,
-          scale: 1,
-        },
-        exit: (dir: number) => ({
-          x: dir > 0 ? -180 : 180,
-          rotate: dir > 0 ? -8 : 8,
-          opacity: 0,
-          scale: 0.95,
-        }),
-      }}
-      initial="enter"
-      animate="center"
-      exit="exit"
-      transition={{
-        type: 'spring',
-        stiffness: 350,
-        damping: 30,
-        mass: 0.8,
-      }}
-      drag={hasMultiple ? 'x' : false}
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.65}
-      onDragEnd={handleDragEnd}
-      style={{ x, rotate, touchAction: 'pan-y' }}
-      className={`relative w-full max-h-[88dvh] sm:max-h-[85vh] flex flex-col rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} shadow-2xl shadow-black overflow-hidden ${hasMultiple ? 'cursor-grab active:cursor-grabbing' : ''}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* ==================== 1. CARTOUCHE D'EN-TÊTE ÉPURÉ ==================== */}
-      <div className={`shrink-0 relative ${theme.headerBg} p-4 sm:p-5 border-b ${theme.headerBorder}`}>
-        <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
-
-        {/* Ligne principale : Macaron Classement + Nom Prénom EN ENTIER + Croix de retour abaissée */}
-        <div className="flex items-center justify-between gap-3 sm:gap-4 relative z-10">
-          {/* Badge Classement FFT */}
-          <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center font-heading font-black border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-md shrink-0`}>
-            <span className="text-base sm:text-lg leading-tight">{adherent.dernierClassTennis || 'NC'}</span>
-            <span className="text-[9px] font-bold uppercase tracking-wider opacity-85">
-              {meta.serie}
-            </span>
-            {(() => {
-              const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
-              if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
-                return (
-                  <span className="text-[8px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
-                    Max {maxRank}
-                  </span>
-                );
-              }
-              return null;
-            })()}
-          </div>
-
-          {/* Nom & Prénom affichés EN ENTIER (sans troncature) */}
-          <div className="min-w-0 flex-1">
-            <h2 className={`text-base sm:text-lg font-heading font-black ${theme.nameText} leading-snug break-words`}>
-              {adherent.nomPrenom}
-            </h2>
-            <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-300 font-medium">
-              {ageDisplay && (
-                <span>{ageDisplay}</span>
-              )}
-              {birthYear && (
-                <span className="text-zinc-400">• Né(e) en {birthYear}</span>
-              )}
-            </div>
-          </div>
-
-          {/* Bouton Fermer abaissé (centré verticalement dans le cartouche) */}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Fermer la fiche"
-            className={`w-9 h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0`}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* ==================== 2. RACCOURCIS APPELS, SMS ET EMAIL ==================== */}
-      <div className={`shrink-0 grid grid-cols-3 gap-2 p-3 sm:px-5 border-b ${theme.headerBorder} bg-black/30`}>
-        {/* Appel */}
-        <a
-          href={adherent.telephonePortable ? `tel:${adherent.telephonePortable}` : undefined}
-          className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
-            adherent.telephonePortable
-              ? `${theme.actionBtn} hover:border-emerald-400 hover:text-emerald-300 cursor-pointer shadow-sm`
-              : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
-          }`}
-          title={adherent.telephonePortable ? `Appeler le ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
-        >
-          <Phone className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-          <span className="truncate">Appel</span>
-        </a>
-
-        {/* SMS */}
-        <a
-          href={adherent.telephonePortable ? `sms:${adherent.telephonePortable}` : undefined}
-          className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
-            adherent.telephonePortable
-              ? `${theme.actionBtn} hover:border-sky-400 hover:text-sky-300 cursor-pointer shadow-sm`
-              : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
-          }`}
-          title={adherent.telephonePortable ? `Envoyer un SMS au ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
-        >
-          <MessageSquare className="w-3.5 h-3.5 shrink-0 text-sky-400" />
-          <span className="truncate">SMS</span>
-        </a>
-
-        {/* Email */}
-        <a
-          href={adherent.email ? `mailto:${adherent.email}?subject=Message%20Muzillac%20Tennis%20Club` : undefined}
-          className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
-            adherent.email
-              ? `${theme.actionBtn} hover:border-orange-400 hover:text-orange-300 cursor-pointer shadow-sm`
-              : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
-          }`}
-          title={adherent.email ? `Écrire à ${adherent.email}` : 'Email non renseigné'}
-        >
-          <Mail className="w-3.5 h-3.5 shrink-0 text-orange-400" />
-          <span className="truncate">Email</span>
-        </a>
-      </div>
-
-      {/* ==================== 3. CORPS DE LA FICHE DÉTAILLÉE ==================== */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5">
-
-        {/* Alerte si Classement ND (Non Déterminé) */}
-        {meta.isND && (
-          <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/70 text-rose-200 text-xs space-y-1.5 shadow-lg">
-            <div className="flex items-center space-x-2 text-rose-300 font-heading font-black text-xs">
-              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>CLASSEMENT ND — RECLASSEMENT REQUIS</span>
-            </div>
-            <p className="text-zinc-200 leading-snug text-[11px]">
-              Dernier classement FFT <strong>ND</strong>. Meilleur classement enregistré : <strong>{adherent.meilleurClassTennis || '15/3'}</strong>. Reclassement nécessaire auprès de la Ligue pour toute compétition officielle.
-            </p>
-          </div>
-        )}
-
-        {/* Grille des informations : Chaque ligne reste strictement sur une seule ligne */}
-        <div className={`${theme.infoBoxBg} p-3.5 sm:p-4 rounded-2xl border ${theme.infoBoxBorder} text-xs space-y-2`}>
-          
-          {/* Téléphone sur une seule ligne */}
-          <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-            <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-              <Phone className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Téléphone</span>
-            </span>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-mono font-semibold text-white truncate text-xs">
-                {adherent.telephonePortable || 'Non renseigné'}
-              </span>
-              {adherent.telephonePortable && (
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(adherent.telephonePortable, 'phone')}
-                  className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
-                  title="Copier le numéro"
-                >
-                  {copiedField === 'phone' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Email sur une seule ligne */}
-          <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-            <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-              <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Email</span>
-            </span>
-            <div className="flex items-center gap-1.5 min-w-0 max-w-[65%]">
-              <span className="font-semibold text-white truncate text-xs" title={adherent.email}>
-                {adherent.email || 'Non renseigné'}
-              </span>
-              {adherent.email && (
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(adherent.email, 'email')}
-                  className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
-                  title="Copier l'email"
-                >
-                  {copiedField === 'email' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Numéro de Licence FFT & Statut sur une seule ligne */}
-          <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-            <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-              <CreditCard className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Licence FFT</span>
-            </span>
-            <div className="flex items-center gap-1.5 min-w-0">
-              {adherent.licence ? (
-                <>
-                  <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 truncate text-xs">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span>{adherent.licence}</span>
-                  </span>
-                  {adherent.typeLicence && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0">
-                      Type {adherent.typeLicence}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(adherent.licence, 'licence')}
-                    className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
-                    title="Copier la licence"
-                  >
-                    {copiedField === 'licence' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </>
-              ) : (
-                <span className="text-zinc-500 italic text-xs">
-                  Sans licence (Parent / Adhésion libre)
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Date de Naissance sur une seule ligne */}
-          <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-            <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-              <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Naissance</span>
-            </span>
-            <div className="flex items-center gap-1.5 text-right truncate">
-              <span className="font-semibold text-white text-xs">{adherent.dateNaissance || 'Non renseignée'}</span>
-              {birthYear && (
-                <span className="text-[11px] text-orange-400 font-semibold shrink-0">
-                  ({ageSportif2027} ans)
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Groupe d'enseignement sur une seule ligne (si renseigné) */}
-          {adherent.groupeEnseignement && (
-            <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-                <BookOpen className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                <span>Groupe</span>
-              </span>
-              <span className="font-semibold text-white truncate text-xs">{adherent.groupeEnseignement}</span>
-            </div>
-          )}
-
-          {/* Compte Ten'Up sur une seule ligne */}
-          <div className="flex items-center justify-between gap-2 py-1.5">
-            <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-              <Award className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Compte Ten'Up</span>
-            </span>
-            <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="truncate">{adherent.compteTenUp || 'Actif'}</span>
-            </span>
-          </div>
-
-        </div>
-
-      </div>
-    </motion.div>
-  );
-};
 
 export const AdherentModal: React.FC<AdherentModalProps> = ({
   adherent,
@@ -388,6 +57,32 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
     const nextIdx = (currentIndex + 1) % totalInList;
     onSelectAdherent(adherentsList[nextIdx]);
   }, [hasMultiple, adherentsList, currentIndex, totalInList, onSelectAdherent]);
+
+  // Support tactile Swipe robuste et léger (glissement horizontal au doigt)
+  const touchStartX = React.useRef<number | null>(null);
+  const touchStartY = React.useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Seuil de 40px avec confirmation de glissement principalement horizontal
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      if (deltaX < 0) {
+        handleNext(); // Swipe vers la gauche -> licencié suivant
+      } else {
+        handlePrev(); // Swipe vers la droite -> licencié précédent
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
 
   // Raccourcis clavier (Flèches gauche / droite et touche Echap)
   React.useEffect(() => {
@@ -447,6 +142,22 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
     infoRowBorder: 'border-[#172b47]',
   };
 
+  // Variantes d'animation : Slide horizontal directionnel pur sans déformation ni écrasement
+  const slideVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? 110 : -110,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+    },
+    exit: (dir: number) => ({
+      x: dir > 0 ? -110 : 110,
+      opacity: 0,
+    }),
+  };
+
   return (
     <div 
       className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-4 overflow-y-auto"
@@ -484,32 +195,267 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
         </div>
       )}
 
-      {/* ==================== BULLE PRINCIPALE DE LA FICHE (ANIMATION DECK & DRAG TACTILE) ==================== */}
-      <div className="relative w-full max-w-lg flex items-center justify-center my-auto">
-        {/* Silhouette de carte arrière pour l'effet "paquet de cartes" physique */}
-        {hasMultiple && (
-          <div 
-            aria-hidden="true"
-            className={`absolute inset-0 rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} opacity-30 scale-[0.96] translate-y-2 pointer-events-none shadow-xl`}
-          />
-        )}
-
-        <AnimatePresence mode="popLayout" custom={direction}>
-          <DeckCard
+      {/* ==================== BULLE PRINCIPALE AVEC SLIDE HORIZONTAL AMORTI ==================== */}
+      <div 
+        className="w-full max-w-lg overflow-hidden my-auto"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <AnimatePresence mode="wait" custom={direction}>
+          <motion.div
             key={adherent.id}
-            adherent={adherent}
-            direction={direction}
-            hasMultiple={hasMultiple}
-            theme={theme}
-            meta={meta}
-            ageDisplay={ageDisplay}
-            birthYear={birthYear}
-            copiedField={copiedField}
-            copyToClipboard={copyToClipboard}
-            onClose={onClose}
-            onSwipeLeft={handleNext}
-            onSwipeRight={handlePrev}
-          />
+            custom={direction}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              x: { type: 'spring', stiffness: 320, damping: 32, mass: 0.7 },
+              opacity: { duration: 0.16 },
+            }}
+            className={`w-full max-h-[88dvh] sm:max-h-[85vh] flex flex-col rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} shadow-2xl shadow-black overflow-hidden`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ==================== 1. CARTOUCHE D'EN-TÊTE ÉPURÉ ==================== */}
+            <div className={`shrink-0 relative ${theme.headerBg} p-4 sm:p-5 border-b ${theme.headerBorder}`}>
+              <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
+
+              {/* Ligne principale : Macaron Classement + Nom Prénom EN ENTIER + Croix de retour abaissée */}
+              <div className="flex items-center justify-between gap-3 sm:gap-4 relative z-10">
+                {/* Badge Classement FFT */}
+                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center font-heading font-black border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-md shrink-0`}>
+                  <span className="text-base sm:text-lg leading-tight">{adherent.dernierClassTennis || 'NC'}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider opacity-85">
+                    {meta.serie}
+                  </span>
+                  {(() => {
+                    const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
+                    if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
+                      return (
+                        <span className="text-[8px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
+                          Max {maxRank}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+
+                {/* Nom & Prénom affichés EN ENTIER (sans troncature) */}
+                <div className="min-w-0 flex-1">
+                  <h2 className={`text-base sm:text-lg font-heading font-black ${theme.nameText} leading-snug break-words`}>
+                    {adherent.nomPrenom}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-300 font-medium">
+                    {ageDisplay && (
+                      <span>{ageDisplay}</span>
+                    )}
+                    {birthYear && (
+                      <span className="text-zinc-400">• Né(e) en {birthYear}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bouton Fermer abaissé (centré verticalement dans le cartouche) */}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Fermer la fiche"
+                  className={`w-9 h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0`}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* ==================== 2. RACCOURCIS APPELS, SMS ET EMAIL ==================== */}
+            <div className={`shrink-0 grid grid-cols-3 gap-2 p-3 sm:px-5 border-b ${theme.headerBorder} bg-black/30`}>
+              {/* Appel */}
+              <a
+                href={adherent.telephonePortable ? `tel:${adherent.telephonePortable}` : undefined}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+                  adherent.telephonePortable
+                    ? `${theme.actionBtn} hover:border-emerald-400 hover:text-emerald-300 cursor-pointer shadow-sm`
+                    : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+                }`}
+                title={adherent.telephonePortable ? `Appeler le ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
+              >
+                <Phone className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                <span className="truncate">Appel</span>
+              </a>
+
+              {/* SMS */}
+              <a
+                href={adherent.telephonePortable ? `sms:${adherent.telephonePortable}` : undefined}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+                  adherent.telephonePortable
+                    ? `${theme.actionBtn} hover:border-sky-400 hover:text-sky-300 cursor-pointer shadow-sm`
+                    : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+                }`}
+                title={adherent.telephonePortable ? `Envoyer un SMS au ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
+              >
+                <MessageSquare className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                <span className="truncate">SMS</span>
+              </a>
+
+              {/* Email */}
+              <a
+                href={adherent.email ? `mailto:${adherent.email}?subject=Message%20Muzillac%20Tennis%20Club` : undefined}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+                  adherent.email
+                    ? `${theme.actionBtn} hover:border-orange-400 hover:text-orange-300 cursor-pointer shadow-sm`
+                    : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+                }`}
+                title={adherent.email ? `Écrire à ${adherent.email}` : 'Email non renseigné'}
+              >
+                <Mail className="w-3.5 h-3.5 shrink-0 text-orange-400" />
+                <span className="truncate">Email</span>
+              </a>
+            </div>
+
+            {/* ==================== 3. CORPS DE LA FICHE DÉTAILLÉE ==================== */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5">
+
+              {/* Alerte si Classement ND (Non Déterminé) */}
+              {meta.isND && (
+                <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/70 text-rose-200 text-xs space-y-1.5 shadow-lg">
+                  <div className="flex items-center space-x-2 text-rose-300 font-heading font-black text-xs">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>CLASSEMENT ND — RECLASSEMENT REQUIS</span>
+                  </div>
+                  <p className="text-zinc-200 leading-snug text-[11px]">
+                    Dernier classement FFT <strong>ND</strong>. Meilleur classement enregistré : <strong>{adherent.meilleurClassTennis || '15/3'}</strong>. Reclassement nécessaire auprès de la Ligue pour toute compétition officielle.
+                  </p>
+                </div>
+              )}
+
+              {/* Grille des informations : Chaque ligne reste strictement sur une seule ligne */}
+              <div className={`${theme.infoBoxBg} p-3.5 sm:p-4 rounded-2xl border ${theme.infoBoxBorder} text-xs space-y-2`}>
+                
+                {/* Téléphone sur une seule ligne */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <Phone className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Téléphone</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono font-semibold text-white truncate text-xs">
+                      {adherent.telephonePortable || 'Non renseigné'}
+                    </span>
+                    {adherent.telephonePortable && (
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(adherent.telephonePortable, 'phone')}
+                        className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                        title="Copier le numéro"
+                      >
+                        {copiedField === 'phone' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Email sur une seule ligne */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Email</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 min-w-0 max-w-[65%]">
+                    <span className="font-semibold text-white truncate text-xs" title={adherent.email}>
+                      {adherent.email || 'Non renseigné'}
+                    </span>
+                    {adherent.email && (
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(adherent.email, 'email')}
+                        className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                        title="Copier l'email"
+                      >
+                        {copiedField === 'email' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Numéro de Licence FFT & Statut sur une seule ligne */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <CreditCard className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Licence FFT</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {adherent.licence ? (
+                      <>
+                        <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 truncate text-xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>{adherent.licence}</span>
+                        </span>
+                        {adherent.typeLicence && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0">
+                            Type {adherent.typeLicence}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(adherent.licence, 'licence')}
+                          className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                          title="Copier la licence"
+                        >
+                          {copiedField === 'licence' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-zinc-500 italic text-xs">
+                        Sans licence (Parent / Adhésion libre)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Date de Naissance sur une seule ligne */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Naissance</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 text-right truncate">
+                    <span className="font-semibold text-white text-xs">{adherent.dateNaissance || 'Non renseignée'}</span>
+                    {birthYear && (
+                      <span className="text-[11px] text-orange-400 font-semibold shrink-0">
+                        ({ageSportif2027} ans)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Groupe d'enseignement sur une seule ligne (si renseigné) */}
+                {adherent.groupeEnseignement && (
+                  <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                    <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                      <BookOpen className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                      <span>Groupe</span>
+                    </span>
+                    <span className="font-semibold text-white truncate text-xs">{adherent.groupeEnseignement}</span>
+                  </div>
+                )}
+
+                {/* Compte Ten'Up sur une seule ligne */}
+                <div className="flex items-center justify-between gap-2 py-1.5">
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <Award className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Compte Ten'Up</span>
+                  </span>
+                  <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="truncate">{adherent.compteTenUp || 'Actif'}</span>
+                  </span>
+                </div>
+
+              </div>
+
+            </div>
+          </motion.div>
         </AnimatePresence>
       </div>
     </div>
