@@ -205,6 +205,7 @@ export default function App() {
 
   // Modales
   const [selectedAdherent, setSelectedAdherent] = useState<Adherent | null>(null);
+  const [modalAdherentList, setModalAdherentList] = useState<Adherent[] | null>(null);
   const [selectedRencontreForComposition, setSelectedRencontreForComposition] = useState<Rencontre | null>(null);
   const [selectedRencontreForSondage, setSelectedRencontreForSondage] = useState<Rencontre | null>(null);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
@@ -649,7 +650,10 @@ export default function App() {
             adherents={adherents}
             userRole={userRole}
             saison={saison}
-            onSelectAdherent={(adh) => setSelectedAdherent(adh)}
+            onSelectAdherent={(adh, list) => {
+              setSelectedAdherent(adh);
+              setModalAdherentList(list || null);
+            }}
             onNavigateToRencontres={() => setActiveTab('rencontres')}
           />
         )}
@@ -682,7 +686,10 @@ export default function App() {
           <EnseignantsTab
             adherents={adherents}
             clubInfo={clubInfo}
-            onSelectAdherent={(adh) => setSelectedAdherent(adh)}
+            onSelectAdherent={(adh) => {
+              setSelectedAdherent(adh);
+              setModalAdherentList(adherents);
+            }}
           />
         )}
 
@@ -691,7 +698,10 @@ export default function App() {
           <AdherentsTab
             adherents={adherents}
             userRole={userRole}
-            onSelectAdherent={(adh) => setSelectedAdherent(adh)}
+            onSelectAdherent={(adh) => {
+              setSelectedAdherent(adh);
+              setModalAdherentList(adherents);
+            }}
             onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
             onOpenGsheetModal={() => {
               setGsheetModalDefaultTab('mapping');
@@ -707,12 +717,19 @@ export default function App() {
 
       {/* 3. MODALES */}
       
-      {/* Fiche détaillée de l'adhérent */}
-      <AdherentModal
-        adherent={selectedAdherent}
-        onClose={() => setSelectedAdherent(null)}
-        onUpdateSolde={handleUpdateSolde}
-      />
+      {/* Fiche détaillée de l'adhérent avec support du slide/navigation */}
+      {selectedAdherent && (
+        <AdherentModal
+          adherent={selectedAdherent}
+          adherentsList={modalAdherentList || adherents}
+          onSelectAdherent={(adh) => setSelectedAdherent(adh)}
+          onClose={() => {
+            setSelectedAdherent(null);
+            setModalAdherentList(null);
+          }}
+          onUpdateSolde={handleUpdateSolde}
+        />
+      )}
 
       {/* Module de composition d'équipe des capitaines */}
       <CompositionModal

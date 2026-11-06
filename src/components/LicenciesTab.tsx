@@ -13,7 +13,7 @@ import { extractBirthYear } from '../utils/fftEligibility';
 interface LicenciesTabProps {
   adherents: Adherent[];
   userRole?: UserRole;
-  onSelectAdherent?: (adherent: Adherent) => void;
+  onSelectAdherent?: (adherent: Adherent, currentFilteredList?: Adherent[]) => void;
   onNavigateToRencontres?: () => void;
   saison?: string;
 }
@@ -36,7 +36,28 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   saison = '2027',
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>('all');
+
+  // Persistance locale du choix Hommes / Femmes / Tous dans le navigateur
+  const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_licencies_pref_sex');
+      if (saved === 'Messieurs' || saved === 'Dames' || saved === 'all') {
+        return saved;
+      }
+    } catch {
+      // Ignorer
+    }
+    return 'all';
+  });
+
+  const handleSetFilterSex = (newSex: 'all' | 'Messieurs' | 'Dames') => {
+    setFilterSex(newSex);
+    try {
+      localStorage.setItem('tcm_licencies_pref_sex', newSex);
+    } catch {
+      // Ignorer
+    }
+  };
 
   // Filtrage exclusif des licenciés rattachés à MUZILLAC TENNIS CLUB pour la saison active
   const licenciesMuzillac = useMemo(() => {
@@ -73,12 +94,61 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
     };
   }, [licenciesMuzillac, filterSex]);
 
-  // Intervalle d'âge actif (initialisé et mis à jour automatiquement selon les limites de sexe)
-  const [ageRange, setAgeRange] = useState<[number, number]>([minClubAge, maxClubAge]);
+  // Persistance locale de l'intervalle d'âge personnalisé
+  const [hasCustomAgeFilter, setHasCustomAgeFilter] = useState<boolean>(() => {
+    try {
+      return !!localStorage.getItem('tcm_licencies_pref_age_range');
+    } catch {
+      return false;
+    }
+  });
 
+  const [ageRange, setAgeRange] = useState<[number, number]>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_licencies_pref_age_range');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'number' && typeof parsed[1] === 'number') {
+          return [parsed[0], parsed[1]];
+        }
+      }
+    } catch {
+      // Ignorer
+    }
+    return [7, 85];
+  });
+
+  // Si l'utilisateur n'a pas fixé d'intervalle personnalisé, ajuster aux bornes du club
   useEffect(() => {
+    if (!hasCustomAgeFilter) {
+      setAgeRange([minClubAge, maxClubAge]);
+    } else {
+      setAgeRange(prev => [
+        Math.max(prev[0], minClubAge),
+        Math.min(prev[1], maxClubAge)
+      ]);
+    }
+  }, [minClubAge, maxClubAge, hasCustomAgeFilter]);
+
+  const handleUpdateAgeRange = (newRange: [number, number]) => {
+    setAgeRange(newRange);
+    setHasCustomAgeFilter(true);
+    try {
+      localStorage.setItem('tcm_licencies_pref_age_range', JSON.stringify(newRange));
+    } catch {
+      // Ignorer
+    }
+  };
+
+  const handleResetAge = () => {
     setAgeRange([minClubAge, maxClubAge]);
-  }, [minClubAge, maxClubAge]);
+    setHasCustomAgeFilter(false);
+    try {
+      localStorage.removeItem('tcm_licencies_pref_age_range');
+    } catch {
+      // Ignorer
+    }
+  };
 
   const isAgeFiltered = ageRange[0] > minClubAge || ageRange[1] < maxClubAge;
 
@@ -184,7 +254,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
           {/* Choix Hommes / Femmes (grille 3 colonnes alignée en mobile) */}
           <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center h-10 bg-[#1b202c] rounded-xl p-1 border border-[#2c3547] shrink-0">
             <button
-              onClick={() => setFilterSex('all')}
+              onClick={() => handleSetFilterSex('all')}
               className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
                 filterSex === 'all' ? 'bg-[#E65100] text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
@@ -192,7 +262,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
               Tous
             </button>
             <button
-              onClick={() => setFilterSex('Messieurs')}
+              onClick={() => handleSetFilterSex('Messieurs')}
               className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
                 filterSex === 'Messieurs' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
@@ -200,7 +270,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
               Hommes ({stats.hommes})
             </button>
             <button
-              onClick={() => setFilterSex('Dames')}
+              onClick={() => handleSetFilterSex('Dames')}
               className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${
                 filterSex === 'Dames' ? 'bg-pink-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
@@ -219,7 +289,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
               {/* Bouton croix avec position fixe dédiée : aucun décalage visuel lors de la manipulation */}
               <button
                 type="button"
-                onClick={() => setAgeRange([minClubAge, maxClubAge])}
+                onClick={handleResetAge}
                 disabled={!isAgeFiltered}
                 className={`w-5 h-5 rounded-md flex items-center justify-center transition-all shrink-0 ${
                   isAgeFiltered
@@ -252,7 +322,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                   value={ageRange[0]}
                   onChange={(e) => {
                     const val = Math.min(Number(e.target.value), ageRange[1]);
-                    setAgeRange([val, ageRange[1]]);
+                    handleUpdateAgeRange([val, ageRange[1]]);
                   }}
                   className="absolute w-full h-1.5 appearance-none bg-transparent pointer-events-none cursor-pointer z-10
                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110
@@ -266,7 +336,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                   value={ageRange[1]}
                   onChange={(e) => {
                     const val = Math.max(Number(e.target.value), ageRange[0]);
-                    setAgeRange([ageRange[0], val]);
+                    handleUpdateAgeRange([ageRange[0], val]);
                   }}
                   className="absolute w-full h-1.5 appearance-none bg-transparent pointer-events-none cursor-pointer z-20
                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md hover:[&::-webkit-slider-thumb]:scale-110
@@ -289,24 +359,24 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
             const meta = getRankingMeta(adh.dernierClassTennis);
             const isFemme = adh.civilite === 'Madame';
 
-            // Teinte complète de la bulle selon le sexe
+            // Teinte contrastée de la bulle selon le sexe pour ressortir sur fond noir
             const cardGenderStyle = isFemme
-              ? "bg-[#201321] hover:bg-[#281729] border-[#442340] hover:border-pink-500/60 shadow-pink-950/20"
-              : "bg-[#121927] hover:bg-[#162032] border-[#20324c] hover:border-blue-500/60 shadow-blue-950/20";
+              ? "bg-[#251328] hover:bg-[#341838] border-2 border-[#63275b] hover:border-pink-400/90 shadow-md shadow-pink-950/30"
+              : "bg-[#0e1c30] hover:bg-[#152844] border-2 border-[#244b7a] hover:border-blue-400/90 shadow-md shadow-blue-950/30";
 
             return (
               <div
                 key={adh.id}
-                onClick={() => onSelectAdherent && onSelectAdherent(adh)}
-                className={`${cardGenderStyle} border rounded-xl px-3.5 py-2.5 transition-all shadow-sm hover:shadow-md cursor-pointer group flex items-center justify-between gap-3`}
+                onClick={() => onSelectAdherent && onSelectAdherent(adh, filteredList)}
+                className={`${cardGenderStyle} rounded-xl px-3.5 py-2 transition-all shadow-sm hover:shadow-lg cursor-pointer group flex items-center justify-between gap-3`}
               >
                 {/* Bloc Gauche : Nom, Prénom, Âge et Numéro de licence */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1.5 truncate">
                     <h3 className={`font-heading font-black text-sm transition truncate ${
                       isFemme 
-                        ? 'text-pink-100 group-hover:text-pink-300' 
-                        : 'text-blue-100 group-hover:text-blue-300'
+                        ? 'text-pink-50 group-hover:text-pink-200' 
+                        : 'text-blue-50 group-hover:text-blue-200'
                     }`}>
                       {adh.nomPrenom}
                     </h3>
@@ -315,10 +385,10 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                     </span>
                   </div>
 
-                  {/* Numéro de licence FFT direct */}
-                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px]">
-                    <span className="font-mono font-bold text-emerald-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  {/* Numéro de licence FFT direct agrandi à la même taille que NOM Prénom (text-sm) sans agrandir la bulle */}
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="font-mono font-black text-sm text-emerald-400 flex items-center gap-1.5 tracking-tight">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>N° {adh.licence}</span>
                     </span>
                   </div>

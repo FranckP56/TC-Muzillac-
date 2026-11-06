@@ -4,46 +4,97 @@ import {
   Phone, 
   MessageSquare, 
   Mail, 
-  ExternalLink, 
   Copy, 
   Check, 
-  AlertCircle, 
   CheckCircle2, 
-  Award, 
   Calendar, 
   BookOpen, 
   CreditCard,
-  ShieldCheck,
   ShieldAlert,
-  User
+  Award,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Adherent } from '../types/tennis';
-import { getRankingMeta, getClubAffiliationBadge, cleanRanking, isValidTennisRanking } from '../utils/ranking';
+import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
 
 interface AdherentModalProps {
   adherent: Adherent | null;
   onClose: () => void;
   onUpdateSolde?: (id: string, newSolde: number) => void;
+  adherentsList?: Adherent[];
+  onSelectAdherent?: (adherent: Adherent) => void;
 }
 
 export const AdherentModal: React.FC<AdherentModalProps> = ({
   adherent,
   onClose,
-  onUpdateSolde,
+  adherentsList,
+  onSelectAdherent,
 }) => {
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
 
-  if (!adherent) return null;
+  // Indexation pour la navigation / slider entre licenciés selon les filtres actifs
+  const currentIndex = adherentsList && adherent
+    ? adherentsList.findIndex((a) => a.id === adherent.id)
+    : -1;
+  const totalInList = adherentsList ? adherentsList.length : 0;
+  const hasMultiple = totalInList > 1 && currentIndex !== -1;
 
-  const meta = getRankingMeta(adherent.dernierClassTennis);
-  const isOwed = adherent.soldeDu < 0;
-  const isCredit = adherent.soldeDu > 0;
-  const affil = getClubAffiliationBadge(adherent);
-  const rawLicenceType = (adherent.typeLicence || '').toUpperCase();
-  const isLicenceCompValid = rawLicenceType === 'C' || rawLicenceType === 'W';
-  const birthYear = extractBirthYear(adherent.dateNaissance);
-  const ageSportif2027 = birthYear ? 2027 - birthYear : null;
+  const handlePrev = React.useCallback(() => {
+    if (!hasMultiple || !adherentsList || !onSelectAdherent) return;
+    const prevIdx = (currentIndex - 1 + totalInList) % totalInList;
+    onSelectAdherent(adherentsList[prevIdx]);
+  }, [hasMultiple, adherentsList, currentIndex, totalInList, onSelectAdherent]);
+
+  const handleNext = React.useCallback(() => {
+    if (!hasMultiple || !adherentsList || !onSelectAdherent) return;
+    const nextIdx = (currentIndex + 1) % totalInList;
+    onSelectAdherent(adherentsList[nextIdx]);
+  }, [hasMultiple, adherentsList, currentIndex, totalInList, onSelectAdherent]);
+
+  // Raccourcis clavier (Flèches gauche / droite et touche Echap)
+  React.useEffect(() => {
+    if (!adherent) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        handlePrev();
+      } else if (e.key === 'ArrowRight') {
+        handleNext();
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePrev, handleNext, onClose, adherent]);
+
+  // Support du geste tactile Swipe (glissement de doigt sur smartphone)
+  const touchStartX = React.useRef<number | null>(null);
+  const touchStartY = React.useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Seuil de 40px avec confirmation de glissement principalement horizontal
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+      if (deltaX < 0) {
+        handleNext(); // Swipe gauche -> licencié suivant
+      } else {
+        handlePrev(); // Swipe droite -> licencié précédent
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -51,50 +102,104 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleToggleSolde = () => {
-    if (!onUpdateSolde) return;
-    if (isOwed || isCredit) {
-      onUpdateSolde(adherent.id, 0);
-    } else {
-      // Définir un solde dû d'exemple (-35 €)
-      onUpdateSolde(adherent.id, -35);
-    }
+  // Règle des hooks : l'early return est placé après tous les hooks
+  if (!adherent) return null;
+
+  const isFemme = adherent.civilite === 'Madame';
+  const meta = getRankingMeta(adherent.dernierClassTennis);
+  const birthYear = extractBirthYear(adherent.dateNaissance);
+  const ageSportif2027 = birthYear ? 2027 - birthYear : null;
+  const ageDisplay = adherent.ageSportif ? `${adherent.ageSportif} ans` : (ageSportif2027 ? `${ageSportif2027} ans` : null);
+
+  // Thème contrasté selon le sexe pour ressortir nettement sur fond noir
+  const theme = isFemme ? {
+    containerBorder: 'border-[#752a6a]',
+    containerBg: 'bg-[#190d1a]',
+    headerBg: 'bg-gradient-to-b from-[#2d122f] via-[#200c22] to-[#170818]',
+    headerBorder: 'border-[#752a6a]',
+    glowBg: 'bg-pink-500/25',
+    closeBtn: 'bg-[#3b153d] hover:bg-[#521c55] text-pink-200 hover:text-white border border-[#752a6a]',
+    nameText: 'text-pink-50',
+    actionBtn: 'bg-[#29112b] hover:bg-[#3d1740] border-[#752a6a] hover:border-pink-400 text-pink-200 hover:text-white',
+    infoBoxBg: 'bg-[#120713]',
+    infoBoxBorder: 'border-[#551d4d]',
+    infoRowBorder: 'border-[#381233]',
+  } : {
+    containerBorder: 'border-[#2d5284]',
+    containerBg: 'bg-[#0c1421]',
+    headerBg: 'bg-gradient-to-b from-[#142642] via-[#0f1c30] to-[#0a121e]',
+    headerBorder: 'border-[#2d5284]',
+    glowBg: 'bg-blue-500/25',
+    closeBtn: 'bg-[#1b3152] hover:bg-[#25436f] text-blue-200 hover:text-white border border-[#2d5284]',
+    nameText: 'text-blue-50',
+    actionBtn: 'bg-[#13233c] hover:bg-[#1a3154] border-[#2d5284] hover:border-blue-400 text-blue-200 hover:text-white',
+    infoBoxBg: 'bg-[#070d17]',
+    infoBoxBorder: 'border-[#1e385c]',
+    infoRowBorder: 'border-[#172b47]',
   };
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-4 overflow-y-auto"
       onClick={onClose}
     >
+      {/* ==================== BOUTON FLÉCHÉS & COMPTEUR HORS DE LA BULLE (AU-DESSUS) ==================== */}
+      {hasMultiple && (
+        <div 
+          className="shrink-0 mb-2.5 z-20 flex items-center justify-center animate-in fade-in slide-in-from-top-2 duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={`flex items-center gap-2 ${theme.containerBg} ${theme.containerBorder} border-2 rounded-full py-1.5 px-3.5 shadow-2xl shadow-black`}>
+            <button
+              type="button"
+              onClick={handlePrev}
+              aria-label="Licencié précédent"
+              title="Précédent (Flèche gauche ou glissement)"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-mono font-black text-zinc-200 px-2 select-none tracking-wider">
+              {currentIndex + 1} / {totalInList}
+            </span>
+            <button
+              type="button"
+              onClick={handleNext}
+              aria-label="Licencié suivant"
+              title="Suivant (Flèche droite ou glissement)"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== BULLE PRINCIPALE DE LA FICHE ==================== */}
       <div 
-        className="relative w-full max-w-lg bg-[#161a22] border border-[#2b3342] rounded-3xl overflow-hidden shadow-2xl shadow-black/80 my-8 animate-in fade-in zoom-in-95 duration-150"
+        className={`relative w-full max-w-lg max-h-[88dvh] sm:max-h-[85vh] flex flex-col rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} shadow-2xl shadow-black my-auto overflow-hidden animate-in zoom-in-95 duration-150`}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
-        {/* En-tête décoratif */}
-        <div className="relative bg-gradient-to-br from-[#1f242e] to-[#12151b] p-6 border-b border-[#2b3342]">
-          <div className="absolute top-0 right-0 w-40 h-40 bg-orange-600/10 rounded-full blur-2xl pointer-events-none"></div>
+        {/* ==================== 1. CARTOUCHE D'EN-TÊTE ÉPURÉ ==================== */}
+        <div className={`shrink-0 relative ${theme.headerBg} p-4 sm:p-5 border-b ${theme.headerBorder}`}>
+          <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
 
-          {/* Bouton Fermer */}
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-[#262c38] hover:bg-[#343b4c] text-zinc-300 hover:text-white flex items-center justify-center transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {/* Identité principale */}
-          <div className="flex items-center space-x-4">
-            <div className={`w-16 h-16 sm:w-18 sm:h-18 rounded-2xl flex flex-col items-center justify-center font-heading font-black text-lg sm:text-xl border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-lg shrink-0`}>
-              <span>{adherent.dernierClassTennis || 'NC'}</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+          {/* Ligne principale : Macaron Classement + Nom Prénom EN ENTIER + Croix de retour abaissée */}
+          <div className="flex items-center justify-between gap-3 sm:gap-4 relative z-10">
+            {/* Badge Classement FFT */}
+            <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center font-heading font-black border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-md shrink-0`}>
+              <span className="text-base sm:text-lg leading-tight">{adherent.dernierClassTennis || 'NC'}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider opacity-85">
                 {meta.serie}
               </span>
               {(() => {
                 const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
                 if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
                   return (
-                    <span className="text-[9px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
-                      Max: {maxRank}
+                    <span className="text-[8px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
+                      Max {maxRank}
                     </span>
                   );
                 }
@@ -102,138 +207,113 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
               })()}
             </div>
 
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${affil.badgeClass}`}>
-                  {affil.label}
-                </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
-                  {adherent.civilite === 'Madame' ? 'Madame (F)' : 'Monsieur (H)'}
-                </span>
-              </div>
-              <h2 className="text-xl sm:text-2xl font-heading font-black text-white mt-1">
+            {/* Nom & Prénom affichés EN ENTIER (sans troncature) */}
+            <div className="min-w-0 flex-1">
+              <h2 className={`text-base sm:text-lg font-heading font-black ${theme.nameText} leading-snug break-words`}>
                 {adherent.nomPrenom}
               </h2>
-              <p className="text-xs text-zinc-400">
-                Groupe : <strong className="text-zinc-200">{adherent.groupeEnseignement || 'Pratique libre'}</strong>
-              </p>
+              <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-300 font-medium">
+                {ageDisplay && (
+                  <span>{ageDisplay}</span>
+                )}
+                {birthYear && (
+                  <span className="text-zinc-400">• Né(e) en {birthYear}</span>
+                )}
+              </div>
             </div>
+
+            {/* Bouton Fermer abaissé (centré verticalement dans le cartouche) */}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fermer la fiche"
+              className={`w-9 h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0`}
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        {/* Corps de la fiche */}
-        <div className="p-6 space-y-5">
-          
-          {/* Alerte spécifique Classement ND (Non Déterminé) */}
+        {/* ==================== 2. RACCOURCIS APPELS, SMS ET EMAIL ==================== */}
+        {/* Placés directement sous le cartouche */}
+        <div className={`shrink-0 grid grid-cols-3 gap-2 p-3 sm:px-5 border-b ${theme.headerBorder} bg-black/30`}>
+          {/* Appel */}
+          <a
+            href={adherent.telephonePortable ? `tel:${adherent.telephonePortable}` : undefined}
+            className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+              adherent.telephonePortable
+                ? `${theme.actionBtn} hover:border-emerald-400 hover:text-emerald-300 cursor-pointer shadow-sm`
+                : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+            }`}
+            title={adherent.telephonePortable ? `Appeler le ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
+          >
+            <Phone className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+            <span className="truncate">Appel</span>
+          </a>
+
+          {/* SMS */}
+          <a
+            href={adherent.telephonePortable ? `sms:${adherent.telephonePortable}` : undefined}
+            className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+              adherent.telephonePortable
+                ? `${theme.actionBtn} hover:border-sky-400 hover:text-sky-300 cursor-pointer shadow-sm`
+                : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+            }`}
+            title={adherent.telephonePortable ? `Envoyer un SMS au ${adherent.telephonePortable}` : 'Téléphone non renseigné'}
+          >
+            <MessageSquare className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+            <span className="truncate">SMS</span>
+          </a>
+
+          {/* Email */}
+          <a
+            href={adherent.email ? `mailto:${adherent.email}?subject=Message%20Muzillac%20Tennis%20Club` : undefined}
+            className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl text-xs font-bold transition border ${
+              adherent.email
+                ? `${theme.actionBtn} hover:border-orange-400 hover:text-orange-300 cursor-pointer shadow-sm`
+                : 'opacity-35 pointer-events-none border-transparent text-zinc-600'
+            }`}
+            title={adherent.email ? `Écrire à ${adherent.email}` : 'Email non renseigné'}
+          >
+            <Mail className="w-3.5 h-3.5 shrink-0 text-orange-400" />
+            <span className="truncate">Email</span>
+          </a>
+        </div>
+
+        {/* ==================== 3. CORPS DE LA FICHE DÉTAILLÉE ==================== */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5">
+
+          {/* Alerte si Classement ND (Non Déterminé) */}
           {meta.isND && (
-            <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs space-y-2 shadow-lg shadow-rose-950/50">
-              <div className="flex items-center space-x-2 text-rose-300 font-heading font-black text-sm">
-                <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
-                <span>CLASSEMENT NON DÉTERMINÉ (ND) — RECLASSEMENT FFT REQUIS</span>
+            <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/70 text-rose-200 text-xs space-y-1.5 shadow-lg">
+              <div className="flex items-center space-x-2 text-rose-300 font-heading font-black text-xs">
+                <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>CLASSEMENT ND — RECLASSEMENT REQUIS</span>
               </div>
-              <p className="text-zinc-200 leading-relaxed text-[11px]">
-                Ce joueur a interrompu la compétition officielle pendant plusieurs années. Son dernier classement FFT est <strong>ND</strong> (Non Déterminé), alors que son meilleur classement enregistré est <strong>{adherent.meilleurClassTennis || '15/3'}</strong>.
+              <p className="text-zinc-200 leading-snug text-[11px]">
+                Dernier classement FFT <strong>ND</strong>. Meilleur classement enregistré : <strong>{adherent.meilleurClassTennis || '15/3'}</strong>. Reclassement nécessaire auprès de la Ligue pour toute compétition officielle.
               </p>
-              <div className="p-2.5 rounded-xl bg-black/40 border border-rose-800/40 text-[11px] text-rose-300">
-                ⚠️ <strong>Règle FFT Compétition :</strong> Il est strictement interdit d'inscrire un joueur ND sur une feuille de match par équipes ou dans un tournoi officiel. Le joueur doit d'abord formuler une <em>demande de reclassement</em> auprès de la Commission de Classement de la Ligue de Bretagne.
-              </div>
             </div>
           )}
 
-          {/* Badge Statut Homologation FFT 2027 */}
-          <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
-            isLicenceCompValid && !meta.isND
-              ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300' 
-              : 'bg-rose-950/25 border-rose-500/40 text-rose-300'
-          }`}>
-            <div className="flex items-center space-x-2.5">
-              {isLicenceCompValid && !meta.isND ? (
-                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-              ) : (
-                <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
-              )}
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Éligibilité Compétition FFT</p>
-                <p className="text-xs font-black text-white">
-                  {meta.isND
-                    ? 'Inéligible : Classement ND (Reclassement en attente)'
-                    : isLicenceCompValid
-                      ? `Type ${adherent.typeLicence} : Autorisé en Championnat (C/W)`
-                      : `Type ${adherent.typeLicence || 'Invalide'} : Non autorisé en compétition officielle`}
-                </p>
-              </div>
-            </div>
-            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${
-              isLicenceCompValid && !meta.isND ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
-            }`}>
-              {isLicenceCompValid && !meta.isND ? 'Éligible' : 'Inéligible'}
-            </span>
-          </div>
-
-          {/* État financier / Solde dû / À régulariser */}
-          <div className={`p-4 rounded-2xl border flex items-center justify-between ${
-            isOwed 
-              ? 'bg-rose-950/20 border-rose-500/40 text-rose-300' 
-              : isCredit
-                ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
-                : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-          }`}>
-            <div className="flex items-center space-x-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                isOwed 
-                  ? 'bg-rose-500/20 text-rose-400' 
-                  : isCredit
-                    ? 'bg-amber-500/20 text-amber-400'
-                    : 'bg-emerald-500/20 text-emerald-400'
-              }`}>
-                {isOwed ? <AlertCircle className="w-5 h-5" /> : isCredit ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400">
-                  {isOwed ? 'Solde Restant Dû (Impayé)' : isCredit ? 'Solde Positif (À régulariser)' : 'Cotisation & Solde Club'}
-                </p>
-                <p className="text-sm font-black font-heading text-white">
-                  {isOwed 
-                    ? `Solde restant dû : ${Math.abs(adherent.soldeDu)} €` 
-                    : isCredit 
-                      ? `Crédit / Avoir : +${adherent.soldeDu} €` 
-                      : 'Compte club à jour (0 €)'}
-                </p>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  {isOwed 
-                    ? 'Cotisation ou cours en attente de règlement' 
-                    : isCredit 
-                      ? 'Tarif famille non déduit ou avoir en attente de régularisation' 
-                      : 'Règlement complet pour la saison en cours'}
-                </p>
-              </div>
-            </div>
-
-            {onUpdateSolde && (
-              <button
-                onClick={handleToggleSolde}
-                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition border border-zinc-700 cursor-pointer shrink-0 ml-2"
-              >
-                {isOwed ? 'Marquer réglé' : isCredit ? 'Régulariser à 0 €' : 'Définir impayé'}
-              </button>
-            )}
-          </div>
-
-          {/* Grille des informations */}
-          <div className="space-y-3 bg-[#11141a] p-4 rounded-2xl border border-[#232934] text-xs">
+          {/* Grille des informations : Chaque ligne reste strictement sur une seule ligne */}
+          <div className={`${theme.infoBoxBg} p-3.5 sm:p-4 rounded-2xl border ${theme.infoBoxBorder} text-xs space-y-2`}>
             
-            {/* Téléphone */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <Phone className="w-3.5 h-3.5 text-zinc-500" />
-                Téléphone Portable
+            {/* Téléphone sur une seule ligne */}
+            <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                <Phone className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span>Téléphone</span>
               </span>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-white">{adherent.telephonePortable || 'Non renseigné'}</span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-mono font-semibold text-white truncate text-xs">
+                  {adherent.telephonePortable || 'Non renseigné'}
+                </span>
                 {adherent.telephonePortable && (
                   <button
+                    type="button"
                     onClick={() => copyToClipboard(adherent.telephonePortable, 'phone')}
-                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                    className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
                     title="Copier le numéro"
                   >
                     {copiedField === 'phone' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -242,18 +322,21 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
               </div>
             </div>
 
-            {/* Email */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <Mail className="w-3.5 h-3.5 text-zinc-500" />
-                Email
+            {/* Email sur une seule ligne */}
+            <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span>Email</span>
               </span>
-              <div className="flex items-center gap-2 max-w-[65%]">
-                <span className="font-semibold text-white truncate">{adherent.email || 'Non renseigné'}</span>
+              <div className="flex items-center gap-1.5 min-w-0 max-w-[65%]">
+                <span className="font-semibold text-white truncate text-xs" title={adherent.email}>
+                  {adherent.email || 'Non renseigné'}
+                </span>
                 {adherent.email && (
                   <button
+                    type="button"
                     onClick={() => copyToClipboard(adherent.email, 'email')}
-                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition shrink-0 cursor-pointer"
+                    className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
                     title="Copier l'email"
                   >
                     {copiedField === 'email' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -262,124 +345,80 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
               </div>
             </div>
 
-            {/* Club de rattachement / Affiliation */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <Award className="w-3.5 h-3.5 text-zinc-500" />
-                Club d'affiliation
+            {/* Numéro de Licence FFT & Statut sur une seule ligne */}
+            <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                <CreditCard className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span>Licence FFT</span>
               </span>
-              <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${affil.badgeClass}`}>
-                {affil.label}
-              </span>
-            </div>
-
-            {/* Numéro de Licence & Statut Type */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <CreditCard className="w-3.5 h-3.5 text-zinc-500" />
-                Licence FFT & Statut
-              </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
                 {adherent.licence ? (
                   <>
-                    <span className="font-mono font-bold text-[#FF6D00]">{adherent.licence}</span>
-                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-zinc-800 text-white">
-                      Type {adherent.typeLicence}
+                    <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 truncate text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{adherent.licence}</span>
                     </span>
+                    {adherent.typeLicence && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0">
+                        Type {adherent.typeLicence}
+                      </span>
+                    )}
                     <button
+                      type="button"
                       onClick={() => copyToClipboard(adherent.licence, 'licence')}
-                      className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
-                      title="Copier le numéro de licence"
+                      className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                      title="Copier la licence"
                     >
                       {copiedField === 'licence' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </>
                 ) : (
-                  <span className="text-zinc-400 italic">
+                  <span className="text-zinc-500 italic text-xs">
                     Sans licence (Parent / Adhésion libre)
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Date Naissance & Millésime 2027 */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                Date de Naissance
+            {/* Date de Naissance sur une seule ligne */}
+            <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span>Naissance</span>
               </span>
-              <div className="text-right">
-                <span className="font-semibold text-white">{adherent.dateNaissance}</span>
+              <div className="flex items-center gap-1.5 text-right truncate">
+                <span className="font-semibold text-white text-xs">{adherent.dateNaissance || 'Non renseignée'}</span>
                 {birthYear && (
-                  <span className="block text-[10px] text-orange-400">
-                    Né en {birthYear} ({ageSportif2027} ans - Millésime 2027)
+                  <span className="text-[11px] text-orange-400 font-semibold shrink-0">
+                    ({ageSportif2027} ans)
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Groupe */}
-            <div className="flex items-center justify-between py-1.5 border-b border-zinc-800/80">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <BookOpen className="w-3.5 h-3.5 text-zinc-500" />
-                Groupe d'enseignement
+            {/* Groupe d'enseignement sur une seule ligne (si renseigné) */}
+            {adherent.groupeEnseignement && (
+              <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                  <BookOpen className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                  <span>Groupe</span>
+                </span>
+                <span className="font-semibold text-white truncate text-xs">{adherent.groupeEnseignement}</span>
+              </div>
+            )}
+
+            {/* Compte Ten'Up sur une seule ligne */}
+            <div className="flex items-center justify-between gap-2 py-1.5">
+              <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                <Award className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span>Compte Ten'Up</span>
               </span>
-              <span className="font-semibold text-white">{adherent.groupeEnseignement || 'Loisir'}</span>
+              <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                <span className="truncate">{adherent.compteTenUp || 'Actif'}</span>
+              </span>
             </div>
 
-            {/* Compte Ten'Up */}
-            <div className="flex items-center justify-between py-1.5">
-              <span className="text-zinc-400 flex items-center gap-2">
-                <Award className="w-3.5 h-3.5 text-zinc-500" />
-                Statut Compte Ten'Up
-              </span>
-              <span className="font-bold text-emerald-400 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                {adherent.compteTenUp || 'Actif'}
-              </span>
-            </div>
-
-          </div>
-
-          {/* Boutons d'action rapide dans la modale */}
-          <div className="space-y-3">
-            <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Actions directes</p>
-            <div className="grid grid-cols-3 gap-2.5">
-              <a
-                href={`tel:${adherent.telephonePortable}`}
-                className="flex flex-col items-center justify-center p-3 rounded-2xl bg-[#1d222b] hover:bg-emerald-600/20 border border-[#2b3342] hover:border-emerald-500/40 text-zinc-200 hover:text-emerald-400 transition group"
-              >
-                <Phone className="w-5 h-5 mb-1 group-hover:scale-110 transition" />
-                <span className="text-xs font-bold">Appeler</span>
-              </a>
-
-              <a
-                href={`sms:${adherent.telephonePortable}`}
-                className="flex flex-col items-center justify-center p-3 rounded-2xl bg-[#1d222b] hover:bg-sky-600/20 border border-[#2b3342] hover:border-sky-500/40 text-zinc-200 hover:text-sky-400 transition group"
-              >
-                <MessageSquare className="w-5 h-5 mb-1 group-hover:scale-110 transition" />
-                <span className="text-xs font-bold">SMS</span>
-              </a>
-
-              <a
-                href={`mailto:${adherent.email}?subject=Message%20Muzillac%20Tennis%20Club`}
-                className="flex flex-col items-center justify-center p-3 rounded-2xl bg-[#1d222b] hover:bg-orange-600/20 border border-[#2b3342] hover:border-orange-500/40 text-zinc-200 hover:text-orange-400 transition group"
-              >
-                <Mail className="w-5 h-5 mb-1 group-hover:scale-110 transition" />
-                <span className="text-xs font-bold">Email</span>
-              </a>
-            </div>
-
-            {/* Bouton Ten'Up Principal */}
-            <a
-              href="https://tenup.fft.fr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-[#BF360C] via-[#E65100] to-[#FF6D00] hover:brightness-110 active:scale-[0.99] text-white text-center font-heading font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-orange-950/60 transition"
-            >
-              <span>Consulter sur l'application Ten'Up FFT</span>
-              <ExternalLink className="w-4 h-4" />
-            </a>
           </div>
 
         </div>
@@ -388,3 +427,4 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
     </div>
   );
 };
+
