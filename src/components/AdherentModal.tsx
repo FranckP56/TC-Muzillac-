@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Adherent } from '../types/tennis';
 import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
@@ -34,6 +35,11 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
   onSelectAdherent,
 }) => {
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
+  const [direction, setDirection] = React.useState<number>(1);
+
+  // Valeurs animées pour le drag interactif en temps réel (déplacement & rotation angulaire)
+  const x = useMotionValue(0);
+  const rotate = useTransform(x, [-250, 250], [-10, 10]);
 
   // Indexation pour la navigation / slider entre licenciés selon les filtres actifs
   const currentIndex = adherentsList && adherent
@@ -44,15 +50,27 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
 
   const handlePrev = React.useCallback(() => {
     if (!hasMultiple || !adherentsList || !onSelectAdherent) return;
+    setDirection(-1);
     const prevIdx = (currentIndex - 1 + totalInList) % totalInList;
     onSelectAdherent(adherentsList[prevIdx]);
   }, [hasMultiple, adherentsList, currentIndex, totalInList, onSelectAdherent]);
 
   const handleNext = React.useCallback(() => {
     if (!hasMultiple || !adherentsList || !onSelectAdherent) return;
+    setDirection(1);
     const nextIdx = (currentIndex + 1) % totalInList;
     onSelectAdherent(adherentsList[nextIdx]);
   }, [hasMultiple, adherentsList, currentIndex, totalInList, onSelectAdherent]);
+
+  // Gestion du glissement tactile ou à la souris (Deck swipe avec inertie)
+  const handleDragEnd = (_event: any, info: { offset: { x: number }; velocity: { x: number } }) => {
+    const swipeThreshold = 55;
+    if (info.offset.x < -swipeThreshold || info.velocity.x < -250) {
+      handleNext();
+    } else if (info.offset.x > swipeThreshold || info.velocity.x > 250) {
+      handlePrev();
+    }
+  };
 
   // Raccourcis clavier (Flèches gauche / droite et touche Echap)
   React.useEffect(() => {
@@ -69,32 +87,6 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePrev, handleNext, onClose, adherent]);
-
-  // Support du geste tactile Swipe (glissement de doigt sur smartphone)
-  const touchStartX = React.useRef<number | null>(null);
-  const touchStartY = React.useRef<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-
-    // Seuil de 40px avec confirmation de glissement principalement horizontal
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
-      if (deltaX < 0) {
-        handleNext(); // Swipe gauche -> licencié suivant
-      } else {
-        handlePrev(); // Swipe droite -> licencié précédent
-      }
-    }
-    touchStartX.current = null;
-    touchStartY.current = null;
-  };
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -175,16 +167,60 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
         </div>
       )}
 
-      {/* ==================== BULLE PRINCIPALE DE LA FICHE ==================== */}
-      <div 
-        className={`relative w-full max-w-lg max-h-[88dvh] sm:max-h-[85vh] flex flex-col rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} shadow-2xl shadow-black my-auto overflow-hidden animate-in zoom-in-95 duration-150`}
-        onClick={(e) => e.stopPropagation()}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* ==================== 1. CARTOUCHE D'EN-TÊTE ÉPURÉ ==================== */}
-        <div className={`shrink-0 relative ${theme.headerBg} p-4 sm:p-5 border-b ${theme.headerBorder}`}>
-          <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
+      {/* ==================== BULLE PRINCIPALE DE LA FICHE (ANIMATION DECK & DRAG TACTILE) ==================== */}
+      <div className="relative w-full max-w-lg flex items-center justify-center my-auto">
+        {/* Silhouette de carte arrière pour l'effet "paquet de cartes" physique */}
+        {hasMultiple && (
+          <div 
+            aria-hidden="true"
+            className={`absolute inset-0 rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} opacity-30 scale-[0.96] translate-y-2 pointer-events-none shadow-xl`}
+          />
+        )}
+
+        <AnimatePresence mode="popLayout" custom={direction}>
+          <motion.div
+            key={adherent.id}
+            custom={direction}
+            variants={{
+              enter: (dir: number) => ({
+                x: dir > 0 ? 130 : -130,
+                rotate: dir > 0 ? 5 : -5,
+                opacity: 0,
+                scale: 0.94,
+              }),
+              center: {
+                x: 0,
+                rotate: 0,
+                opacity: 1,
+                scale: 1,
+              },
+              exit: (dir: number) => ({
+                x: dir > 0 ? -170 : 170,
+                rotate: dir > 0 ? -7 : 7,
+                opacity: 0,
+                scale: 0.94,
+              }),
+            }}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              type: "spring",
+              stiffness: 340,
+              damping: 28,
+              mass: 0.8
+            }}
+            drag={hasMultiple ? "x" : false}
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.65}
+            onDragEnd={handleDragEnd}
+            style={{ x, rotate, touchAction: 'pan-y' }}
+            className={`relative w-full max-h-[88dvh] sm:max-h-[85vh] flex flex-col rounded-3xl border-2 ${theme.containerBorder} ${theme.containerBg} shadow-2xl shadow-black overflow-hidden ${hasMultiple ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ==================== 1. CARTOUCHE D'EN-TÊTE ÉPURÉ ==================== */}
+            <div className={`shrink-0 relative ${theme.headerBg} p-4 sm:p-5 border-b ${theme.headerBorder}`}>
+              <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
 
           {/* Ligne principale : Macaron Classement + Nom Prénom EN ENTIER + Croix de retour abaissée */}
           <div className="flex items-center justify-between gap-3 sm:gap-4 relative z-10">
@@ -423,6 +459,8 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
 
         </div>
 
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
