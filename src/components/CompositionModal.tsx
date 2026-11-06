@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
   X, 
   ShieldAlert, 
@@ -22,8 +22,11 @@ import {
   Sparkles,
   SlidersHorizontal,
   Building,
-  Sun
+  Sun,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot } from '../types/tennis';
 import { checkFFT2027Eligibility, getRequiredSex } from '../utils/fftEligibility';
 import { getRankingMeta, getRankingWeight } from '../utils/ranking';
@@ -48,7 +51,9 @@ import { getAccessToken } from '../services/auth';
 import { isLicencieMuzillac } from '../utils/licencies';
 
 interface CompositionModalProps {
-  rencontre: Rencontre | null;
+  rencontre: Rencontre;
+  rencontresList?: Rencontre[];
+  onSelectRencontre?: (rencontre: Rencontre) => void;
   adherents: Adherent[];
   allRencontres?: Rencontre[];
   isOpen: boolean;
@@ -73,6 +78,8 @@ type SlotKey =
 
 export const CompositionModal: React.FC<CompositionModalProps> = ({
   rencontre,
+  rencontresList,
+  onSelectRencontre,
   adherents,
   allRencontres,
   isOpen,
@@ -83,11 +90,72 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   onOpenGoogleSyncModal,
   saison = '2027',
 }) => {
-  if (!isOpen || !rencontre) return null;
+  // Navigation / Slider entre rencontres selon les critères actifs
+  const [direction, setDirection] = useState<number>(1);
+  const currentIndex = rencontresList && rencontre
+    ? rencontresList.findIndex(r => r.id === rencontre.id)
+    : -1;
+  const totalInList = rencontresList ? rencontresList.length : 0;
+  const hasMultiple = totalInList > 1 && currentIndex !== -1;
+
+  const handlePrev = useCallback(() => {
+    if (!hasMultiple || !rencontresList || !onSelectRencontre) return;
+    setDirection(-1);
+    const prevIdx = (currentIndex - 1 + totalInList) % totalInList;
+    onSelectRencontre(rencontresList[prevIdx]);
+  }, [hasMultiple, rencontresList, currentIndex, totalInList, onSelectRencontre]);
+
+  const handleNext = useCallback(() => {
+    if (!hasMultiple || !rencontresList || !onSelectRencontre) return;
+    setDirection(1);
+    const nextIdx = (currentIndex + 1) % totalInList;
+    onSelectRencontre(rencontresList[nextIdx]);
+  }, [hasMultiple, rencontresList, currentIndex, totalInList, onSelectRencontre]);
+
+  // Support tactile Swipe robuste
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      if (deltaX < 0) {
+        handleNext();
+      } else {
+        handlePrev();
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
+  // Raccourcis clavier (Flèches et Echap)
+  useEffect(() => {
+    if (!rencontre || !isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        handlePrev();
+      } else if (e.key === 'ArrowRight') {
+        handleNext();
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handlePrev, handleNext, onClose, rencontre, isOpen]);
 
   // État local de la composition
   const [composition, setComposition] = useState<MatchComposition>(() => {
-    return rencontre.composition || {
+    return rencontre?.composition || {
       simple1Id: undefined,
       simple2Id: undefined,
       simple3Id: undefined,
@@ -101,12 +169,12 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     };
   });
 
-  const isHome = (rencontre.clubAccueilNom || '').toLowerCase().includes('muzillac');
-  const adverseAddressInfo = useMemo(() => getAdverseClubFullAddress(rencontre), [rencontre]);
+  const isHome = (rencontre?.clubAccueilNom || '').toLowerCase().includes('muzillac');
+  const adverseAddressInfo = useMemo(() => rencontre ? getAdverseClubFullAddress(rencontre) : { hasAdverseAddress: false, venueLabel: '' }, [rencontre]);
 
   // Logistique TCM (Validation Date, Heure, Courts, Lieu)
   const [matchDateInput, setMatchDateInput] = useState<string>(() => {
-    return composition.dateRencontreValidee || rencontre.dateRencontre || '15/03/2026';
+    return composition.dateRencontreValidee || rencontre?.dateRencontre || '15/03/2026';
   });
   const [matchHourInput, setMatchHourInput] = useState<string>(() => {
     return composition.heureDebut || '14:00';
@@ -116,11 +184,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   });
   const [matchVenueInput, setMatchVenueInput] = useState<string>(() => {
     if (composition.lieuRencontre) return composition.lieuRencontre;
-    // Si à l'extérieur : le lieu est automatiquement le club adverse avec adresse colonnes AM à AO
     if (!isHome && adverseAddressInfo.hasAdverseAddress) {
       return adverseAddressInfo.venueLabel;
     }
-    if (!isHome) {
+    if (!isHome && rencontre) {
       return `${rencontre.clubAccueilNom} (Installations adverses)`;
     }
     return 'Clos des Moines - 2 courts couverts résine (TCM)';
@@ -129,6 +196,42 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const [formatReduit, setFormatReduit] = useState<boolean>(() => {
     return !!composition.formatReduit;
   });
+
+  // Réinitialisation de l'état local quand on change de rencontre (slide)
+  useEffect(() => {
+    if (!rencontre) return;
+    setComposition(rencontre.composition || {
+      simple1Id: undefined,
+      simple2Id: undefined,
+      simple3Id: undefined,
+      simple4Id: undefined,
+      simple5Id: undefined,
+      double1Player1Id: undefined,
+      double1Player2Id: undefined,
+      double2Player1Id: undefined,
+      double2Player2Id: undefined,
+      valideParCapitaine: false,
+    });
+    setMatchDateInput(rencontre.composition?.dateRencontreValidee || rencontre.dateRencontre || '15/03/2026');
+    setMatchHourInput(rencontre.composition?.heureDebut || '14:00');
+    setMatchCourtsInput(rencontre.composition?.nombreCourts || 2);
+    
+    const isH = (rencontre.clubAccueilNom || '').toLowerCase().includes('muzillac');
+    const adv = getAdverseClubFullAddress(rencontre);
+    if (rencontre.composition?.lieuRencontre) {
+      setMatchVenueInput(rencontre.composition.lieuRencontre);
+    } else if (!isH && adv.hasAdverseAddress) {
+      setMatchVenueInput(adv.venueLabel);
+    } else if (!isH) {
+      setMatchVenueInput(`${rencontre.clubAccueilNom} (Installations adverses)`);
+    } else {
+      setMatchVenueInput('Clos des Moines - 2 courts couverts résine (TCM)');
+    }
+    setFormatReduit(!!rencontre.composition?.formatReduit);
+    setActiveSlot(null);
+    setBlockedAlertMessage(null);
+    setValidationSuccess(false);
+  }, [rencontre?.id]);
 
   // Slot en cours de sélection
   const [activeSlot, setActiveSlot] = useState<{
@@ -625,59 +728,156 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
     );
   };
 
+  if (!isOpen || !rencontre) return null;
+
+  const s = (rencontre.sexeHomologation || '').toUpperCase();
+  const isFemme = s.includes('F') || s.includes('DAME');
+  const isMixte = s.includes('MIX');
+
+  // Thème contrasté selon le sexe pour ressortir nettement sur fond noir (identique aux fiches licenciés)
+  const theme = isFemme ? {
+    containerBorder: 'border-[#752a6a]',
+    containerBg: 'bg-[#190d1a]',
+    headerBg: 'bg-gradient-to-b from-[#2d122f] via-[#200c22] to-[#170818]',
+    headerBorder: 'border-[#752a6a]',
+    glowBg: 'bg-pink-500/25',
+    closeBtn: 'bg-[#3b153d] hover:bg-[#521c55] text-pink-200 hover:text-white border border-[#752a6a]',
+    nameText: 'text-pink-50',
+    badgeBg: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+  } : isMixte ? {
+    containerBorder: 'border-[#62287a]',
+    containerBg: 'bg-[#160c21]',
+    headerBg: 'bg-gradient-to-b from-[#29103b] via-[#1c0a2a] to-[#13071c]',
+    headerBorder: 'border-[#62287a]',
+    glowBg: 'bg-purple-500/25',
+    closeBtn: 'bg-[#35164d] hover:bg-[#4b1d6e] text-purple-200 hover:text-white border border-[#62287a]',
+    nameText: 'text-purple-50',
+    badgeBg: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+  } : {
+    containerBorder: 'border-[#2d5284]',
+    containerBg: 'bg-[#0c1421]',
+    headerBg: 'bg-gradient-to-b from-[#142642] via-[#0f1c30] to-[#0a121e]',
+    headerBorder: 'border-[#2d5284]',
+    glowBg: 'bg-blue-500/25',
+    closeBtn: 'bg-[#1b3152] hover:bg-[#25436f] text-blue-200 hover:text-white border border-[#2d5284]',
+    nameText: 'text-blue-50',
+    badgeBg: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+  };
+
+  // Variantes d'animation : Slide horizontal directionnel pur sans déformation ni écrasement
+  const slideVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? 110 : -110,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+    },
+    exit: (dir: number) => ({
+      x: dir > 0 ? -110 : 110,
+      opacity: 0,
+    }),
+  };
+
   return (
     <div 
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-5 overflow-y-auto"
       onClick={onClose}
     >
-      <div 
-        className="relative w-full max-w-4xl bg-[#141820] border border-[#2b3342] rounded-3xl overflow-hidden shadow-2xl my-4 max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        
-        {/* ==================== EN-TÊTE MODALE ==================== */}
-        <div className="p-5 sm:p-6 border-b border-[#252b37] bg-gradient-to-r from-[#1b202a] to-[#12151b] flex items-start justify-between gap-4">
-          <div className="flex items-start space-x-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#BF360C] to-[#E65100] flex items-center justify-center text-white shadow-lg shadow-orange-950/60 shrink-0">
-              <Trophy className="w-6 h-6" />
-            </div>
+      {/* ==================== BOUTON FLÉCHÉS & COMPTEUR HORS DE LA BULLE (AU-DESSUS) ==================== */}
+      {hasMultiple && (
+        <div 
+          className="shrink-0 mb-2.5 z-20 flex items-center justify-center animate-in fade-in slide-in-from-top-2 duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={`flex items-center gap-2 ${theme.containerBg} ${theme.containerBorder} border-2 rounded-full py-1.5 px-3.5 shadow-2xl shadow-black`}>
+            <button
+              type="button"
+              onClick={handlePrev}
+              aria-label="Rencontre précédente"
+              title="Précédent (Flèche gauche ou glissement)"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-mono font-black text-zinc-200 px-2 select-none tracking-wider">
+              {currentIndex + 1} / {totalInList}
+            </span>
+            <button
+              type="button"
+              onClick={handleNext}
+              aria-label="Rencontre suivante"
+              title="Suivant (Flèche droite ou glissement)"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
-                  {rencontre.numeroEquipe}
-                </span>
-                <span className={`text-xs font-black px-2.5 py-0.5 rounded-full border ${
-                  reqSex === 'F' 
-                    ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' 
-                    : reqSex === 'Mixte' 
-                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' 
-                      : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                }`}>
-                  {rencontre.categorieAgeHomologation} • {reqSex === 'F' ? 'Dames (F)' : reqSex === 'H' ? 'Messieurs (H)' : 'Mixte'}
-                </span>
-                <span className="text-xs text-orange-400 font-bold flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  {scheduleCheck.dayName} {matchDateInput}
-                </span>
+      {/* Bulle principale animée */}
+      <div 
+        className="w-full max-w-4xl overflow-hidden my-auto"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <AnimatePresence mode="wait" custom={direction}>
+          <motion.div 
+            key={rencontre.id}
+            custom={direction}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              x: { type: 'spring', stiffness: 320, damping: 32, mass: 0.7 },
+              opacity: { duration: 0.16 },
+            }}
+            className={`relative w-full ${theme.containerBg} border-2 ${theme.containerBorder} rounded-3xl overflow-hidden shadow-2xl my-auto max-h-[88vh] sm:max-h-[90vh] flex flex-col`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            
+            {/* ==================== EN-TÊTE MODALE ==================== */}
+            <div className={`p-5 sm:p-6 border-b ${theme.headerBorder} ${theme.headerBg} flex items-start justify-between gap-4 relative`}>
+              <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
+
+              <div className="flex items-start space-x-3.5 relative z-10">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#BF360C] to-[#E65100] flex items-center justify-center text-white shadow-lg shadow-orange-950/60 shrink-0">
+                  <Trophy className="w-6 h-6" />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
+                      {rencontre.numeroEquipe}
+                    </span>
+                    <span className={`text-xs font-black px-2.5 py-0.5 rounded-full border ${theme.badgeBg}`}>
+                      {rencontre.categorieAgeHomologation}{isMixte ? ' • Mixte' : ''}
+                    </span>
+                    <span className="text-xs text-orange-400 font-bold flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {scheduleCheck.dayName} {matchDateInput}
+                    </span>
+                  </div>
+
+                  <h2 className={`text-lg sm:text-xl font-heading font-black ${theme.nameText} mt-1`}>
+                    Feuille de match & Composition d'équipe
+                  </h2>
+                  <p className="text-xs text-zinc-400">
+                    {rencontre.clubAccueilNom} <strong className="text-zinc-200">vs</strong> {rencontre.clubVisiteurNom} • {rencontre.libelleHomologation}
+                  </p>
+                </div>
               </div>
 
-              <h2 className="text-lg sm:text-xl font-heading font-black text-white mt-1">
-                Feuille de match & Composition d'équipe
-              </h2>
-              <p className="text-xs text-zinc-400">
-                {rencontre.clubAccueilNom} <strong className="text-zinc-200">vs</strong> {rencontre.clubVisiteurNom} • {rencontre.libelleHomologation}
-              </p>
+              <button
+                onClick={onClose}
+                className={`w-9 h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0 relative z-10`}
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="w-9 h-9 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center transition cursor-pointer shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
         {/* ==================== BANDEAU FORMAT OFFICIEL ==================== */}
         <div className="px-5 sm:px-6 py-2.5 bg-[#0d0f14] border-b border-[#232936] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
@@ -1398,7 +1598,9 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
         </div>
 
-      </div>
+      </motion.div>
+    </AnimatePresence>
+  </div>
 
       {/* Modale de Confirmation Explicite pour l'Enregistrement dans Données_appli */}
       {selectedSpreadsheetId && (

@@ -35,7 +35,7 @@ import { DataSyncBanner } from './DataSyncBanner';
 interface AdherentsTabProps {
   adherents: Adherent[];
   userRole?: UserRole;
-  onSelectAdherent: (adherent: Adherent) => void;
+  onSelectAdherent: (adherent: Adherent, filteredList?: Adherent[]) => void;
   onOpenNewMemberModal?: () => void;
   onOpenGsheetModal?: () => void;
   lastSyncTime?: string | null;
@@ -54,10 +54,64 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
   onRefreshFromFile,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>('all');
-  const [filterSerie, setFilterSerie] = useState<'all' | '2' | '3' | '4' | 'nc'>('all');
-  const [filterSolde, setFilterSolde] = useState<'all' | 'due' | 'uptodate' | 'credit' | 'nd'>('all');
-  const [sortBy, setSortBy] = useState<'ranking_desc' | 'name_asc' | 'solde_due_desc'>('ranking_desc');
+  
+  // Persistance des filtres en local (localStorage)
+  const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_adh_pref_sex');
+      return (saved === 'all' || saved === 'Messieurs' || saved === 'Dames') ? saved : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterSerie, setFilterSerie] = useState<'all' | '2' | '3' | '4' | 'nc'>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_adh_pref_serie');
+      return (saved === 'all' || saved === '2' || saved === '3' || saved === '4' || saved === 'nc') ? saved : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterSolde, setFilterSolde] = useState<'all' | 'due' | 'uptodate' | 'credit' | 'nd'>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_adh_pref_solde');
+      return (saved === 'all' || saved === 'due' || saved === 'uptodate' || saved === 'credit' || saved === 'nd') ? saved : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [sortBy, setSortBy] = useState<'ranking_desc' | 'name_asc' | 'solde_due_desc'>(() => {
+    try {
+      const saved = localStorage.getItem('tcm_adh_pref_sort');
+      return (saved === 'ranking_desc' || saved === 'name_asc' || saved === 'solde_due_desc') ? saved : 'ranking_desc';
+    } catch {
+      return 'ranking_desc';
+    }
+  });
+
+  // Synchronisation avec localStorage
+  const handleSetFilterSex = (val: 'all' | 'Messieurs' | 'Dames') => {
+    setFilterSex(val);
+    try { localStorage.setItem('tcm_adh_pref_sex', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterSerie = (val: 'all' | '2' | '3' | '4' | 'nc') => {
+    setFilterSerie(val);
+    try { localStorage.setItem('tcm_adh_pref_serie', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterSolde = (val: 'all' | 'due' | 'uptodate' | 'credit' | 'nd') => {
+    setFilterSolde(val);
+    try { localStorage.setItem('tcm_adh_pref_solde', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetSortBy = (val: 'ranking_desc' | 'name_asc' | 'solde_due_desc') => {
+    setSortBy(val);
+    try { localStorage.setItem('tcm_adh_pref_sort', val); } catch (e) { console.warn(e); }
+  };
 
   // Statistiques complètes du club (Sexe, Pyramide FFT, Trésorerie)
   const stats = useMemo(() => {
@@ -317,7 +371,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             <span className="text-xs text-zinc-400 hidden sm:inline">Tri :</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => handleSetSortBy(e.target.value as any)}
               className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
             >
               <option value="ranking_desc" className="bg-[#141820] text-white">Classement FFT (Décroissant)</option>
@@ -334,7 +388,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             {/* Sexe */}
             <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
               <button
-                onClick={() => setFilterSex('all')}
+                onClick={() => handleSetFilterSex('all')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSex === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -342,7 +396,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 Tous
               </button>
               <button
-                onClick={() => setFilterSex('Messieurs')}
+                onClick={() => handleSetFilterSex('Messieurs')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSex === 'Messieurs' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -350,7 +404,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 Messieurs ({stats.hommes})
               </button>
               <button
-                onClick={() => setFilterSex('Dames')}
+                onClick={() => handleSetFilterSex('Dames')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSex === 'Dames' ? 'bg-pink-600 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -362,7 +416,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             {/* Séries */}
             <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547]">
               <button
-                onClick={() => setFilterSerie('all')}
+                onClick={() => handleSetFilterSerie('all')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSerie === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -370,7 +424,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 Toutes séries
               </button>
               <button
-                onClick={() => setFilterSerie('2')}
+                onClick={() => handleSetFilterSerie('2')}
                 className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSerie === '2' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -379,7 +433,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 2e
               </button>
               <button
-                onClick={() => setFilterSerie('3')}
+                onClick={() => handleSetFilterSerie('3')}
                 className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSerie === '3' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -388,7 +442,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 3e
               </button>
               <button
-                onClick={() => setFilterSerie('4')}
+                onClick={() => handleSetFilterSerie('4')}
                 className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSerie === '4' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -397,7 +451,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 4e
               </button>
               <button
-                onClick={() => setFilterSerie('nc')}
+                onClick={() => handleSetFilterSerie('nc')}
                 className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSerie === 'nc' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
@@ -411,7 +465,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
           {/* Filtre Cotisation */}
           <div className="flex items-center bg-[#1b202c] rounded-xl p-0.5 border border-[#2c3547] flex-wrap">
             <button
-              onClick={() => setFilterSolde('all')}
+              onClick={() => handleSetFilterSolde('all')}
               className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                 filterSolde === 'all' ? 'bg-[#E65100] text-white' : 'text-zinc-400 hover:text-white'
               }`}
@@ -419,7 +473,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
               Tous
             </button>
             <button
-              onClick={() => setFilterSolde('due')}
+              onClick={() => handleSetFilterSolde('due')}
               className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                 filterSolde === 'due' ? 'bg-rose-600 text-white' : 'text-rose-400 hover:text-rose-300'
               }`}
@@ -427,7 +481,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
               Dûs ({stats.dueCount})
             </button>
             <button
-              onClick={() => setFilterSolde('uptodate')}
+              onClick={() => handleSetFilterSolde('uptodate')}
               className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                 filterSolde === 'uptodate' ? 'bg-emerald-600 text-white' : 'text-emerald-400 hover:text-emerald-300'
               }`}
@@ -435,7 +489,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
               À jour ({stats.upToDateCount})
             </button>
             <button
-              onClick={() => setFilterSolde('credit')}
+              onClick={() => handleSetFilterSolde('credit')}
               className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                 filterSolde === 'credit' ? 'bg-amber-600 text-white' : 'text-amber-400 hover:text-amber-300'
               }`}
@@ -444,7 +498,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             </button>
             {stats.ndCount > 0 && (
               <button
-                onClick={() => setFilterSolde('nd')}
+                onClick={() => handleSetFilterSolde('nd')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   filterSolde === 'nd' ? 'bg-rose-800 text-white' : 'text-rose-400 hover:text-rose-300'
                 }`}
@@ -458,7 +512,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
         </div>
       </div>
 
-      {/* ==================== GRILLE DES ADHÉRENTS PAR 3 (COPIÉ DE L'ONGLET LICENCIÉS) ==================== */}
+      {/* ==================== GRILLE DES ADHÉRENTS PAR 3 ==================== */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {filteredAdherents.length > 0 ? (
           filteredAdherents.map((adh) => {
@@ -467,28 +521,23 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             const isOwed = adh.soldeDu < 0;
             const isCredit = adh.soldeDu > 0;
 
+            const cardGenderStyle = isFemme
+              ? 'bg-[#251328] hover:bg-[#341838] border-2 border-[#63275b] hover:border-pink-400/90 shadow-md shadow-pink-950/30'
+              : 'bg-[#0e1c30] hover:bg-[#152844] border-2 border-[#244b7a] hover:border-blue-400/90 shadow-md shadow-blue-950/30';
+
             return (
               <div
                 key={adh.id}
-                onClick={() => onSelectAdherent(adh)}
-                className="bg-[#161a22] hover:bg-[#1a202a] border border-[#272e3b] hover:border-[#E65100]/50 rounded-2xl p-4 transition-all shadow-md flex flex-col justify-between space-y-3 cursor-pointer group"
+                onClick={() => onSelectAdherent(adh, filteredAdherents)}
+                className={`${cardGenderStyle} rounded-2xl p-4 transition-all flex flex-col justify-between space-y-3 cursor-pointer group`}
               >
                 <div>
-                  {/* Ligne 1 : Nom, Prénom, Civilité et Classement */}
+                  {/* Ligne 1 : Nom, Prénom et Classement (indication de sexe retirée car donnée par la couleur) */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="flex items-center space-x-2 flex-wrap">
-                        <span className="font-heading font-black text-white text-sm group-hover:text-orange-400 transition truncate">
-                          {adh.nomPrenom}
-                        </span>
-                        <span className={`px-2 py-0.2 rounded text-[10px] font-black border ${
-                          isFemme 
-                            ? 'bg-pink-500/20 text-pink-300 border-pink-500/30' 
-                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                        }`}>
-                          {isFemme ? 'F' : 'H'}
-                        </span>
-                      </div>
+                      <span className="font-heading font-black text-white text-sm group-hover:text-orange-400 transition truncate block">
+                        {adh.nomPrenom}
+                      </span>
 
                       <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>{adh.ageSportif ? `${adh.ageSportif} ans` : 'Senior'}</span>
@@ -515,32 +564,15 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Ligne 2 : Badges Club (TCM / Autre club / Sans licence), Licence & Solde */}
+                  {/* Ligne 2 : Numéro de licence (agrandi), Solde & Badges */}
                   <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
-                    {/* Badge Club d'appartenance / Affiliation FFT */}
-                    {(() => {
-                      const affil = getClubAffiliationBadge(adh);
-                      return (
-                        <span 
-                          className={`px-2 py-0.5 rounded font-bold border ${affil.badgeClass}`}
-                          title={`Affiliation : ${affil.label}`}
-                        >
-                          {affil.shortLabel}
-                        </span>
-                      );
-                    })()}
-
-                    {adh.licence && (
-                      <span className="px-2 py-0.5 rounded font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        <span>Licence {adh.millesimeLicence || '2027'}</span>
+                    {adh.licence ? (
+                      <span className="font-mono font-bold text-white text-xs flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-lg border border-white/10">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{adh.licence}</span>
                       </span>
-                    )}
-
-                    {adh.groupeEnseignement && (
-                      <span className="px-2 py-0.5 rounded font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 truncate max-w-[150px]" title={adh.groupeEnseignement}>
-                        {adh.groupeEnseignement}
-                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-500 italic">Sans licence</span>
                     )}
 
                     {isOwed ? (
@@ -556,17 +588,23 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                         À jour (0 €)
                       </span>
                     )}
+
+                    {adh.groupeEnseignement && (
+                      <span className="px-2 py-0.5 rounded font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 truncate max-w-[140px]" title={adh.groupeEnseignement}>
+                        {adh.groupeEnseignement}
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 {/* Ligne 3 : Actions rapides & Coordonnées directes */}
-                <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
+                <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
                   <div className="flex items-center space-x-1">
                     {adh.telephonePortable && (
                       <a
                         href={`tel:${adh.telephonePortable}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-emerald-500/20 hover:text-emerald-400 border border-zinc-800 transition"
+                        className="p-1.5 rounded-lg bg-black/40 hover:bg-emerald-500/20 hover:text-emerald-400 border border-white/10 transition"
                         title={`Appeler ${adh.nomPrenom}`}
                       >
                         <Phone className="w-3.5 h-3.5" />
@@ -576,7 +614,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                       <a
                         href={`sms:${adh.telephonePortable}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-sky-500/20 hover:text-sky-400 border border-zinc-800 transition"
+                        className="p-1.5 rounded-lg bg-black/40 hover:bg-sky-500/20 hover:text-sky-400 border border-white/10 transition"
                         title={`SMS à ${adh.nomPrenom}`}
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
@@ -586,7 +624,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                       <a
                         href={`mailto:${adh.email}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-[#11141a] hover:bg-orange-500/20 hover:text-orange-400 border border-zinc-800 transition"
+                        className="p-1.5 rounded-lg bg-black/40 hover:bg-orange-500/20 hover:text-orange-400 border border-white/10 transition"
                         title={`Email à ${adh.nomPrenom}`}
                       >
                         <Mail className="w-3.5 h-3.5" />
@@ -594,8 +632,8 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                     )}
                   </div>
 
-                  <span className="text-[10px] text-zinc-500 flex items-center gap-1 group-hover:text-orange-300 transition">
-                    <span>Fiche adhérent</span>
+                  <span className="text-[10px] text-zinc-400 flex items-center gap-1 group-hover:text-orange-300 transition font-semibold">
+                    <span>Fiche</span>
                     <span>→</span>
                   </span>
                 </div>
@@ -613,9 +651,9 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             <button
               onClick={() => {
                 setSearchQuery('');
-                setFilterSex('all');
-                setFilterSerie('all');
-                setFilterSolde('all');
+                handleSetFilterSex('all');
+                handleSetFilterSerie('all');
+                handleSetFilterSolde('all');
               }}
               className="mt-4 px-4 py-2 rounded-xl bg-[#1e232d] hover:bg-[#272d3a] border border-[#2b3342] text-xs font-bold text-orange-400 hover:text-white transition cursor-pointer"
             >

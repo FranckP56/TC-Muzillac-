@@ -37,7 +37,7 @@ import { normalizeDateString, parseDateToJs } from '../utils/dateUtils';
 interface RencontresTabProps {
   rencontres: Rencontre[];
   adherents: Adherent[];
-  onOpenCompositionModal: (rencontre: Rencontre) => void;
+  onOpenCompositionModal: (rencontre: Rencontre, filteredList?: Rencontre[]) => void;
   onOpenSondageModal?: (rencontre: Rencontre) => void;
   onUpdateMatchHour?: (rencontreId: string, hour: string) => void;
   userRole?: UserRole;
@@ -58,11 +58,75 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
   saison = '2027',
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterTeam, setFilterTeam] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'upcoming' | 'finished'>('all');
-  const [filterSexe, setFilterSexe] = useState<'all' | 'H' | 'F'>('all');
-  const [filterChampionnat, setFilterChampionnat] = useState<string>('all');
-  const [filterCategorieAge, setFilterCategorieAge] = useState<string>('all');
+
+  // Persistance des critères de filtre en local (localStorage)
+  const [filterTeam, setFilterTeam] = useState<string>(() => {
+    try {
+      return localStorage.getItem('tcm_rencontres_pref_team') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterStatus, setFilterStatus] = useState<'all' | 'upcoming' | 'finished'>(() => {
+    try {
+      const s = localStorage.getItem('tcm_rencontres_pref_status');
+      return (s === 'all' || s === 'upcoming' || s === 'finished') ? s : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterSexe, setFilterSexe] = useState<'all' | 'H' | 'F'>(() => {
+    try {
+      const s = localStorage.getItem('tcm_rencontres_pref_sexe');
+      return (s === 'all' || s === 'H' || s === 'F') ? s : 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterChampionnat, setFilterChampionnat] = useState<string>(() => {
+    try {
+      return localStorage.getItem('tcm_rencontres_pref_champ') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [filterCategorieAge, setFilterCategorieAge] = useState<string>(() => {
+    try {
+      return localStorage.getItem('tcm_rencontres_pref_cat') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const handleSetFilterTeam = (val: string) => {
+    setFilterTeam(val);
+    try { localStorage.setItem('tcm_rencontres_pref_team', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterStatus = (val: 'all' | 'upcoming' | 'finished') => {
+    setFilterStatus(val);
+    try { localStorage.setItem('tcm_rencontres_pref_status', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterSexe = (val: 'all' | 'H' | 'F') => {
+    setFilterSexe(val);
+    try { localStorage.setItem('tcm_rencontres_pref_sexe', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterChampionnat = (val: string) => {
+    setFilterChampionnat(val);
+    try { localStorage.setItem('tcm_rencontres_pref_champ', val); } catch (e) { console.warn(e); }
+  };
+
+  const handleSetFilterCategorieAge = (val: string) => {
+    setFilterCategorieAge(val);
+    try { localStorage.setItem('tcm_rencontres_pref_cat', val); } catch (e) { console.warn(e); }
+  };
+
   const [showRulesGuide, setShowRulesGuide] = useState<boolean>(false);
   const [expandedTeamDetails, setExpandedTeamDetails] = useState<Record<string, boolean>>({});
 
@@ -483,7 +547,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
           {/* Filtre statut : Toutes, À venir, Jouées */}
           <div className="flex items-center p-1 bg-[#0d1016] rounded-xl border border-zinc-800 shrink-0 self-start md:self-auto">
             <button
-              onClick={() => setFilterStatus('all')}
+              onClick={() => handleSetFilterStatus('all')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 filterStatus === 'all'
                   ? 'bg-[#E65100] text-white shadow-md'
@@ -493,7 +557,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
               Toutes ({rencontres.length})
             </button>
             <button
-              onClick={() => setFilterStatus('upcoming')}
+              onClick={() => handleSetFilterStatus('upcoming')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 filterStatus === 'upcoming'
                   ? 'bg-[#E65100] text-white shadow-md'
@@ -503,7 +567,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
               À venir
             </button>
             <button
-              onClick={() => setFilterStatus('finished')}
+              onClick={() => handleSetFilterStatus('finished')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 filterStatus === 'finished'
                   ? 'bg-[#E65100] text-white shadow-md'
@@ -523,7 +587,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Championnat</label>
             <select
               value={filterChampionnat}
-              onChange={(e) => setFilterChampionnat(e.target.value)}
+              onChange={(e) => handleSetFilterChampionnat(e.target.value)}
               className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer truncate"
             >
               <option value="all">Tous championnats</option>
@@ -538,7 +602,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Sexe / Épreuve</label>
             <select
               value={filterSexe}
-              onChange={(e) => setFilterSexe(e.target.value as any)}
+              onChange={(e) => handleSetFilterSexe(e.target.value as any)}
               className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Tous (Hommes & Femmes)</option>
@@ -552,7 +616,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Catégorie d'âge</label>
             <select
               value={filterCategorieAge}
-              onChange={(e) => setFilterCategorieAge(e.target.value)}
+              onChange={(e) => handleSetFilterCategorieAge(e.target.value)}
               className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Toutes catégories</option>
@@ -567,7 +631,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <label className="text-[10px] text-zinc-400 block mb-1 font-semibold">Équipe Club</label>
             <select
               value={filterTeam}
-              onChange={(e) => setFilterTeam(e.target.value)}
+              onChange={(e) => handleSetFilterTeam(e.target.value)}
               className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Toutes les équipes</option>
@@ -586,11 +650,11 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <button
               onClick={() => {
                 setSearchQuery('');
-                setFilterChampionnat('all');
-                setFilterSexe('all');
-                setFilterCategorieAge('all');
-                setFilterTeam('all');
-                setFilterStatus('all');
+                handleSetFilterChampionnat('all');
+                handleSetFilterSexe('all');
+                handleSetFilterCategorieAge('all');
+                handleSetFilterTeam('all');
+                handleSetFilterStatus('all');
               }}
               className="text-zinc-400 hover:text-white underline cursor-pointer"
             >
@@ -685,28 +749,33 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
               }
             }
 
+            const s = (r.sexeHomologation || '').toUpperCase();
+            const isFemme = s.includes('F') || s.includes('DAME');
+            const isMixte = s.includes('MIX');
+            const cardGenderStyle = isFemme
+              ? 'bg-[#251328] hover:bg-[#341838] border-2 border-[#63275b] hover:border-pink-400/90 shadow-md shadow-pink-950/30'
+              : isMixte
+                ? 'bg-[#1e1329] hover:bg-[#281938] border-2 border-[#522b7a] hover:border-purple-400/90 shadow-md shadow-purple-950/30'
+                : 'bg-[#0e1c30] hover:bg-[#152844] border-2 border-[#244b7a] hover:border-blue-400/90 shadow-md shadow-blue-950/30';
+
             return (
               <div 
                 key={r.id}
-                className="bg-[#161a22] hover:bg-[#191f2a] border border-[#272e3b] hover:border-[#E65100]/50 rounded-3xl p-4 transition-all shadow-md flex flex-col justify-between space-y-3.5 group"
+                className={`${cardGenderStyle} rounded-3xl p-4 transition-all flex flex-col justify-between space-y-3.5 group`}
               >
                 <div className="space-y-3">
-                  {/* Ligne 1 : Équipe, Catégorie, Sexe & Domicile/Déplacement */}
+                  {/* Ligne 1 : Équipe, Catégorie d'âge (sexe indiqué par la couleur de la carte) & Domicile/Déplacement */}
                   <div className="flex items-start justify-between gap-1.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40 text-xs">
                         {r.numeroEquipe}
                       </span>
-                      <span className={`font-black text-[10px] px-2 py-0.5 rounded border ${
-                        r.sexeHomologation === 'Dames' 
-                          ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' 
-                          : r.sexeHomologation === 'Mixte' 
-                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' 
-                            : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                      }`}>
-                        {r.sexeHomologation === 'Dames' ? 'Dames' : r.sexeHomologation === 'Messieurs' ? 'Messieurs' : 'Mixte'}
-                      </span>
-                      <span className="font-bold text-white px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px]">
+                      {isMixte && (
+                        <span className="font-black text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/40">
+                          Mixte
+                        </span>
+                      )}
+                      <span className="font-bold text-white px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-[10px]">
                         {r.categorieAgeHomologation}
                       </span>
                       {r.journee && (
@@ -924,7 +993,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       )}
 
                       <button
-                        onClick={() => onOpenCompositionModal(r)}
+                        onClick={() => onOpenCompositionModal(r, filteredRencontres)}
                         className={`px-2 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-[11px] font-bold transition flex items-center justify-center gap-1 shadow-sm cursor-pointer hover:brightness-110 ${
                           !onOpenSondageModal ? 'col-span-2' : ''
                         }`}

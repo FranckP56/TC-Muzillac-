@@ -207,6 +207,7 @@ export default function App() {
   const [selectedAdherent, setSelectedAdherent] = useState<Adherent | null>(null);
   const [modalAdherentList, setModalAdherentList] = useState<Adherent[] | null>(null);
   const [selectedRencontreForComposition, setSelectedRencontreForComposition] = useState<Rencontre | null>(null);
+  const [modalRencontresList, setModalRencontresList] = useState<Rencontre[] | null>(null);
   const [selectedRencontreForSondage, setSelectedRencontreForSondage] = useState<Rencontre | null>(null);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
   const [isGsheetModalOpen, setIsGsheetModalOpen] = useState(false);
@@ -634,7 +635,10 @@ export default function App() {
           <RencontresTab
             rencontres={rencontres}
             adherents={adherents}
-            onOpenCompositionModal={(r) => setSelectedRencontreForComposition(r)}
+            onOpenCompositionModal={(r, list) => {
+              setSelectedRencontreForComposition(r);
+              setModalRencontresList(list || null);
+            }}
             onOpenSondageModal={(r) => setSelectedRencontreForSondage(r)}
             onUpdateMatchHour={handleUpdateMatchHour}
             userRole={userRole}
@@ -698,9 +702,9 @@ export default function App() {
           <AdherentsTab
             adherents={adherents}
             userRole={userRole}
-            onSelectAdherent={(adh) => {
+            onSelectAdherent={(adh, list) => {
               setSelectedAdherent(adh);
-              setModalAdherentList(adherents);
+              setModalAdherentList(list || adherents);
             }}
             onOpenNewMemberModal={() => setIsNewMemberModalOpen(true)}
             onOpenGsheetModal={() => {
@@ -731,19 +735,26 @@ export default function App() {
         />
       )}
 
-      {/* Module de composition d'équipe des capitaines */}
-      <CompositionModal
-        rencontre={selectedRencontreForComposition}
-        adherents={adherents}
-        allRencontres={rencontres}
-        isOpen={!!selectedRencontreForComposition}
-        onClose={() => setSelectedRencontreForComposition(null)}
-        onSaveComposition={handleSaveComposition}
-        selectedSpreadsheetId={selectedSpreadsheetId}
-        spreadsheetName={spreadsheetName}
-        onOpenGoogleSyncModal={() => setIsGoogleSyncModalOpen(true)}
-        saison={saison}
-      />
+      {/* Module de composition d'équipe des capitaines avec slide entre fiches rencontres */}
+      {selectedRencontreForComposition && (
+        <CompositionModal
+          rencontre={selectedRencontreForComposition}
+          rencontresList={modalRencontresList || rencontres}
+          onSelectRencontre={(r) => setSelectedRencontreForComposition(r)}
+          adherents={adherents}
+          allRencontres={rencontres}
+          isOpen={!!selectedRencontreForComposition}
+          onClose={() => {
+            setSelectedRencontreForComposition(null);
+            setModalRencontresList(null);
+          }}
+          onSaveComposition={handleSaveComposition}
+          selectedSpreadsheetId={selectedSpreadsheetId}
+          spreadsheetName={spreadsheetName}
+          onOpenGoogleSyncModal={() => setIsGoogleSyncModalOpen(true)}
+          saison={saison}
+        />
+      )}
 
       {/* Sondage des disponibilités des joueurs */}
       <SondageDisponibilitesModal
