@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   ShieldAlert, 
@@ -14,17 +15,18 @@ import {
   Unlock, 
   Copy, 
   Check, 
-  FileSpreadsheet,
-  Clock,
-  MapPin,
-  Layers,
-  ArrowUpDown,
-  Sparkles,
-  SlidersHorizontal,
-  Building,
-  Sun,
-  ChevronLeft,
-  ChevronRight
+  FileSpreadsheet, 
+  Clock, 
+  MapPin, 
+  Layers, 
+  ArrowUpDown, 
+  Sparkles, 
+  SlidersHorizontal, 
+  Building, 
+  Sun, 
+  ChevronLeft, 
+  ChevronRight,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot } from '../types/tennis';
@@ -126,7 +128,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
 
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+    // Seuil de 60px avec confirmation de glissement principalement horizontal (2x le mouvement vertical)
+    if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 2.0) {
       if (deltaX < 0) {
         handleNext();
       } else {
@@ -238,6 +241,19 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     key: SlotKey;
     label: string;
   } | null>(null);
+
+  const [playerSearchQuery, setPlayerSearchQuery] = useState('');
+  const activeSlotRef = useRef<HTMLDivElement>(null);
+
+  // Défilement automatique fluide vers le tiroir de sélection de joueur lorsqu'un slot est cliqué
+  useEffect(() => {
+    if (activeSlot) {
+      setPlayerSearchQuery('');
+      setTimeout(() => {
+        activeSlotRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  }, [activeSlot]);
 
   const [filterEligibleOnly, setFilterEligibleOnly] = useState(true);
   const [copiedSummary, setCopiedSummary] = useState(false);
@@ -805,15 +821,15 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
     }),
   };
 
-  return (
+  const modalContent = (
     <div 
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-5 overflow-y-auto"
+      className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-2 sm:p-4 overflow-hidden"
       onClick={onClose}
     >
       {/* ==================== BOUTON FLÉCHÉS & COMPTEUR HORS DE LA BULLE (AU-DESSUS) ==================== */}
       {hasMultiple && (
         <div 
-          className="shrink-0 mb-2.5 z-20 flex items-center justify-center animate-in fade-in slide-in-from-top-2 duration-150"
+          className="shrink-0 mb-1.5 sm:mb-2.5 z-20 flex items-center justify-center animate-in fade-in slide-in-from-top-2 duration-150"
           onClick={(e) => e.stopPropagation()}
         >
           <div className={`flex items-center gap-2 ${theme.containerBg} ${theme.containerBorder} border-2 rounded-full py-1.5 px-3.5 shadow-2xl shadow-black`}>
@@ -844,7 +860,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
       {/* Bulle principale animée */}
       <div 
-        className="w-full max-w-4xl overflow-hidden my-auto"
+        className="w-full max-w-4xl flex-1 flex flex-col min-h-0 my-auto h-[calc(100dvh-55px)] sm:h-[88vh] max-h-[calc(100dvh-55px)] sm:max-h-[88vh] overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -860,37 +876,37 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               x: { type: 'spring', stiffness: 320, damping: 32, mass: 0.7 },
               opacity: { duration: 0.16 },
             }}
-            className={`relative w-full ${theme.containerBg} border-2 ${theme.containerBorder} rounded-3xl overflow-hidden shadow-2xl my-auto max-h-[88vh] sm:max-h-[90vh] flex flex-col`}
+            className={`relative w-full h-full flex-1 flex flex-col min-h-0 ${theme.containerBg} border-2 ${theme.containerBorder} rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl`}
             onClick={(e) => e.stopPropagation()}
           >
             
             {/* ==================== EN-TÊTE MODALE ==================== */}
-            <div className={`p-5 sm:p-6 border-b ${theme.headerBorder} ${theme.headerBg} flex items-start justify-between gap-4 relative`}>
+            <div className={`shrink-0 p-3.5 sm:p-6 border-b ${theme.headerBorder} ${theme.headerBg} flex items-start justify-between gap-3 relative`}>
               <div className={`absolute top-0 right-0 w-36 h-36 ${theme.glowBg} rounded-full blur-2xl pointer-events-none`} />
 
-              <div className="flex items-start space-x-3.5 relative z-10">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#BF360C] to-[#E65100] flex items-center justify-center text-white shadow-lg shadow-orange-950/60 shrink-0">
-                  <Trophy className="w-6 h-6" />
+              <div className="flex items-start space-x-3 relative z-10">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-[#BF360C] to-[#E65100] flex items-center justify-center text-white shadow-lg shadow-orange-950/60 shrink-0">
+                  <Trophy className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
 
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
                       {rencontre.numeroEquipe}
                     </span>
-                    <span className={`text-xs font-black px-2.5 py-0.5 rounded-full border ${theme.badgeBg}`}>
+                    <span className={`text-[11px] sm:text-xs font-black px-2 py-0.5 rounded-full border ${theme.badgeBg}`}>
                       {rencontre.categorieAgeHomologation}{isMixte ? ' • Mixte' : ''}
                     </span>
-                    <span className="text-xs text-orange-400 font-bold flex items-center gap-1">
+                    <span className="text-[11px] sm:text-xs text-orange-400 font-bold flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
                       {scheduleCheck.dayName} {matchDateInput}
                     </span>
                   </div>
 
-                  <h2 className={`text-lg sm:text-xl font-heading font-black ${theme.nameText} mt-1`}>
+                  <h2 className={`text-base sm:text-xl font-heading font-black ${theme.nameText} mt-1 leading-snug`}>
                     Feuille de match & Composition d'équipe
                   </h2>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-[11px] sm:text-xs text-zinc-400 line-clamp-1">
                     {rencontre.clubAccueilNom} <strong className="text-zinc-200">vs</strong> {rencontre.clubVisiteurNom} • {rencontre.libelleHomologation}
                   </p>
                 </div>
@@ -898,153 +914,153 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
               <button
                 onClick={onClose}
-                className={`w-9 h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0 relative z-10`}
+                className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full ${theme.closeBtn} flex items-center justify-center transition cursor-pointer shrink-0 relative z-10`}
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-        {/* ==================== BANDEAU FORMAT OFFICIEL ==================== */}
-        <div className="px-5 sm:px-6 py-2.5 bg-[#0d0f14] border-b border-[#232936] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center space-x-2 text-zinc-300 flex-wrap">
-            <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 font-black">
-              {compFormat.numSingles} Simples + {compFormat.numDoubles} Double{compFormat.numDoubles > 1 ? 's' : ''}
-            </span>
-            <span className="font-bold text-white">{compFormat.categoryLabel}</span>
-            <span className="text-zinc-500 hidden md:inline">• {compFormat.pointsSystem}</span>
-          </div>
-
-          {/* Toggle format réduit départemental (uniquement si 5 simples par défaut) */}
-          {compFormat.numSingles >= 5 && (
-            <div className="flex items-center space-x-2 shrink-0">
-              <span className="text-[11px] text-zinc-400">Format :</span>
-              <button
-                onClick={() => setFormatReduit(!formatReduit)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                  formatReduit 
-                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
-                }`}
-              >
-                {formatReduit ? 'Format Réduit (3S + 1D)' : `Standard (${compFormat.numSingles}S + 1D)`}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ==================== ALERTES & VALIDATIONS ==================== */}
-        {/* Alerte si jour inhabituel ou alternance */}
-        {scheduleCheck.warning && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs flex items-start space-x-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-white">{scheduleCheck.warning}</p>
-              <p className="text-amber-300 text-[11px] mt-0.5">{scheduleCheck.alternationMessage}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Alerte si infraction Poids des Doubles Régional FFT */}
-        {compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/60 text-rose-200 text-xs flex items-start justify-between gap-3 shadow-lg shadow-rose-950/40">
-            <div className="flex items-start space-x-2.5">
-              <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-heading font-black text-white text-xs">
-                  INFRACTION FFT RÉGIONALE : POIDS DES DOUBLES
-                </h4>
-                <p className="text-rose-300 mt-1">
-                  {doublesWeightCheck.errorMessage}
-                </p>
+            {/* ==================== BANDEAU FORMAT OFFICIEL ==================== */}
+            <div className="shrink-0 px-4 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#232936] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 text-xs">
+              <div className="flex items-center space-x-2 text-zinc-300 flex-wrap">
+                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 font-black">
+                  {compFormat.numSingles} Simples + {compFormat.numDoubles} Double{compFormat.numDoubles > 1 ? 's' : ''}
+                </span>
+                <span className="font-bold text-white">{compFormat.categoryLabel}</span>
+                <span className="text-zinc-500 hidden md:inline">• {compFormat.pointsSystem}</span>
               </div>
+
+              {/* Toggle format réduit départemental (uniquement si 5 simples par défaut) */}
+              {compFormat.numSingles >= 5 && (
+                <div className="flex items-center space-x-2 shrink-0">
+                  <span className="text-[11px] text-zinc-400">Format :</span>
+                  <button
+                    onClick={() => setFormatReduit(!formatReduit)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                      formatReduit 
+                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    {formatReduit ? 'Format Réduit (3S + 1D)' : `Standard (${compFormat.numSingles}S + 1D)`}
+                  </button>
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={handleSwapDoubles}
-              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer shadow"
-              title="Inverser automatiquement les deux paires de doubles"
-            >
-              <ArrowUpDown className="w-3.5 h-3.5" />
-              <span>Inverser D1 et D2</span>
-            </button>
-          </div>
-        )}
+            {/* ==================== CORPS MODALE AVEC DÉFILEMENT VERTICAL STRICT ==================== */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-6 space-y-4 sm:space-y-6 touch-pan-y">
 
-        {/* Alerte bloquante si joueur inéligible */}
-        {hasIneligiblePlayer && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs flex items-start space-x-3 shadow-lg">
-            <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h4 className="font-heading font-black text-white text-xs">
-                VALIDATION DE FEUILLE BLOQUÉE (Infraction FFT 2027)
-              </h4>
-              <ul className="mt-1 space-y-0.5 list-disc list-inside text-[11px] text-rose-200">
-                {currentCompositionIssues.map((issue, idx) => (
-                  <li key={idx}>
-                    <strong className="text-white">{issue.player.nomPrenom}</strong> : {issue.errors.join(' | ')}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
+              {/* ==================== ALERTES & VALIDATIONS DÉFILABLES ==================== */}
+              {/* Alerte si jour inhabituel ou alternance */}
+              {scheduleCheck.warning && (
+                <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs flex items-start space-x-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-white">{scheduleCheck.warning}</p>
+                    <p className="text-amber-300 text-[11px] mt-0.5">{scheduleCheck.alternationMessage}</p>
+                  </div>
+                </div>
+              )}
 
-        {/* Alerte ordre des simples */}
-        {!rankingOrderCheck.isValid && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/60 text-amber-200 text-xs flex items-start space-x-3">
-            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-heading font-black text-white text-xs">
-                HIÉRARCHIE DES CLASSEMENTS NON RESPECTÉE (Ordre des Simples FFT)
-              </h4>
-              <p className="text-amber-300 mt-0.5">{rankingOrderCheck.error}</p>
-            </div>
-          </div>
-        )}
+              {/* Alerte si infraction Poids des Doubles Régional FFT */}
+              {compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage && (
+                <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/60 text-rose-200 text-xs flex items-start justify-between gap-3 shadow-lg shadow-rose-950/40">
+                  <div className="flex items-start space-x-2.5">
+                    <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-heading font-black text-white text-xs">
+                        INFRACTION FFT RÉGIONALE : POIDS DES DOUBLES
+                      </h4>
+                      <p className="text-rose-300 mt-1">
+                        {doublesWeightCheck.errorMessage}
+                      </p>
+                    </div>
+                  </div>
 
-        {/* Messages toast succès */}
-        {sheetSaveSuccess && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/50 text-emerald-200 text-xs flex items-center space-x-2 shadow-lg">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-bold">{sheetSaveSuccess}</span>
-          </div>
-        )}
+                  <button
+                    onClick={handleSwapDoubles}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer shadow"
+                    title="Inverser automatiquement les deux paires de doubles"
+                  >
+                    <ArrowUpDown className="w-3.5 h-3.5" />
+                    <span>Inverser D1 et D2</span>
+                  </button>
+                </div>
+              )}
 
-        {validationSuccess && !sheetSaveSuccess && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Feuille de match certifiée conforme et enregistrée avec succès !</span>
-          </div>
-        )}
+              {/* Alerte bloquante si joueur inéligible */}
+              {hasIneligiblePlayer && (
+                <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs flex items-start space-x-3 shadow-lg">
+                  <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-heading font-black text-white text-xs">
+                      VALIDATION DE FEUILLE BLOQUÉE (Infraction FFT 2027)
+                    </h4>
+                    <ul className="mt-1 space-y-0.5 list-disc list-inside text-[11px] text-rose-200">
+                      {currentCompositionIssues.map((issue, idx) => (
+                        <li key={idx}>
+                          <strong className="text-white">{issue.player.nomPrenom}</strong> : {issue.errors.join(' | ')}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
 
-        {/* Message d'alerte spécifique popup / toast */}
-        {blockedAlertMessage && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs flex items-start justify-between gap-2">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div className="whitespace-pre-line leading-relaxed">{blockedAlertMessage}</div>
-            </div>
-            <button onClick={() => setBlockedAlertMessage(null)} className="text-amber-400 hover:text-white font-bold px-1">✕</button>
-          </div>
-        )}
+              {/* Alerte ordre des simples */}
+              {!rankingOrderCheck.isValid && (
+                <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/60 text-amber-200 text-xs flex items-start space-x-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-heading font-black text-white text-xs">
+                      HIÉRARCHIE DES CLASSEMENTS NON RESPECTÉE (Ordre des Simples FFT)
+                    </h4>
+                    <p className="text-amber-300 mt-0.5">{rankingOrderCheck.error}</p>
+                  </div>
+                </div>
+              )}
 
-        {/* Rappel du Gel des Classements si des joueurs sont enregistrés */}
-        {composition.frozenPlayers && composition.frozenPlayers.length > 0 && (
-          <div className="mx-5 sm:mx-6 mt-3 p-3 rounded-2xl bg-orange-950/30 border border-orange-500/40 text-orange-200 text-xs flex items-center justify-between gap-3">
-            <div className="flex items-center space-x-2">
-              <Lock className="w-4 h-4 text-[#FF6D00] shrink-0" />
-              <span>
-                <strong>Classements officiellement gelés au match :</strong> {composition.frozenPlayers.map(p => `${p.nomPrenom} (${p.classementGele})`).join(' • ')}
-              </span>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-[#FF6D00] font-mono shrink-0">
-              {composition.dateValidation || 'Données_appli'}
-            </span>
-          </div>
-        )}
+              {/* Messages toast succès */}
+              {sheetSaveSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/50 text-emerald-200 text-xs flex items-center space-x-2 shadow-lg">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="font-bold">{sheetSaveSuccess}</span>
+                </div>
+              )}
 
-        {/* ==================== CORPS MODALE (LOGISTIQUE + GRILLES) ==================== */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+              {validationSuccess && !sheetSaveSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Feuille de match certifiée conforme et enregistrée avec succès !</span>
+                </div>
+              )}
+
+              {/* Message d'alerte spécifique popup / toast */}
+              {blockedAlertMessage && (
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="whitespace-pre-line leading-relaxed">{blockedAlertMessage}</div>
+                  </div>
+                  <button onClick={() => setBlockedAlertMessage(null)} className="text-amber-400 hover:text-white font-bold px-1">✕</button>
+                </div>
+              )}
+
+              {/* Rappel du Gel des Classements si des joueurs sont enregistrés */}
+              {composition.frozenPlayers && composition.frozenPlayers.length > 0 && (
+                <div className="p-3 rounded-2xl bg-orange-950/30 border border-orange-500/40 text-orange-200 text-xs flex items-center justify-between gap-3">
+                  <div className="flex items-center space-x-2">
+                    <Lock className="w-4 h-4 text-[#FF6D00] shrink-0" />
+                    <span>
+                      <strong>Classements officiellement gelés au match :</strong> {composition.frozenPlayers.map(p => `${p.nomPrenom} (${p.classementGele})`).join(' • ')}
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-[#FF6D00] font-mono shrink-0">
+                    {composition.dateValidation || 'Données_appli'}
+                  </span>
+                </div>
+              )}
           
           {/* ==================== SECTION LOGISTIQUE DU MATCH (DEMANDE TCM) ==================== */}
           <div className="p-4 sm:p-5 rounded-3xl bg-[#090b0e] border border-[#232934] space-y-4">
@@ -1384,54 +1400,84 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
           {/* ==================== TIROIR DE SÉLECTION D'UN JOUEUR ==================== */}
           {activeSlot && (
-            <div className="p-5 rounded-3xl bg-[#101319] border-2 border-[#E65100]/60 shadow-2xl space-y-4">
-              <div className="flex items-center justify-between border-b border-[#232936] pb-3">
+            <div ref={activeSlotRef} className="p-4 sm:p-5 rounded-3xl bg-[#101319] border-2 border-[#E65100]/60 shadow-2xl space-y-3.5 scroll-mt-4">
+              <div className="flex items-center justify-between border-b border-[#232936] pb-3 gap-2 flex-wrap">
                 <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#E65100]"></span>
-                  <h4 className="font-heading font-black text-white text-sm">
-                    Sélectionner un joueur pour : <span className="text-[#FF6D00]">{activeSlot.label}</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#E65100] shrink-0"></span>
+                  <h4 className="font-heading font-black text-white text-xs sm:text-sm">
+                    Assigner un joueur : <span className="text-[#FF6D00]">{activeSlot.label}</span>
                   </h4>
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                  <label className="text-xs text-zinc-400 flex items-center space-x-1.5 cursor-pointer">
+                  <label className="text-[11px] sm:text-xs text-zinc-400 flex items-center space-x-1.5 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={filterEligibleOnly}
                       onChange={(e) => setFilterEligibleOnly(e.target.checked)}
                       className="rounded accent-orange-500"
                     />
-                    <span>Uniquement éligibles FFT</span>
+                    <span className="hidden sm:inline">Uniquement éligibles FFT</span>
+                    <span className="sm:hidden">Éligibles</span>
                   </label>
                   <button
                     onClick={() => setActiveSlot(null)}
-                    className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400"
+                    className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
+              {/* Champ de recherche instantanée par nom ou classement */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={playerSearchQuery}
+                  onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                  placeholder="Rechercher par nom, prénom ou classement (ex: 15/4)..."
+                  className="w-full bg-[#0b0e14] border border-zinc-700 focus:border-orange-500 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none"
+                />
+                {playerSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setPlayerSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
               {/* Rappel du barème pour cette sélection */}
-              <div className="p-3 rounded-xl bg-[#171b24] border border-[#262c3b] text-xs text-zinc-300 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[#171b24] border border-[#262c3b] text-xs text-zinc-300 grid grid-cols-3 gap-1.5 text-center sm:text-left">
                 <div>
-                  <span className="text-zinc-500 block text-[10px]">1. Règle Licence :</span>
-                  <span className="font-bold text-white">Statut 'C' ou 'W' exigé</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">1. Règle Licence :</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs">Statut 'C' ou 'W'</span>
                 </div>
                 <div>
-                  <span className="text-zinc-500 block text-[10px]">2. Règle Sexe :</span>
-                  <span className="font-bold text-orange-400">{reqSex === 'H' ? 'Messieurs (H)' : reqSex === 'F' ? 'Dames (F)' : 'Mixte'}</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">2. Règle Sexe :</span>
+                  <span className="font-bold text-orange-400 text-[11px] sm:text-xs">{reqSex === 'H' ? 'Messieurs (H)' : reqSex === 'F' ? 'Dames (F)' : 'Mixte'}</span>
                 </div>
                 <div>
-                  <span className="text-zinc-500 block text-[10px]">3. Règle Classement :</span>
-                  <span className="font-bold text-emerald-400">Classement non ND</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">3. Règle Classement :</span>
+                  <span className="font-bold text-emerald-400 text-[11px] sm:text-xs">Non ND</span>
                 </div>
               </div>
 
               {/* Grille des adhérents avec statut */}
-              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+              <div className="max-h-64 sm:max-h-72 overflow-y-auto space-y-1.5 pr-1 touch-pan-y">
                 {playersWithEligibility
-                  .filter(item => !filterEligibleOnly || item.eligibility.isEligible)
+                  .filter(item => {
+                    if (filterEligibleOnly && !item.eligibility.isEligible) return false;
+                    if (!playerSearchQuery.trim()) return true;
+                    const q = playerSearchQuery.toLowerCase().trim();
+                    const name = (item.adherent.nomPrenom || '').toLowerCase();
+                    const rank = (item.adherent.dernierClassTennis || '').toLowerCase();
+                    const lic = (item.adherent.licence || '').toLowerCase();
+                    return name.includes(q) || rank.includes(q) || lic.includes(q);
+                  })
                   .map(({ adherent, eligibility, isLicencie, dispo }) => {
                     const isAlreadySelected = selectedPlayerIds.includes(adherent.id);
 
@@ -1547,7 +1593,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
         </div>
 
         {/* ==================== PIED DE PAGE ET ACTIONS ==================== */}
-        <div className="p-4 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="shrink-0 p-3 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
           
           <button
             onClick={handleCopySummary}
@@ -1651,4 +1697,6 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
       )}
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+/* Ascenseurs personnalisés visibles pour mobile et desktop */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(18, 21, 27, 0.6);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb {
+  background: #E65100;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF6D00;
+}
