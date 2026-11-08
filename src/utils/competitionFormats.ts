@@ -2,6 +2,7 @@ import { Rencontre, Adherent, MatchComposition } from '../types/tennis';
 import { getRankingWeight } from './ranking';
 import { getRequiredSex } from './fftEligibility';
 import { normalizeDateString } from './dateUtils';
+import { findRuleForRencontre } from './rulesManager';
 
 export type CompetitionCategoryType = 
   | 'seniors_regional'
@@ -77,6 +78,42 @@ export function getCompetitionFormat(
   rencontre: Rencontre,
   options?: { formatReduit?: boolean }
 ): CompetitionFormatInfo {
+  // Surcharge prioritaire si une règle personnalisée a été enregistrée par l'administrateur
+  const customRule = findRuleForRencontre(rencontre);
+  if (customRule && customRule.isCustomized) {
+    const isRegional = customRule.level === 'Régional';
+    const isJeunes = customRule.categoryAge.toLowerCase().includes('jeune') || customRule.categoryAge.toLowerCase().includes('10');
+    const isUnder10 = customRule.id === 'jeunes_galaxie';
+    const isSeniorsPlus = customRule.categoryAge.toLowerCase().includes('+');
+    const type: CompetitionCategoryType = isJeunes 
+      ? 'jeunes' 
+      : isSeniorsPlus 
+        ? 'seniors_plus' 
+        : isRegional 
+          ? 'seniors_regional' 
+          : (rencontre.sexeHomologation === 'Dames' ? 'seniors_dept_dames' : 'seniors_dept_hommes');
+
+    return {
+      type,
+      categoryLabel: customRule.title,
+      divisionLabel: customRule.division,
+      isRegional,
+      isJeunes,
+      isUnder10,
+      isSeniorsPlus,
+      numSingles: options?.formatReduit ? Math.min(3, customRule.numSingles) : customRule.numSingles,
+      numDoubles: customRule.numDoubles,
+      minPlayers: customRule.minPlayers,
+      maxPlayers: customRule.maxPlayers,
+      pointsSystem: customRule.pointsSystem,
+      matchRules: customRule.singlesGameFormat,
+      doubleRules: customRule.doublesGameFormat,
+      expectedDay: customRule.expectedDay,
+      orderOfPlay: customRule.orderOfPlay,
+      doubleWeightStrict: customRule.doubleWeightStrict,
+    };
+  }
+
   const cat = (rencontre.categorieAgeHomologation || '').toLowerCase();
   const lib = (rencontre.libelleHomologation || '').toLowerCase();
   const niv = (rencontre.niveauHomologation || '').toLowerCase();

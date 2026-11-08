@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Trophy, 
   Users, 
@@ -16,13 +17,26 @@ import {
   Check,
   ShieldCheck,
   Settings,
-  X
+  X,
+  Scale,
+  KeyRound,
+  Lock
 } from 'lucide-react';
 import { UserRole } from '../types/tennis';
+import { UnlockRoleModal } from './UnlockRoleModal';
+import { 
+  isRoleUnlocked, 
+  getRolePins, 
+  updateRolePin, 
+  resetRolePins, 
+  isPinEnforcementActive, 
+  setPinEnforcementActive, 
+  DEFAULT_ROLE_PINS 
+} from '../services/accessControl';
 
 interface HeaderProps {
-  activeTab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants';
-  setActiveTab: (tab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants') => void;
+  activeTab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements';
+  setActiveTab: (tab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements') => void;
   userRole: UserRole;
   setUserRole: (role: UserRole) => void;
   onOpenScriptModal: () => void;
@@ -125,10 +139,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   const currentRoleConfig = rolesConfig.find(r => r.id === userRole) || rolesConfig[0];
 
-  const handleSelectRole = (newRole: UserRole) => {
+  const [roleToUnlock, setRoleToUnlock] = useState<UserRole | null>(null);
+  const [adminTab, setAdminTab] = useState<'saison' | 'security'>('saison');
+  const [pinEnforcement, setPinEnforcement] = useState<boolean>(() => isPinEnforcementActive());
+  const [currentPins, setCurrentPins] = useState(() => getRolePins());
+
+  const applyRoleChange = (newRole: UserRole) => {
     setUserRole(newRole);
-    setIsRoleDropdownOpen(false);
-    
     // Si l'onglet en cours n'est plus accessible avec le nouveau rôle, rediriger vers 'rencontres'
     if (newRole === 'adherent' && (activeTab === 'adherents' || activeTab === 'enseignants' || activeTab === 'licencies')) {
       setActiveTab('rencontres');
@@ -137,6 +154,26 @@ export const Header: React.FC<HeaderProps> = ({
     } else if (newRole === 'prof' && activeTab === 'adherents') {
       setActiveTab('enseignants');
     }
+  };
+
+  const handleSelectRole = (newRole: UserRole) => {
+    setIsRoleDropdownOpen(false);
+    if (newRole === userRole) return;
+
+    // Si le rôle choisi est 'adherent', bascule libre immédiate
+    if (newRole === 'adherent') {
+      applyRoleChange(newRole);
+      return;
+    }
+
+    // Si le contrôle PIN est désactivé ou si le rôle est déjà déverrouillé dans la session
+    if (!pinEnforcement || isRoleUnlocked(newRole)) {
+      applyRoleChange(newRole);
+      return;
+    }
+
+    // Demande de déverrouillage sécurisé par code PIN
+    setRoleToUnlock(newRole);
   };
 
   // Droits d'affichage des onglets selon les profils
@@ -148,6 +185,23 @@ export const Header: React.FC<HeaderProps> = ({
     if (onUpdateSaison && yearToSave.trim()) {
       onUpdateSaison(yearToSave.trim());
       setIsAdminSettingsOpen(false);
+    }
+  };
+
+  const handleTogglePinEnforcement = (enabled: boolean) => {
+    setPinEnforcementActive(enabled);
+    setPinEnforcement(enabled);
+  };
+
+  const handleUpdatePin = (role: Exclude<UserRole, 'adherent'>, newPin: string) => {
+    updateRolePin(role, newPin);
+    setCurrentPins(getRolePins());
+  };
+
+  const handleResetPins = () => {
+    if (window.confirm('Voulez-vous rétablir les codes PIN par défaut de tous les rôles ?')) {
+      resetRolePins();
+      setCurrentPins(getRolePins());
     }
   };
 
@@ -368,15 +422,28 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {/* 6. Règlements & Formats des Championnats (Tous) */}
+            <button
+              onClick={() => setActiveTab('reglements')}
+              className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'reglements'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <Scale className="w-4 h-4 shrink-0 mb-0.5 text-amber-400" />
+              <span className="text-[10px] sm:text-xs leading-tight tracking-tight truncate">Règlements</span>
+            </button>
+
           </nav>
         </div>
 
       </div>
 
-      {/* ==================== MODALE DE RÉGLAGE SAISON (PROFIL ADMIN) ==================== */}
-      {isAdminSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-[#141820] border border-orange-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5">
+      {/* ==================== MODALE DE PARAMÈTRES ADMIN (SAISON & CODES PIN) ==================== */}
+      {isAdminSettingsOpen && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="bg-[#141820] border border-orange-500/40 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-10 h-10 rounded-2xl bg-orange-500/20 text-[#FF6D00] flex items-center justify-center font-bold">
@@ -384,7 +451,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 <div>
                   <h3 className="font-heading font-black text-white text-base">
-                    Réglage de la Saison Sportive
+                    Panneau d'Administration TCM
                   </h3>
                   <p className="text-[11px] text-zinc-400">
                     Configuration réservée au profil Administrateur
@@ -399,67 +466,185 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
-            <div className="space-y-4 text-xs">
-              <p className="text-zinc-300 leading-relaxed">
-                Ce réglage permet de mettre l'application à jour d'une année sur l'autre :
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-zinc-400 text-[11px]">
-                <li>Met à jour la <strong className="text-orange-400">bulle orange TCM</strong> en haut à gauche (ex : TCM {tempSaison}).</li>
-                <li>Actualise le filtre des <strong className="text-emerald-400">licences valides</strong> (colonne X du fichier adhérents).</li>
-                <li>Recalcule automatiquement les <strong className="text-blue-400">catégories d'âge FFT</strong> des rencontres interclubs.</li>
-              </ul>
+            {/* Onglets internes : Saison Sportive vs Sécurité & Codes PIN */}
+            <div className="flex items-center p-1 bg-[#0d1016] rounded-xl border border-zinc-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setAdminTab('saison')}
+                className={`flex-1 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  adminTab === 'saison'
+                    ? 'bg-[#E65100] text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Saison sportive</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminTab('security')}
+                className={`flex-1 py-1.5 rounded-lg font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  adminTab === 'security'
+                    ? 'bg-[#E65100] text-white shadow'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Codes PIN & Accès</span>
+              </button>
+            </div>
 
-              <div className="p-4 bg-[#0d1016] rounded-2xl border border-zinc-800 space-y-3">
-                <label className="block text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
-                  Année de la Saison FFT Active
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={tempSaison}
-                    onChange={(e) => setTempSaison(e.target.value)}
-                    placeholder="ex: 2027, 2028..."
-                    className="flex-1 px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white font-mono font-black text-base focus:border-[#FF6D00] outline-none text-center"
-                  />
-                  <div className="flex items-center gap-1">
-                    {['2026', '2027', '2028', '2029'].map((yr) => (
-                      <button
-                        key={yr}
-                        type="button"
-                        onClick={() => setTempSaison(yr)}
-                        className={`px-2.5 py-2 rounded-xl font-bold font-mono transition text-xs cursor-pointer ${
-                          tempSaison === yr
-                            ? 'bg-orange-500/20 text-[#FF6D00] border border-orange-500/50'
-                            : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {yr}
-                      </button>
-                    ))}
+            {/* CONTENU ONGLET 1 : SAISON SPORTIVE */}
+            {adminTab === 'saison' && (
+              <div className="space-y-4 text-xs">
+                <p className="text-zinc-300 leading-relaxed">
+                  Ce réglage permet de mettre l'application à jour d'une année sur l'autre :
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-zinc-400 text-[11px]">
+                  <li>Met à jour la <strong className="text-orange-400">bulle orange TCM</strong> en haut à gauche (ex : TCM {tempSaison}).</li>
+                  <li>Actualise le filtre des <strong className="text-emerald-400">licences valides</strong> (colonne X du fichier adhérents).</li>
+                  <li>Recalcule automatiquement les <strong className="text-blue-400">catégories d'âge FFT</strong> des rencontres interclubs.</li>
+                </ul>
+
+                <div className="p-4 bg-[#0d1016] rounded-2xl border border-zinc-800 space-y-3">
+                  <label className="block text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+                    Année de la Saison FFT Active
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={tempSaison}
+                      onChange={(e) => setTempSaison(e.target.value)}
+                      placeholder="ex: 2027, 2028..."
+                      className="flex-1 px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white font-mono font-black text-base focus:border-[#FF6D00] outline-none text-center"
+                    />
+                    <div className="flex items-center gap-1">
+                      {['2026', '2027', '2028', '2029'].map((yr) => (
+                        <button
+                          key={yr}
+                          type="button"
+                          onClick={() => setTempSaison(yr)}
+                          className={`px-2.5 py-2 rounded-xl font-bold font-mono transition text-xs cursor-pointer ${
+                            tempSaison === yr
+                              ? 'bg-orange-500/20 text-[#FF6D00] border border-orange-500/50'
+                              : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {yr}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setIsAdminSettingsOpen(false)}
-                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveSaison(tempSaison)}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black transition shadow-lg shadow-orange-950/50 cursor-pointer flex items-center space-x-1.5"
-              >
-                <Check className="w-4 h-4" />
-                <span>Appliquer la saison {tempSaison}</span>
-              </button>
-            </div>
+                <div className="flex items-center justify-end space-x-2 pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsAdminSettingsOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
+                  >
+                    Fermer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSaison(tempSaison)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black transition shadow-lg shadow-orange-950/50 cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Appliquer la saison {tempSaison}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CONTENU ONGLET 2 : SÉCURITÉ & CODES PIN */}
+            {adminTab === 'security' && (
+              <div className="space-y-4 text-xs">
+                {/* Toggle Activation du contrôle */}
+                <div className="p-3.5 bg-[#0d1016] rounded-2xl border border-zinc-800 flex items-center justify-between">
+                  <div>
+                    <span className="font-bold text-white block">
+                      Vérification obligatoire des codes PIN
+                    </span>
+                    <span className="text-[10px] text-zinc-400 block mt-0.5">
+                      {pinEnforcement ? 'Actif : les profils protégés exigent un code PIN.' : 'Désactivé : bascule libre sans code (mode test).'}
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pinEnforcement}
+                      onChange={(e) => handleTogglePinEnforcement(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                  </label>
+                </div>
+
+                {/* Liste des codes PIN par rôle */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400 font-bold px-1">
+                    <span>Rôle protégé</span>
+                    <span>Code PIN actif</span>
+                  </div>
+
+                  {([
+                    { role: 'capitaine', label: 'Capitaine d\'équipe', icon: <Trophy className="w-3.5 h-3.5 text-orange-400" /> },
+                    { role: 'prof', label: 'Enseignant (Prof)', icon: <GraduationCap className="w-3.5 h-3.5 text-purple-400" /> },
+                    { role: 'bureau', label: 'Membre du Bureau', icon: <Shield className="w-3.5 h-3.5 text-emerald-400" /> },
+                    { role: 'admin', label: 'Administrateur', icon: <ShieldCheck className="w-3.5 h-3.5 text-rose-400" /> },
+                  ] as const).map(({ role, label, icon }) => (
+                    <div key={role} className="flex items-center justify-between p-2.5 bg-[#0b0e14] border border-zinc-800 rounded-xl">
+                      <div className="flex items-center space-x-2">
+                        {icon}
+                        <span className="font-bold text-white text-xs">{label}</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={currentPins[role] || ''}
+                        onChange={(e) => handleUpdatePin(role, e.target.value)}
+                        maxLength={10}
+                        className="w-24 px-2 py-1 rounded-lg bg-[#141820] border border-zinc-700 text-white font-mono text-center font-bold text-xs focus:border-orange-500 outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleResetPins}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Rétablir les PIN par défaut</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAdminSettingsOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-bold transition cursor-pointer"
+                  >
+                    Terminé
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modale de déverrouillage de rôle par code PIN */}
+      {roleToUnlock && (
+        <UnlockRoleModal
+          isOpen={!!roleToUnlock}
+          targetRole={roleToUnlock}
+          onClose={() => setRoleToUnlock(null)}
+          onSuccess={(unlockedRole) => {
+            applyRoleChange(unlockedRole);
+            setRoleToUnlock(null);
+          }}
+        />
       )}
     </header>
   );

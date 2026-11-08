@@ -649,11 +649,26 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
     setTimeout(() => setCopiedSummary(false), 2000);
   };
 
+  const getScheduleSlotFor = (slotKey: SlotKey) => {
+    if (slotKey.startsWith('simple')) {
+      const num = parseInt(slotKey.replace('simple', '').replace('Id', ''), 10);
+      return schedulePlan.slots.find(s => s.matchType === 'simple' && s.slotNumber === num);
+    }
+    if (slotKey.startsWith('double1')) {
+      return schedulePlan.slots.find(s => s.matchType === 'double' && s.slotNumber === 1);
+    }
+    if (slotKey.startsWith('double2')) {
+      return schedulePlan.slots.find(s => s.matchType === 'double' && s.slotNumber === 2);
+    }
+    return undefined;
+  };
+
   const renderSlotCard = (slotKey: SlotKey, label: string) => {
     const playerId = composition[slotKey];
     const player = playerId ? adherentsById.get(playerId) : null;
     const eligibility = player ? checkFFT2027Eligibility(player, rencontre) : null;
     const isSlotIneligible = eligibility && !eligibility.isEligible;
+    const sched = getScheduleSlotFor(slotKey);
 
     return (
       <div 
@@ -665,14 +680,24 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               : 'bg-[#12151b] border-dashed border-[#282f3c] hover:border-[#E65100]/60'
         }`}
       >
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-black uppercase tracking-wider text-orange-400">
-            {label}
-          </span>
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-black uppercase tracking-wider text-orange-400">
+              {label}
+            </span>
+            {sched && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-[10px] font-bold">
+                <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                <span>{sched.timeSlot}</span>
+                <span className="text-zinc-500 font-sans">•</span>
+                <span className="text-zinc-300 font-sans">{sched.courtName}</span>
+              </span>
+            )}
+          </div>
           {player && (
             <button
               onClick={() => handleClearSlot(slotKey)}
-              className="text-zinc-500 hover:text-rose-400 text-xs px-1.5 py-0.5 rounded transition"
+              className="text-zinc-500 hover:text-rose-400 text-xs px-1.5 py-0.5 rounded transition cursor-pointer"
               title="Retirer le joueur"
             >
               Retirer
@@ -682,9 +707,9 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
         {player ? (
           <div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-heading font-black text-white text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-heading font-black text-white text-sm truncate">
                   {player.nomPrenom}
                 </p>
                 <p className="text-[11px] text-zinc-400">
@@ -692,7 +717,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </p>
               </div>
 
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-orange-500/15 border border-orange-500/30 text-orange-300">
                   {player.dernierClassTennis}
                 </span>
@@ -1226,24 +1251,33 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       {rot.matches.map((m) => (
                         <div 
                           key={m.id}
-                          className="p-2 rounded-xl bg-black/30 border border-zinc-800/60 flex items-center justify-between gap-2 text-xs"
+                          className="p-2.5 rounded-xl bg-black/40 border border-zinc-800/80 flex items-center justify-between gap-3 text-xs"
                         >
-                          <div className="min-w-0">
-                            <span className="font-bold text-white block truncate">
-                              {m.matchLabel}
-                            </span>
-                            <span className="text-[10px] text-zinc-500 block truncate">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-heading font-black text-white text-xs">
+                                {m.matchLabel}
+                              </span>
+                              <span className="text-[10px] font-mono text-orange-400 font-bold px-1.5 py-0.2 rounded bg-orange-500/10 border border-orange-500/20">
+                                {rot.timeSlot}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-zinc-400 block truncate mt-0.5">
                               {m.courtName}
                             </span>
                           </div>
 
                           <div className="text-right shrink-0">
-                            <span className="text-xs font-medium text-zinc-200 block truncate max-w-[110px]">
-                              {m.playerName}
+                            <span className={`text-xs font-bold block truncate max-w-[130px] ${
+                              m.playerName ? 'text-white' : 'text-zinc-500 italic'
+                            }`}>
+                              {m.playerName || 'Non désigné'}
                             </span>
-                            <span className="text-[10px] font-mono text-orange-300 font-bold">
-                              {m.playerRank}
-                            </span>
+                            {m.playerRank && (
+                              <span className="text-[10px] font-mono text-orange-300 font-bold px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 inline-block mt-0.5">
+                                {m.playerRank}
+                              </span>
+                            )}
                           </div>
                         </div>
                       ))}

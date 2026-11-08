@@ -10,6 +10,7 @@ import { RencontresTab } from './components/RencontresTab';
 import { InfosClubTab } from './components/InfosClubTab';
 import { EnseignantsTab } from './components/EnseignantsTab';
 import { LicenciesTab } from './components/LicenciesTab';
+import { ReglementsTab } from './components/ReglementsTab';
 import { AdherentModal } from './components/AdherentModal';
 import { AppsScriptModal } from './components/AppsScriptModal';
 import { NewMemberModal } from './components/NewMemberModal';
@@ -71,8 +72,8 @@ const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
 };
 
 export default function App() {
-  // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents'
-  const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants'>('rencontres');
+  // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents', 'Règlements'
+  const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements'>('rencontres');
 
   // Profils d'accès (admin, bureau, prof, capitaine, adherent)
   const [userRole, setUserRole] = useState<UserRole>(() => {
@@ -715,6 +716,11 @@ export default function App() {
             isLoadingFile={isLoadingFile}
             onRefreshFromFile={() => handleLoadFromRealFile(false)}
           />
+        )}
+
+        {/* Onglet 'Règlements & Formats des Championnats' */}
+        {activeTab === 'reglements' && (
+          <ReglementsTab userRole={userRole} />
         )}
 
       </main>

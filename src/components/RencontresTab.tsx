@@ -46,6 +46,26 @@ interface RencontresTabProps {
   saison?: string;
 }
 
+const parseJourneeNum = (j?: string): number => {
+  if (!j) return 999;
+  const m = j.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 999;
+};
+
+const parseEquipeNum = (e?: string): number => {
+  if (!e) return 999;
+  const m = e.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 999;
+};
+
+const formatMuzillacClubName = (clubName: string, numeroEquipe?: string): string => {
+  const isMuzillac = (clubName || '').toLowerCase().includes('muzillac');
+  if (!isMuzillac) return clubName;
+  const clean = clubName.replace(/\s+\d+$/, '').trim();
+  const numOnly = numeroEquipe ? numeroEquipe.replace(/\D/g, '') : '';
+  return numOnly ? `${clean} ${numOnly}` : clubName;
+};
+
 export const RencontresTab: React.FC<RencontresTabProps> = ({
   rencontres,
   adherents,
@@ -262,10 +282,24 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
       }
 
       return true;
+    }).sort((a, b) => {
+      const normA = normalizeDateString(a.dateRencontre);
+      const normB = normalizeDateString(b.dateRencontre);
+      const dateA = parseDateToJs(normA)?.getTime() || 0;
+      const dateB = parseDateToJs(normB)?.getTime() || 0;
+      if (dateA !== dateB) return dateA - dateB;
+
+      const jA = parseJourneeNum(a.journee);
+      const jB = parseJourneeNum(b.journee);
+      if (jA !== jB) return jA - jB;
+
+      const eqA = parseEquipeNum(a.numeroEquipe);
+      const eqB = parseEquipeNum(b.numeroEquipe);
+      return eqA - eqB;
     });
   }, [rencontres, searchQuery, filterStatus, filterSexe, filterChampionnat, filterCategorieAge, filterTeam]);
 
-  // Rassemblement des rencontres filtrées par date (triées chronologiquement)
+  // Rassemblement des rencontres filtrées par date (triées chronologiquement, puis par journée et équipe)
   const matchesByDate = useMemo(() => {
     const groupsMap = new Map<string, {
       dateKey: string;
@@ -301,7 +335,20 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
       groupsMap.get(normDate)!.matches.push(r);
     });
 
-    return Array.from(groupsMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+    const groups = Array.from(groupsMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+    groups.forEach(g => {
+      g.matches.sort((a, b) => {
+        const jA = parseJourneeNum(a.journee);
+        const jB = parseJourneeNum(b.journee);
+        if (jA !== jB) return jA - jB;
+
+        const eqA = parseEquipeNum(a.numeroEquipe);
+        const eqB = parseEquipeNum(b.numeroEquipe);
+        return eqA - eqB;
+      });
+    });
+
+    return groups;
   }, [filteredRencontres]);
 
   // Vérifie si une rencontre a une composition complète ou des problèmes
@@ -685,10 +732,6 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </p>
                   </div>
                 </div>
-
-                <span className="px-3 py-1 rounded-xl text-xs font-black bg-orange-500/10 text-orange-400 border border-orange-500/25">
-                  {dateGroup.dateKey}
-                </span>
               </div>
 
               {/* Disposition par 3 des cartes de cette date */}
@@ -764,69 +807,38 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                 className={`${cardGenderStyle} rounded-3xl p-4 transition-all flex flex-col justify-between space-y-3.5 group`}
               >
                 <div className="space-y-3">
-                  {/* Ligne 1 : Équipe, Catégorie d'âge (sexe indiqué par la couleur de la carte) & Domicile/Déplacement */}
-                  <div className="flex items-start justify-between gap-1.5">
+                  {/* Ligne 1 : Équipe, Journée, Catégorie d'âge & Bulle bien mise en avant Domicile / Extérieur */}
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40 text-xs">
                         {r.numeroEquipe}
+                      </span>
+                      {r.journee && (
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-zinc-800 text-amber-300 border border-zinc-700">
+                          {r.journee}
+                        </span>
+                      )}
+                      <span className="font-bold text-white px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-[10px]">
+                        {r.categorieAgeHomologation}
                       </span>
                       {isMixte && (
                         <span className="font-black text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/40">
                           Mixte
                         </span>
                       )}
-                      <span className="font-bold text-white px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-[10px]">
-                        {r.categorieAgeHomologation}
-                      </span>
-                      {r.journee && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-zinc-800 text-zinc-300 border border-zinc-700">
-                          {r.journee}
-                        </span>
-                      )}
                     </div>
 
-                    <span className={`px-2 py-0.5 rounded-xl text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                    {/* Bulle Domicile / Extérieur bien mise en avant */}
+                    <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md border-2 ${
                       isHome 
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
-                        : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                        ? 'bg-amber-500/25 text-amber-300 border-amber-500/60 shadow-amber-950/40' 
+                        : 'bg-sky-500/25 text-sky-200 border-sky-400/60 shadow-sky-950/40'
                     }`}>
-                      {isHome ? '🏠 Domicile' : '🚗 Déplacement'}
+                      {isHome ? '🏠 Domicile' : '🚗 Extérieur'}
                     </span>
                   </div>
 
-                  {/* Ligne 2 : Date & Format officiel FFT */}
-                  <div className="flex items-center justify-between gap-1.5 text-xs flex-wrap">
-                    <span className="text-zinc-300 flex items-center gap-1.5 font-semibold bg-[#12151b] px-2.5 py-1 rounded-xl border border-zinc-800 text-[11px]">
-                      <Calendar className="w-3.5 h-3.5 text-orange-400" />
-                      <span>{normalizedDate}</span>
-                      {dateValidation.dayName && (
-                        <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
-                          dateValidation.isValidDay
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-amber-500/20 text-amber-300'
-                        }`}>
-                          {dateValidation.dayName}
-                        </span>
-                      )}
-                    </span>
-
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
-                      formatInfo.numDoubles === 2
-                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                        : formatInfo.isSeniorsPlus
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                          : formatInfo.isJeunes
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : r.sexeHomologation === 'Dames'
-                              ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
-                              : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                    }`}>
-                      {formatInfo.numSingles}S + {formatInfo.numDoubles}D
-                      {formatInfo.divisionLabel ? ` • ${formatInfo.divisionLabel}` : ''}
-                    </span>
-                  </div>
-
-                  {/* Ligne 3 : Confrontation & Score */}
+                  {/* Ligne 2 : Confrontation avec numéro d'équipe Muzillac & Score */}
                   <div className="bg-[#11141a] p-3 rounded-2xl border border-[#232934] flex items-center justify-between gap-3">
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex items-center justify-between">
@@ -835,7 +847,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                             ? 'text-[#FF6D00]'
                             : 'text-zinc-200'
                         }`}>
-                          {r.clubAccueilNom}
+                          {formatMuzillacClubName(r.clubAccueilNom, r.numeroEquipe)}
                         </span>
                         {isHome && (
                           <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Dom</span>
@@ -848,7 +860,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                             ? 'text-[#FF6D00]'
                             : 'text-zinc-200'
                         }`}>
-                          {r.clubVisiteurNom}
+                          {formatMuzillacClubName(r.clubVisiteurNom, r.numeroEquipe)}
                         </span>
                         {!isHome && (
                           <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Ext</span>
@@ -877,7 +889,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Ligne 4 : Logistique TCM (Horaire rapide, Lieu, Rotations) */}
+                  {/* Ligne 3 : Logistique TCM épurée (Horaire & Lieu) */}
                   <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                       <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
@@ -886,8 +898,8 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         <strong className="text-white font-mono">{matchHour}</strong>
                       </div>
 
-                      {/* Sélecteur rapide 9h00 / 14h00 */}
-                      {onUpdateMatchHour && (
+                      {/* Sélecteur rapide 9h00 / 14h00 pour capitaines & responsables */}
+                      {onUpdateMatchHour && userRole !== 'adherent' && (
                         <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-lg border border-zinc-700/80">
                           <button
                             onClick={() => onUpdateMatchHour(r.id, '09:00')}
@@ -926,17 +938,9 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         {r.composition?.nombreCourts ? `${r.composition.nombreCourts} courts` : '2 courts'}
                       </span>
                     </div>
-
-                    {/* Aperçu rotations */}
-                    <div className="text-[10px] text-zinc-300 bg-black/40 px-2 py-1 rounded-lg flex items-center gap-1.5 overflow-hidden">
-                      <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                      <span className="font-mono text-orange-200 truncate">
-                        {schedulePlan.rotations.map(rot => `${rot.timeSlot} [${rot.matches.map(m => m.matchLabel).join(',')}]`).join(' • ')}
-                      </span>
-                    </div>
                   </div>
 
-                  {/* Ligne 5 : Module Composition & Sondage */}
+                  {/* Ligne 4 : Module Équipe & Actions (Sondage réservé aux profils autorisés) */}
                   <div className="p-3 bg-[#13161c] rounded-2xl border border-[#232934] space-y-2.5">
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                       <div className="flex items-center space-x-1.5">
@@ -973,9 +977,9 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       )}
                     </div>
 
-                    {/* 2 Boutons d'action adaptés à la disposition par 3 */}
+                    {/* Boutons d'action adaptés aux droits d'accès */}
                     <div className="grid grid-cols-2 gap-2">
-                      {onOpenSondageModal && (
+                      {onOpenSondageModal && userRole !== 'adherent' && (
                         <button
                           onClick={() => onOpenSondageModal(r)}
                           className={`px-2 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
@@ -995,7 +999,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       <button
                         onClick={() => onOpenCompositionModal(r, filteredRencontres)}
                         className={`px-2 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-[11px] font-bold transition flex items-center justify-center gap-1 shadow-sm cursor-pointer hover:brightness-110 ${
-                          !onOpenSondageModal ? 'col-span-2' : ''
+                          !onOpenSondageModal || userRole === 'adherent' ? 'col-span-2' : ''
                         }`}
                       >
                         <span className="truncate">
@@ -1004,102 +1008,94 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         <ChevronRight className="w-3.5 h-3.5 shrink-0" />
                       </button>
                     </div>
-
-                    {/* Joueurs enregistrés par le capitaine */}
-                    {compStatus.count > 0 && (
-                      <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            <span>Joueurs ({compStatus.count}) :</span>
-                          </span>
-                          <button
-                            onClick={() => toggleTeamDetails(r.id)}
-                            className="text-[9px] font-bold text-zinc-400 hover:text-white flex items-center gap-0.5 cursor-pointer"
-                          >
-                            <span>{isDetailsOpen ? 'Réduire' : 'Détails'}</span>
-                            <ChevronDown className={`w-3 h-3 transition-transform ${isDetailsOpen ? 'rotate-180' : ''}`} />
-                          </button>
-                        </div>
-
-                        {/* Grille compacte des joueurs */}
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
-                          {registeredSingles.filter(s => isDetailsOpen || s.player).map(({ slot, player }) => (
-                            <div 
-                              key={slot}
-                              className={`p-1.5 rounded-lg border flex flex-col justify-between ${
-                                player 
-                                  ? 'bg-black/40 border-zinc-700/80' 
-                                  : 'bg-black/20 border-zinc-800/40 text-zinc-500'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-black text-zinc-400 uppercase text-[9px]">S{slot}</span>
-                                <span className="font-mono text-orange-300 font-bold text-[9px]">{player ? player.dernierClassTennis : '-'}</span>
-                              </div>
-                              <span className="font-bold text-white truncate mt-0.5">{player ? player.nomPrenom : 'Non désigné'}</span>
-                            </div>
-                          ))}
-
-                          {registeredDouble1 && (
-                            <div className="p-1.5 rounded-lg bg-purple-950/20 border border-purple-500/30 col-span-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-black uppercase text-purple-300">Double 1</span>
-                                <span className="font-mono text-purple-300 text-[9px]">
-                                  [{registeredDouble1.p1?.dernierClassTennis || '-'} / {registeredDouble1.p2?.dernierClassTennis || '-'}]
-                                </span>
-                              </div>
-                              <p className="font-bold text-white truncate text-[10px] mt-0.5">
-                                {registeredDouble1.p1?.nomPrenom} &amp; {registeredDouble1.p2?.nomPrenom}
-                              </p>
-                            </div>
-                          )}
-
-                          {registeredDouble2 && (
-                            <div className="p-1.5 rounded-lg bg-purple-950/20 border border-purple-500/30 col-span-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-black uppercase text-purple-300">Double 2</span>
-                                <span className="font-mono text-purple-300 text-[9px]">
-                                  [{registeredDouble2.p1?.dernierClassTennis || '-'} / {registeredDouble2.p2?.dernierClassTennis || '-'}]
-                                </span>
-                              </div>
-                              <p className="font-bold text-white truncate text-[10px] mt-0.5">
-                                {registeredDouble2.p1?.nomPrenom} &amp; {registeredDouble2.p2?.nomPrenom}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                {/* Pied de carte : Capitaine TCM & Contact */}
-                <div className="pt-2 border-t border-[#232934] flex items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
-                    <UserCheck className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
-                    <strong className="text-white text-[11px] truncate" title={r.nomCapitaine ? `${r.prenomCapitaine || ''} ${r.nomCapitaine}` : 'Capitaine TCM'}>
-                      {r.prenomCapitaine ? `${r.prenomCapitaine} ${r.nomCapitaine}` : (r.nomCapitaine || 'Non désigné')}
-                    </strong>
+                {/* Pied de carte : Capitaine TCM & Contact adverse hors adhérents */}
+                <div className="pt-2 border-t border-[#232934] space-y-1.5 text-xs">
+                  {/* Capitaine TCM */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
+                      <UserCheck className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
+                      <span className="text-[10px] text-zinc-400 shrink-0">Cap. TCM :</span>
+                      <strong className="text-white text-[11px] truncate" title={r.nomCapitaine ? `${r.prenomCapitaine || ''} ${r.nomCapitaine}` : 'Capitaine TCM'}>
+                        {r.prenomCapitaine ? `${r.prenomCapitaine} ${r.nomCapitaine}` : (r.nomCapitaine || 'Non désigné')}
+                      </strong>
+                    </div>
+
+                    {r.portableCapitaine && (
+                      <div className="inline-flex items-center space-x-1 shrink-0">
+                        <a
+                          href={`tel:${r.portableCapitaine}`}
+                          className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                          title="Appeler le capitaine TCM"
+                        >
+                          <Phone className="w-3 h-3" />
+                        </a>
+                        <a
+                          href={`sms:${r.portableCapitaine}`}
+                          className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                          title="SMS au capitaine TCM"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
                   </div>
 
-                  {r.portableCapitaine && (
-                    <div className="inline-flex items-center space-x-1 shrink-0">
-                      <a
-                        href={`tel:${r.portableCapitaine}`}
-                        className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                        title="Appeler le capitaine TCM"
-                      >
-                        <Phone className="w-3 h-3" />
-                      </a>
-                      <a
-                        href={`sms:${r.portableCapitaine}`}
-                        className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                        title="SMS au capitaine TCM"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                      </a>
-                    </div>
+                  {/* Contact Capitaine adverse (affiché uniquement hors profil adhérent) */}
+                  {userRole !== 'adherent' && (
+                    (() => {
+                      const advNom = r.nomCapitaineAdverse || r.nomCorrespondantAdverse;
+                      const advPrenom = r.prenomCapitaineAdverse || r.prenomCorrespondantAdverse || '';
+                      const advTel = r.portableCapitaineAdverse || r.portableCorrespondantAdverse;
+                      const advMail = r.mailCapitaineAdverse || r.mailCorrespondantAdverse;
+                      const advFullName = advNom ? `${advPrenom} ${advNom}`.trim() : null;
+
+                      if (!advFullName && !advTel && !advMail) return null;
+
+                      return (
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1b202a]">
+                          <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
+                            <UserCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                            <span className="text-[10px] text-zinc-400 shrink-0">Cap. Adv :</span>
+                            <strong className="text-sky-200 text-[11px] truncate" title={advFullName || 'Capitaine adverse'}>
+                              {advFullName || 'Adversaire'}
+                            </strong>
+                          </div>
+
+                          <div className="inline-flex items-center space-x-1 shrink-0">
+                            {advTel && (
+                              <>
+                                <a
+                                  href={`tel:${advTel}`}
+                                  className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                                  title={`Appeler le capitaine adverse (${advTel})`}
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-400" />
+                                </a>
+                                <a
+                                  href={`sms:${advTel}`}
+                                  className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                                  title={`SMS au capitaine adverse (${advTel})`}
+                                >
+                                  <MessageSquare className="w-3 h-3 text-sky-400" />
+                                </a>
+                              </>
+                            )}
+                            {advMail && (
+                              <a
+                                href={`mailto:${advMail}`}
+                                className="p-1 rounded-lg bg-[#12151b] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                                title={`Email au capitaine adverse (${advMail})`}
+                              >
+                                <Mail className="w-3 h-3 text-amber-400" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
 
