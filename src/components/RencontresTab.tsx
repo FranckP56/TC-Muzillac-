@@ -33,6 +33,7 @@ import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils
 import { getCompetitionFormat, validateMatchDateAndSchedule } from '../utils/competitionFormats';
 import { getAdverseClubFullAddress, computeMatchRotationSchedule } from '../utils/matchScheduling';
 import { normalizeDateString, parseDateToJs } from '../utils/dateUtils';
+import { MatchItineraryModal } from './MatchItineraryModal';
 
 interface RencontresTabProps {
   rencontres: Rencontre[];
@@ -45,6 +46,46 @@ interface RencontresTabProps {
   isAutoSyncing?: boolean;
   saison?: string;
 }
+
+export const isMatchFinished = (r: Rencontre): boolean => {
+  // 1. Un score officiel chiffré (ex: 4/1, 3/2, 2-3...)
+  if (r.score && /\d+\s*[\/\-]\s*\d+/.test(r.score)) {
+    return true;
+  }
+  // 2. Un vainqueur explicitement mentionné
+  if (r.vainqueur && r.vainqueur.trim() !== '') {
+    return true;
+  }
+  // 3. Texte explicite de résultat
+  const s = (r.score || '').toLowerCase();
+  if (s.includes('termin') || s.includes('joué') || s.includes('fini') || s.includes('victoire') || s.includes('défaite')) {
+    return true;
+  }
+  // 4. Date dépassée (la date de la rencontre est strictement antérieure à aujourd'hui)
+  const normDate = normalizeDateString(r.dateRencontre);
+  const matchDate = parseDateToJs(normDate);
+  if (matchDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (matchDate.getTime() < today.getTime()) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const isMatchUpcoming = (r: Rencontre): boolean => !isMatchFinished(r);
+
+export const formatJourneeLabel = (j?: string): string => {
+  if (!j) return '';
+  const clean = j.trim();
+  if (clean.toLowerCase().startsWith('journée') || clean.toLowerCase().startsWith('journee')) {
+    return clean;
+  }
+  const num = clean.replace(/\D/g, '');
+  if (num) return `Journée ${num}`;
+  return `Journée ${clean}`;
+};
 
 const parseJourneeNum = (j?: string): number => {
   if (!j) return 999;
@@ -78,6 +119,11 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
   saison = '2027',
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedItineraryMatch, setSelectedItineraryMatch] = useState<Rencontre | null>(null);
+
+  // Compteurs dynamiques des statuts
+  const upcomingCount = useMemo(() => rencontres.filter(r => isMatchUpcoming(r)).length, [rencontres]);
+  const finishedCount = useMemo(() => rencontres.filter(r => isMatchFinished(r)).length, [rencontres]);
 
   // Persistance des critères de filtre en local (localStorage)
   const [filterTeam, setFilterTeam] = useState<string>(() => {
@@ -253,7 +299,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
       }
 
       // 2. Filtre statut
-      const isUpcoming = !r.score || r.score === 'À venir';
+      const isUpcoming = isMatchUpcoming(r);
       if (filterStatus === 'upcoming' && !isUpcoming) return false;
       if (filterStatus === 'finished' && isUpcoming) return false;
 
@@ -611,7 +657,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              À venir
+              À venir ({upcomingCount})
             </button>
             <button
               onClick={() => handleSetFilterStatus('finished')}
@@ -621,7 +667,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Jouées
+              Jouées ({finishedCount})
             </button>
           </div>
         </div>
@@ -737,39 +783,15 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
               {/* Disposition par 3 des cartes de cette date */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {dateGroup.matches.map((r) => {
-            const isUpcoming = !r.score || r.score === 'À venir';
+            const isUpcoming = isMatchUpcoming(r);
             const isHome = r.clubAccueilNom.toLowerCase().includes('muzillac');
             const formatInfo = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
             const normalizedDate = normalizeDateString(r.dateRencontre);
-            const dateValidation = validateMatchDateAndSchedule(normalizedDate, formatInfo, r.sexeHomologation);
             const compStatus = getCompositionStatus(r);
             const adverseAddressInfo = getAdverseClubFullAddress(r);
             const effectiveVenue = r.composition?.lieuRencontre || (isHome ? 'Clos des Moines (TCM)' : adverseAddressInfo.venueLabel);
             const matchHour = r.composition?.heureDebut || '14:00';
-            const matchCourts = r.composition?.nombreCourts || 2;
-            const schedulePlan = computeMatchRotationSchedule(matchHour, matchCourts, formatInfo, r.composition, adherentsById);
-            const isDetailsOpen = !!expandedTeamDetails[r.id];
-
-            // Récupération des joueurs de la composition
-            const comp = r.composition;
-            const registeredSingles: { slot: number; player?: Adherent }[] = [];
-            if (comp) {
-              for (let s = 1; s <= formatInfo.numSingles; s++) {
-                const pid = (comp as any)[`simple${s}Id`];
-                registeredSingles.push({
-                  slot: s,
-                  player: pid ? adherentsById.get(pid) : undefined
-                });
-              }
-            }
-
-            const registeredDouble1 = comp?.double1Player1Id && comp?.double1Player2Id
-              ? { p1: adherentsById.get(comp.double1Player1Id), p2: adherentsById.get(comp.double1Player2Id) }
-              : null;
-            const registeredDouble2 = comp?.double2Player1Id && comp?.double2Player2Id
-              ? { p1: adherentsById.get(comp.double2Player1Id), p2: adherentsById.get(comp.double2Player2Id) }
-              : null;
-
+            
             // Nombre de réponses au sondage
             const dispoResponses = r.disponibilites || [];
             const dispoCount = dispoResponses.filter(d => d.statut === 'disponible').length;
@@ -777,7 +799,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             // Calcul indicatif du score
             let isWin = false;
             let isLoss = false;
-            if (!isUpcoming && r.score.includes('/')) {
+            if (!isUpcoming && r.score && r.score.includes('/')) {
               const parts = r.score.split('/');
               const s1 = parseInt(parts[0], 10);
               const s2 = parseInt(parts[1], 10);
@@ -804,28 +826,51 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             return (
               <div 
                 key={r.id}
-                className={`${cardGenderStyle} rounded-3xl p-4 transition-all flex flex-col justify-between space-y-3.5 group`}
+                onClick={() => onOpenCompositionModal(r, filteredRencontres)}
+                className={`${cardGenderStyle} rounded-3xl p-4 transition-all flex flex-col justify-between space-y-3 group cursor-pointer hover:border-orange-500/80 hover:scale-[1.01] hover:shadow-xl`}
+                title="Cliquez pour afficher la fiche détaillée de la rencontre et composer l'équipe"
               >
                 <div className="space-y-3">
-                  {/* Ligne 1 : Équipe, Journée, Catégorie d'âge & Bulle bien mise en avant Domicile / Extérieur */}
+                  {/* Ligne 1 : Journée (avec 'Journée'), Catégorie d'âge, Division & Bulle Domicile / Extérieur bien mise en avant */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="px-2.5 py-0.5 rounded-full font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40 text-xs">
-                        {r.numeroEquipe}
-                      </span>
                       {r.journee && (
                         <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-zinc-800 text-amber-300 border border-zinc-700">
-                          {r.journee}
+                          {formatJourneeLabel(r.journee)}
                         </span>
                       )}
                       <span className="font-bold text-white px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-[10px]">
                         {r.categorieAgeHomologation}
                       </span>
+                      {r.division && (
+                        <span className="font-semibold text-zinc-300 px-2 py-0.5 rounded bg-zinc-800/50 border border-zinc-700/60 text-[10px]">
+                          {r.division}
+                        </span>
+                      )}
                       {isMixte && (
                         <span className="font-black text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/40">
                           Mixte
                         </span>
                       )}
+
+                      {/* Statut de composition de l'équipe (discret dans l'en-tête) */}
+                      {compStatus.isValidated ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Validée FFT
+                        </span>
+                      ) : compStatus.doubleWeightIssue ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                          Poids D1 &lt; D2
+                        </span>
+                      ) : compStatus.hasIssue ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                          Inéligible
+                        </span>
+                      ) : compStatus.count > 0 ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          Équipe ({compStatus.count}/{compStatus.required})
+                        </span>
+                      ) : null}
                     </div>
 
                     {/* Bulle Domicile / Extérieur bien mise en avant */}
@@ -839,7 +884,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   </div>
 
                   {/* Ligne 2 : Confrontation avec numéro d'équipe Muzillac & Score */}
-                  <div className="bg-[#11141a] p-3 rounded-2xl border border-[#232934] flex items-center justify-between gap-3">
+                  <div className="bg-[#11141a] p-3 rounded-2xl border border-[#232934] flex items-center justify-between gap-3 group-hover:border-zinc-700 transition">
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`text-xs font-black truncate ${
@@ -868,152 +913,132 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       </div>
                     </div>
 
-                    {/* Badge Score */}
-                    <div className="shrink-0 text-center">
-                      <div className={`px-2.5 py-1 rounded-xl text-xs font-heading font-black border ${
-                        isUpcoming 
-                          ? 'bg-[#1b2029] text-zinc-400 border-zinc-700' 
-                          : isWin 
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40' 
-                            : isLoss 
-                              ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
-                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                      }`}>
-                        {r.score || 'À venir'}
+                    {/* Badge Score & indicateur d'ouverture */}
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      <div className="text-center">
+                        <div className={`px-2.5 py-1 rounded-xl text-xs font-heading font-black border ${
+                          isUpcoming 
+                            ? 'bg-[#1b2029] text-zinc-400 border-zinc-700' 
+                            : isWin 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40' 
+                              : isLoss 
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        }`}>
+                          {r.score || 'À venir'}
+                        </div>
+                        {!isUpcoming && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider block mt-0.5 text-zinc-400">
+                            {r.vainqueur ? r.vainqueur : isWin ? 'Victoire TCM' : isLoss ? 'Défaite' : 'Score'}
+                          </span>
+                        )}
                       </div>
-                      {!isUpcoming && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider block mt-0.5 text-zinc-400">
-                          {r.vainqueur ? r.vainqueur : isWin ? 'Victoire TCM' : isLoss ? 'Défaite' : 'Score'}
-                        </span>
-                      )}
+                      <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-orange-400 transition shrink-0 ml-0.5" />
                     </div>
                   </div>
 
-                  {/* Ligne 3 : Logistique TCM épurée (Horaire & Lieu) */}
+                  {/* Ligne 3 : Logistique TCM épurée (Horaire & Lieu avec Lien Itinéraire GPS) */}
                   <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                       <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
-                        <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                        <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
                         <span className="text-zinc-400">Horaire :</span>
                         <strong className="text-white font-mono">{matchHour}</strong>
                       </div>
 
-                      {/* Sélecteur rapide 9h00 / 14h00 pour capitaines & responsables */}
-                      {onUpdateMatchHour && userRole !== 'adherent' && (
-                        <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-lg border border-zinc-700/80">
+                      <div className="flex items-center gap-1.5">
+                        {/* Bouton Sondage compact pour profils autorisés */}
+                        {onOpenSondageModal && userRole !== 'adherent' && (
                           <button
-                            onClick={() => onUpdateMatchHour(r.id, '09:00')}
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
-                              matchHour === '09:00' 
-                                ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
-                                : 'text-zinc-400 hover:text-white'
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenSondageModal(r);
+                            }}
+                            className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm ${
+                              dispoCount > 0
+                                ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300'
+                                : 'bg-[#1b202a] hover:bg-[#232936] border-zinc-700 text-zinc-300 hover:text-white'
                             }`}
-                            title="Fixer à 9h00"
+                            title="Sondage des disponibilités des joueurs"
                           >
-                            9h
+                            <ClipboardCheck className="w-3 h-3 text-orange-400 shrink-0" />
+                            <span>Sondage {dispoCount > 0 ? `(${dispoCount})` : ''}</span>
                           </button>
-                          <button
-                            onClick={() => onUpdateMatchHour(r.id, '14:00')}
-                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
-                              matchHour === '14:00' 
-                                ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
-                                : 'text-zinc-400 hover:text-white'
-                            }`}
-                            title="Fixer à 14h00"
-                          >
-                            14h
-                          </button>
-                        </div>
-                      )}
+                        )}
+
+                        {/* Sélecteur rapide 9h00 / 14h00 pour capitaines & responsables */}
+                        {onUpdateMatchHour && userRole !== 'adherent' && (
+                          <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-lg border border-zinc-700/80" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateMatchHour(r.id, '09:00');
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                                matchHour === '09:00' 
+                                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
+                                  : 'text-zinc-400 hover:text-white'
+                              }`}
+                              title="Fixer à 9h00"
+                            >
+                              9h
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateMatchHour(r.id, '14:00');
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                                matchHour === '14:00' 
+                                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
+                                  : 'text-zinc-400 hover:text-white'
+                              }`}
+                              title="Fixer à 14h00"
+                            >
+                              14h
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="text-[11px] text-zinc-400 flex items-center justify-between gap-1.5">
-                      <span className="flex items-center gap-1 min-w-0">
-                        <MapPin className="w-3 h-3 text-zinc-400 shrink-0" />
-                        <strong className="text-white truncate" title={effectiveVenue}>
+                    {/* Lieu & Lien de Localisation / Itinéraire GPS interactif */}
+                    <div className="text-[11px] text-zinc-400 flex items-center justify-between gap-1.5 pt-1 border-t border-zinc-800/60">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedItineraryMatch(r);
+                        }}
+                        className="flex items-center gap-1.5 min-w-0 text-left hover:text-white transition group/loc cursor-pointer"
+                        title="Ouvrir l'itinéraire Maps et partager la localisation"
+                      >
+                        <MapPin className={`w-3.5 h-3.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
+                        <span className="text-zinc-300 group-hover/loc:text-white font-medium truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
                           {effectiveVenue}
-                        </strong>
-                      </span>
+                        </span>
+                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 ml-1 shadow-sm ${
+                          !isHome
+                            ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
+                            : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
+                        }`}>
+                          {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
+                        </span>
+                      </button>
+
                       <span className="shrink-0 text-[10px] text-zinc-400 font-mono">
                         {r.composition?.nombreCourts ? `${r.composition.nombreCourts} courts` : '2 courts'}
                       </span>
                     </div>
                   </div>
-
-                  {/* Ligne 4 : Module Équipe & Actions (Sondage réservé aux profils autorisés) */}
-                  <div className="p-3 bg-[#13161c] rounded-2xl border border-[#232934] space-y-2.5">
-                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                      <div className="flex items-center space-x-1.5">
-                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold shrink-0 ${
-                          compStatus.hasIssue 
-                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' 
-                            : compStatus.isValidated 
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
-                              : 'bg-orange-500/15 text-[#FF6D00] border border-orange-500/30'
-                        }`}>
-                          <ClipboardList className="w-3 h-3" />
-                        </div>
-                        <span className="font-bold text-white text-[11px]">Équipe :</span>
-                      </div>
-
-                      {compStatus.doubleWeightIssue ? (
-                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                          Poids D1 &lt; D2
-                        </span>
-                      ) : compStatus.hasIssue ? (
-                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                          Inéligible
-                        </span>
-                      ) : compStatus.isValidated ? (
-                        <span className="text-[9px] px-2 py-0.2 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                          Validée FFT
-                        </span>
-                      ) : compStatus.count > 0 ? (
-                        <span className="text-[9px] px-2 py-0.2 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                          En cours ({compStatus.count}/{compStatus.required})
-                        </span>
-                      ) : (
-                        <span className="text-[9px] text-zinc-500">Non renseignée</span>
-                      )}
-                    </div>
-
-                    {/* Boutons d'action adaptés aux droits d'accès */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {onOpenSondageModal && userRole !== 'adherent' && (
-                        <button
-                          onClick={() => onOpenSondageModal(r)}
-                          className={`px-2 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
-                            dispoCount > 0
-                              ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300 hover:text-white'
-                              : 'bg-[#1b202a] hover:bg-[#232936] border-zinc-700 text-zinc-300 hover:text-white'
-                          }`}
-                          title="Sondage des disponibilités des joueurs"
-                        >
-                          <ClipboardCheck className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                          <span className="truncate">
-                            Sondage {dispoCount > 0 ? `(${dispoCount})` : ''}
-                          </span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => onOpenCompositionModal(r, filteredRencontres)}
-                        className={`px-2 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-[11px] font-bold transition flex items-center justify-center gap-1 shadow-sm cursor-pointer hover:brightness-110 ${
-                          !onOpenSondageModal || userRole === 'adherent' ? 'col-span-2' : ''
-                        }`}
-                      >
-                        <span className="truncate">
-                          {userRole === 'adherent' ? 'Voir l\'équipe' : compStatus.isValidated ? 'Modifier' : 'Composer'}
-                        </span>
-                        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Pied de carte : Capitaine TCM & Contact adverse hors adhérents */}
+                {/* Pied de carte : Capitaine TCM (avec raccourci mail) & Contact adverse hors adhérents */}
                 <div className="pt-2 border-t border-[#232934] space-y-1.5 text-xs">
-                  {/* Capitaine TCM */}
+                  {/* Capitaine TCM avec téléphone, SMS et mail */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
                       <UserCheck className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
@@ -1023,24 +1048,38 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       </strong>
                     </div>
 
-                    {r.portableCapitaine && (
-                      <div className="inline-flex items-center space-x-1 shrink-0">
+                    <div className="inline-flex items-center space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {r.portableCapitaine && (
+                        <>
+                          <a
+                            href={`tel:${r.portableCapitaine}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                            title={`Appeler le capitaine TCM (${r.portableCapitaine})`}
+                          >
+                            <Phone className="w-3 h-3 text-emerald-400" />
+                          </a>
+                          <a
+                            href={`sms:${r.portableCapitaine}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                            title={`SMS au capitaine TCM (${r.portableCapitaine})`}
+                          >
+                            <MessageSquare className="w-3 h-3 text-sky-400" />
+                          </a>
+                        </>
+                      )}
+                      {r.mailCapitaine && (
                         <a
-                          href={`tel:${r.portableCapitaine}`}
-                          className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                          title="Appeler le capitaine TCM"
+                          href={`mailto:${r.mailCapitaine}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 rounded-lg bg-[#12151b] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
+                          title={`Email au capitaine TCM (${r.mailCapitaine})`}
                         >
-                          <Phone className="w-3 h-3" />
+                          <Mail className="w-3 h-3 text-amber-400" />
                         </a>
-                        <a
-                          href={`sms:${r.portableCapitaine}`}
-                          className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                          title="SMS au capitaine TCM"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                        </a>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* Contact Capitaine adverse (affiché uniquement hors profil adhérent) */}
@@ -1064,11 +1103,12 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                             </strong>
                           </div>
 
-                          <div className="inline-flex items-center space-x-1 shrink-0">
+                          <div className="inline-flex items-center space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                             {advTel && (
                               <>
                                 <a
                                   href={`tel:${advTel}`}
+                                  onClick={(e) => e.stopPropagation()}
                                   className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
                                   title={`Appeler le capitaine adverse (${advTel})`}
                                 >
@@ -1076,6 +1116,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                                 </a>
                                 <a
                                   href={`sms:${advTel}`}
+                                  onClick={(e) => e.stopPropagation()}
                                   className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
                                   title={`SMS au capitaine adverse (${advTel})`}
                                 >
@@ -1086,6 +1127,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                             {advMail && (
                               <a
                                 href={`mailto:${advMail}`}
+                                onClick={(e) => e.stopPropagation()}
                                 className="p-1 rounded-lg bg-[#12151b] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
                                 title={`Email au capitaine adverse (${advMail})`}
                               >
@@ -1115,6 +1157,13 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     </p>
   </div>
 )}
+
+      {/* Modale d'itinéraire et localisation partageable */}
+      <MatchItineraryModal
+        isOpen={!!selectedItineraryMatch}
+        rencontre={selectedItineraryMatch}
+        onClose={() => setSelectedItineraryMatch(null)}
+      />
     </div>
   );
 };
