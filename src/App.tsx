@@ -759,6 +759,8 @@ export default function App() {
           spreadsheetName={spreadsheetName}
           onOpenGoogleSyncModal={() => setIsGoogleSyncModalOpen(true)}
           saison={saison}
+          onOpenSondageModal={(r) => setSelectedRencontreForSondage(r)}
+          userRole={userRole}
         />
       )}
 

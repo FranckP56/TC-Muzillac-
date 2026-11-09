@@ -99,7 +99,7 @@ const parseEquipeNum = (e?: string): number => {
   return m ? parseInt(m[0], 10) : 999;
 };
 
-const formatMuzillacClubName = (clubName: string, numeroEquipe?: string): string => {
+export const formatMuzillacClubName = (clubName: string, numeroEquipe?: string): string => {
   const isMuzillac = (clubName || '').toLowerCase().includes('muzillac');
   if (!isMuzillac) return clubName;
   const clean = clubName.replace(/\s+\d+$/, '').trim();
@@ -883,33 +883,27 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </span>
                   </div>
 
-                  {/* Ligne 2 : Confrontation avec numéro d'équipe Muzillac & Score */}
+                  {/* Ligne 2 : Confrontation & Score */}
                   <div className="bg-[#11141a] p-3 rounded-2xl border border-[#232934] flex items-center justify-between gap-3 group-hover:border-zinc-700 transition">
                     <div className="space-y-1.5 flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-black truncate ${
+                      <div>
+                        <span className={`text-xs font-black truncate block ${
                           r.clubAccueilNom.toLowerCase().includes('muzillac')
                             ? 'text-[#FF6D00]'
                             : 'text-zinc-200'
                         }`}>
                           {formatMuzillacClubName(r.clubAccueilNom, r.numeroEquipe)}
                         </span>
-                        {isHome && (
-                          <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Dom</span>
-                        )}
                       </div>
 
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-black truncate ${
+                      <div className="pt-1 border-t border-zinc-800/60">
+                        <span className={`text-xs font-black truncate block ${
                           r.clubVisiteurNom.toLowerCase().includes('muzillac')
                             ? 'text-[#FF6D00]'
                             : 'text-zinc-200'
                         }`}>
                           {formatMuzillacClubName(r.clubVisiteurNom, r.numeroEquipe)}
                         </span>
-                        {!isHome && (
-                          <span className="text-[9px] text-zinc-500 uppercase font-bold shrink-0 ml-1">Ext</span>
-                        )}
                       </div>
                     </div>
 
@@ -937,208 +931,50 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Ligne 3 : Logistique TCM épurée (Horaire & Lieu avec Lien Itinéraire GPS) */}
+                  {/* Ligne 3 : Logistique du match (Horaire sur X courts & Adresse complète sur 2 lignes avec itinéraire) */}
                   <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
-                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                      <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
-                        <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                        <span className="text-zinc-400">Horaire :</span>
-                        <strong className="text-white font-mono">{matchHour}</strong>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        {/* Bouton Sondage compact pour profils autorisés */}
-                        {onOpenSondageModal && userRole !== 'adherent' && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenSondageModal(r);
-                            }}
-                            className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm ${
-                              dispoCount > 0
-                                ? 'bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-500/50 text-emerald-300'
-                                : 'bg-[#1b202a] hover:bg-[#232936] border-zinc-700 text-zinc-300 hover:text-white'
-                            }`}
-                            title="Sondage des disponibilités des joueurs"
-                          >
-                            <ClipboardCheck className="w-3 h-3 text-orange-400 shrink-0" />
-                            <span>Sondage {dispoCount > 0 ? `(${dispoCount})` : ''}</span>
-                          </button>
-                        )}
-
-                        {/* Sélecteur rapide 9h00 / 14h00 pour capitaines & responsables */}
-                        {onUpdateMatchHour && userRole !== 'adherent' && (
-                          <div className="flex items-center space-x-1 bg-black/50 p-0.5 rounded-lg border border-zinc-700/80" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onUpdateMatchHour(r.id, '09:00');
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
-                                matchHour === '09:00' 
-                                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
-                                  : 'text-zinc-400 hover:text-white'
-                              }`}
-                              title="Fixer à 9h00"
-                            >
-                              9h
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onUpdateMatchHour(r.id, '14:00');
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
-                                matchHour === '14:00' 
-                                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow' 
-                                  : 'text-zinc-400 hover:text-white'
-                              }`}
-                              title="Fixer à 14h00"
-                            >
-                              14h
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
+                      <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                      <span className="text-zinc-400">Horaire :</span>
+                      <strong className="text-white font-mono">{matchHour}</strong>
+                      <span className="text-zinc-500 font-bold">•</span>
+                      <span className="text-zinc-300 font-medium">Sur {r.composition?.nombreCourts || 2} courts</span>
                     </div>
 
-                    {/* Lieu & Lien de Localisation / Itinéraire GPS interactif */}
-                    <div className="text-[11px] text-zinc-400 flex items-center justify-between gap-1.5 pt-1 border-t border-zinc-800/60">
+                    {/* Lieu & Adresse complète sur 2 lignes (adresse, code postal, ville) avec itinéraire Maps */}
+                    <div className="text-[11px] text-zinc-400 pt-1.5 border-t border-zinc-800/60">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedItineraryMatch(r);
                         }}
-                        className="flex items-center gap-1.5 min-w-0 text-left hover:text-white transition group/loc cursor-pointer"
+                        className="w-full flex items-start gap-2 text-left hover:text-white transition group/loc cursor-pointer"
                         title="Ouvrir l'itinéraire Maps et partager la localisation"
                       >
-                        <MapPin className={`w-3.5 h-3.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
-                        <span className="text-zinc-300 group-hover/loc:text-white font-medium truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
-                          {effectiveVenue}
-                        </span>
-                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 ml-1 shadow-sm ${
-                          !isHome
-                            ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
-                            : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
-                        }`}>
-                          {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
-                        </span>
-                      </button>
-
-                      <span className="shrink-0 text-[10px] text-zinc-400 font-mono">
-                        {r.composition?.nombreCourts ? `${r.composition.nombreCourts} courts` : '2 courts'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pied de carte : Capitaine TCM (avec raccourci mail) & Contact adverse hors adhérents */}
-                <div className="pt-2 border-t border-[#232934] space-y-1.5 text-xs">
-                  {/* Capitaine TCM avec téléphone, SMS et mail */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
-                      <UserCheck className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
-                      <span className="text-[10px] text-zinc-400 shrink-0">Cap. TCM :</span>
-                      <strong className="text-white text-[11px] truncate" title={r.nomCapitaine ? `${r.prenomCapitaine || ''} ${r.nomCapitaine}` : 'Capitaine TCM'}>
-                        {r.prenomCapitaine ? `${r.prenomCapitaine} ${r.nomCapitaine}` : (r.nomCapitaine || 'Non désigné')}
-                      </strong>
-                    </div>
-
-                    <div className="inline-flex items-center space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {r.portableCapitaine && (
-                        <>
-                          <a
-                            href={`tel:${r.portableCapitaine}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                            title={`Appeler le capitaine TCM (${r.portableCapitaine})`}
-                          >
-                            <Phone className="w-3 h-3 text-emerald-400" />
-                          </a>
-                          <a
-                            href={`sms:${r.portableCapitaine}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                            title={`SMS au capitaine TCM (${r.portableCapitaine})`}
-                          >
-                            <MessageSquare className="w-3 h-3 text-sky-400" />
-                          </a>
-                        </>
-                      )}
-                      {r.mailCapitaine && (
-                        <a
-                          href={`mailto:${r.mailCapitaine}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1 rounded-lg bg-[#12151b] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                          title={`Email au capitaine TCM (${r.mailCapitaine})`}
-                        >
-                          <Mail className="w-3 h-3 text-amber-400" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Contact Capitaine adverse (affiché uniquement hors profil adhérent) */}
-                  {userRole !== 'adherent' && (
-                    (() => {
-                      const advNom = r.nomCapitaineAdverse || r.nomCorrespondantAdverse;
-                      const advPrenom = r.prenomCapitaineAdverse || r.prenomCorrespondantAdverse || '';
-                      const advTel = r.portableCapitaineAdverse || r.portableCorrespondantAdverse;
-                      const advMail = r.mailCapitaineAdverse || r.mailCorrespondantAdverse;
-                      const advFullName = advNom ? `${advPrenom} ${advNom}`.trim() : null;
-
-                      if (!advFullName && !advTel && !advMail) return null;
-
-                      return (
-                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1b202a]">
-                          <div className="flex items-center space-x-1.5 text-zinc-400 min-w-0">
-                            <UserCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                            <span className="text-[10px] text-zinc-400 shrink-0">Cap. Adv :</span>
-                            <strong className="text-sky-200 text-[11px] truncate" title={advFullName || 'Capitaine adverse'}>
-                              {advFullName || 'Adversaire'}
-                            </strong>
+                        <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-zinc-200 group-hover/loc:text-white font-semibold truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
+                              {isHome ? 'Complexe du Clos des Moines (TCM)' : r.clubAccueilNom}
+                            </span>
+                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 shadow-sm ${
+                              !isHome
+                                ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
+                                : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
+                            }`}>
+                              {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
+                            </span>
                           </div>
-
-                          <div className="inline-flex items-center space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            {advTel && (
-                              <>
-                                <a
-                                  href={`tel:${advTel}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1 rounded-lg bg-[#12151b] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                                  title={`Appeler le capitaine adverse (${advTel})`}
-                                >
-                                  <Phone className="w-3 h-3 text-emerald-400" />
-                                </a>
-                                <a
-                                  href={`sms:${advTel}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="p-1 rounded-lg bg-[#12151b] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                                  title={`SMS au capitaine adverse (${advTel})`}
-                                >
-                                  <MessageSquare className="w-3 h-3 text-sky-400" />
-                                </a>
-                              </>
-                            )}
-                            {advMail && (
-                              <a
-                                href={`mailto:${advMail}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="p-1 rounded-lg bg-[#12151b] hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-[#252b37] transition flex items-center gap-1 px-1.5 text-[10px] font-bold"
-                                title={`Email au capitaine adverse (${advMail})`}
-                              >
-                                <Mail className="w-3 h-3 text-amber-400" />
-                              </a>
-                            )}
-                          </div>
+                          <p className="text-[10px] text-zinc-400 group-hover/loc:text-zinc-300 leading-tight mt-0.5">
+                            {isHome 
+                              ? '12 Rue du Clos des Moines, 56190 Muzillac' 
+                              : ([r.adresse1Installation, [r.codePostalInstallation, r.villeInstallation].filter(Boolean).join(' ')].filter(Boolean).join(', ') || adverseAddressInfo.venueLabel)}
+                          </p>
                         </div>
-                      );
-                    })()
-                  )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
               </div>

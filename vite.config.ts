@@ -11,11 +11,35 @@ export default defineConfig(() => {
       {
         name: 'gas-proxy-plugin',
         configureServer(server) {
+          let cachedData: string | null = null;
+          let cacheTime = 0;
+
           server.middlewares.use('/api/gas-proxy', async (req, res) => {
+            // Set permissive CORS headers for all responses including preflights and errors
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, X-Requested-With');
+
+            if (req.method === 'OPTIONS') {
+              res.statusCode = 204;
+              res.end();
+              return;
+            }
+
             try {
               const url = new URL(req.url || '', `http://${req.headers.host || 'localhost:3000'}`);
               const targetUrl = url.searchParams.get('url') || 'https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec?action=getAll';
-              
+
+              const isGetAll = req.method === 'GET' && targetUrl.includes('action=getAll');
+              const now = Date.now();
+
+              // In-memory cache for GET action=getAll (30 seconds TTL)
+              if (isGetAll && cachedData && (now - cacheTime < 30000)) {
+                res.setHeader('Content-Type', 'application/json');
+                res.end(cachedData);
+                return;
+              }
+
               let body: string | undefined = undefined;
               if (req.method === 'POST') {
                 const chunks: Buffer[] = [];
@@ -25,20 +49,35 @@ export default defineConfig(() => {
                 body = Buffer.concat(chunks).toString('utf-8');
               }
 
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 12000);
+
               const gasRes = await fetch(targetUrl, {
                 method: req.method || 'GET',
                 headers: req.method === 'POST' ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined,
                 body: body || undefined,
                 redirect: 'follow',
+                signal: controller.signal,
               });
-              
+              clearTimeout(timeoutId);
+
               const data = await gasRes.text();
+              if (isGetAll && gasRes.ok && data.startsWith('{')) {
+                cachedData = data;
+                cacheTime = Date.now();
+              }
+
               res.setHeader('Content-Type', 'application/json');
-              res.setHeader('Access-Control-Allow-Origin', '*');
               res.end(data);
             } catch (err: any) {
-              res.statusCode = 500;
-              res.end(JSON.stringify({ error: err.message }));
+              if (cachedData) {
+                res.setHeader('Content-Type', 'application/json');
+                res.end(cachedData);
+                return;
+              }
+              res.statusCode = 502;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message || 'Apps Script proxy error' }));
             }
           });
         }

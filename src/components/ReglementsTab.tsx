@@ -16,7 +16,12 @@ import {
   AlertTriangle, 
   Sparkles,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Award,
+  AlertCircle
 } from 'lucide-react';
 import { ChampionshipRule } from '../types/rules';
 import { UserRole } from '../types/tennis';
@@ -37,6 +42,8 @@ interface ReglementsTabProps {
 export const ReglementsTab: React.FC<ReglementsTabProps> = ({
   userRole = 'adherent',
 }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'formats' | 'guide'>('formats');
+  const [expandedSection, setExpandedSection] = useState<string | null>('ordre_parties');
   const [rules, setRules] = useState<ChampionshipRule[]>(() => getStoredChampionshipRules());
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -206,8 +213,274 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
         )}
       </div>
 
-      {/* Barre de recherche et filtres */}
-      <div className="bg-[#141820] p-4 rounded-2xl border border-[#252b37] space-y-3 text-xs">
+      {/* Onglets de sous-navigation : Formats vs Guide Officiel */}
+      <div className="flex items-center space-x-2 p-1.5 bg-[#10141c] rounded-2xl border border-zinc-800 w-fit">
+        <button
+          onClick={() => setActiveSubTab('formats')}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
+            activeSubTab === 'formats'
+              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Formats par Championnat ({rules.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('guide')}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
+            activeSubTab === 'guide'
+              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Guide &amp; Règles des Rencontres (FFT 2027)</span>
+        </button>
+      </div>
+
+      {/* ==================== VUE 1 : GUIDE COMPLET DES RÈGLES ==================== */}
+      {activeSubTab === 'guide' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-950/40 via-[#18131c] to-[#0f141f] border border-orange-500/30 text-xs flex items-start gap-3">
+            <BookOpen className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h2 className="font-heading font-black text-white text-sm sm:text-base">
+                Directives &amp; Règlements Officiels des Rencontres par Équipes (FFT 2027)
+              </h2>
+              <p className="text-zinc-300 leading-relaxed text-xs">
+                Ce guide rassemble toutes les règles officielles régissant le déroulement des championnats par équipes (Comité du Morbihan &amp; Ligue de Bretagne).
+                Toute non-conformité constatée sur une feuille de match déclenche une <strong>bulle de rappel</strong> dans la fiche de rencontre.
+              </p>
+            </div>
+          </div>
+
+          {/* Section 1 : Ordre des parties & Déroulement */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 font-black">
+                  1
+                </div>
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Ordre Officiel des Matchs &amp; Déroulement sur 2 Courts
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300 border border-zinc-700">
+                Organisation
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-orange-400 tracking-wider">
+                  Rotation 1 (Horaire officiel)
+                </span>
+                <p className="font-bold text-white">Simples N°4 et N°2</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Sur 2 courts, la rencontre débute impérativement par les simples 4 et 2 (ou 3 et 2 pour 3 simples). Début précis à l'horaire de convocation (09h00 ou 14h00).
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-sky-400 tracking-wider">
+                  Rotation 2 (Estimée +90 min)
+                </span>
+                <p className="font-bold text-white">Simples N°3 et N°1</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Dès libération d'un court par la 1ère rotation, entrée en lice des simples 3 et 1 (le leader de l'équipe).
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider">
+                  Rotation 3 (Épreuves de Doubles)
+                </span>
+                <p className="font-bold text-white">Double 1 et Double 2</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Les doubles se jouent après achèvement des simples. <strong>30 minutes de repos minimum garanti</strong> pour tout joueur ayant disputé un simple.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-[11px] text-amber-200 flex items-start space-x-2">
+              <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-amber-100">Règle de Permutation d'Accord Mutuel : </strong>
+                Les capitaines peuvent convenir d'intervertir l'ordre des parties directement dans la fiche de match (via les flèches ▲ et ▼), notamment en cas de contrainte horaire ou d'accord préalable entre clubs.
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2 : Hiérarchie des Simples & Classements Gelés */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 font-black">
+                  2
+                </div>
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Hiérarchie des Simples &amp; Classements Officiellement Gelés
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                Règle Stricte FFT
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2">
+                <div className="flex items-center gap-1.5 text-orange-400 font-black text-[11px] uppercase">
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>Ordre de Force Obligatoire</span>
+                </div>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Le joueur ayant le <strong>meilleur classement officiel</strong> doit impérativement figurer en Simple 1, le deuxième en Simple 2, etc.
+                  <br />
+                  À classement identique (ex: deux 15/4), le capitaine est libre de positionner les joueurs dans l'ordre de son choix.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2">
+                <div className="flex items-center gap-1.5 text-blue-400 font-black text-[11px] uppercase">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Classement de Blocage FFT</span>
+                </div>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Le classement pris en compte pour toute la durée du championnat est celui <strong>en vigueur au premier mardi du mois de lancement de l'épreuve</strong>.
+                  <br />
+                  Une éventuelle montée ou descente lors des calculs mensuels intermédiaires n'impacte pas l'ordre figé pour cette phase.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3 : Règle du Poids des Doubles */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 font-black">
+                  3
+                </div>
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Règle Impérative du Poids des Doubles (Régionale &amp; PR)
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                Poids D1 ≤ Poids D2
+              </span>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2 text-xs">
+              <p className="text-zinc-300 text-[11px] leading-relaxed">
+                En division Régionale et Pré-Régionale, la somme des barèmes de classement de la paire N°1 doit être <strong>inférieure ou égale</strong> à celle de la paire N°2 (les classements les plus forts ayant les plus petits barèmes : ex. 15/1 = 15 pts, 30 = 24 pts, NC = 40 pts).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px]">
+                <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-purple-200">
+                  <strong>Paire Double 1 :</strong> Total des points P1 + P2 doit être <strong>égal ou plus fort</strong> que Double 2.
+                </div>
+                <div className="p-2.5 rounded-xl bg-sky-950/20 border border-sky-500/30 text-sky-200">
+                  <strong>Bris d'égalité :</strong> Si les deux paires ont le même poids total, le joueur au <strong>meilleur classement individuel</strong> doit obligatoirement être dans le Double 1.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4 : Qualification & Brûlage des joueurs */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black">
+                  4
+                </div>
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Qualification, Licences &amp; Règle du Brûlage (Équipes N-1)
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                Circulation Joueurs
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">
+                  Licence FFT 2027
+                </span>
+                <p className="font-bold text-white">Licence Club Validée</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Le joueur doit être titulaire de la licence FFT 2027 validée au TCM (ou mutation autorisée) avec statut certificat médical / attestation QS en règle.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
+                  Brûlage Équipe Supérieure
+                </span>
+                <p className="font-bold text-white">2 Rencontres Max</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Un joueur ayant disputé <strong>2 rencontres</strong> dans une équipe supérieure (ex: TCM 1) ne peut plus redescendre en équipe inférieure (ex: TCM 2) pour la même saison.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">
+                  Même Journée
+                </span>
+                <p className="font-bold text-white">1 Seule Équipe / Week-end</p>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Il est formellement interdit de disputer deux rencontres dans deux équipes différentes au cours du même week-end ou de la même journée de championnat.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5 : Horaires, Retards, Forfaits et Feuille numérique */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 font-black">
+                  5
+                </div>
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Horaires, Retards (W.O. à 15 min), Balles &amp; Signature
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                Logistique
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">
+                  Forfait pour Retard (W.O.)
+                </span>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Tout joueur non présent sur le terrain <strong>15 minutes après l'appel de sa partie</strong> est déclaré forfait (W.O.) pour le match en question.
+                  En cas d'intempéries ou d'imprévu, le capitaine doit impérativement joindre le capitaine adverse avant l'horaire.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">
+                  Balles &amp; Feuille Ten'Up
+                </span>
+                <p className="text-zinc-300 text-[11px] leading-relaxed">
+                  Le club recevant fournit les boîtes de balles neuves homologuées FFT. À l'issue des matchs, les deux capitaines vérifient et signent électroniquement la feuille de match dans Ten'Up avant le dimanche soir 20h00.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== VUE 2 : LISTE DES FORMATS PAR CHAMPIONNAT ==================== */}
+      {activeSubTab === 'formats' && (
+        <>
+          {/* Barre de recherche et filtres */}
+          <div className="bg-[#141820] p-4 rounded-2xl border border-[#252b37] space-y-3 text-xs">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           
           <div className="relative flex-1">
@@ -453,6 +726,8 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
             Aucun championnat ne correspond à votre recherche.
           </p>
         </div>
+      )}
+      </>
       )}
 
       {/* Modale d'édition d'une règle (Admin / Bureau) */}

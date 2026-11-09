@@ -26,10 +26,17 @@ import {
   Sun, 
   ChevronLeft, 
   ChevronRight,
-  Search
+  Search,
+  Phone,
+  Mail,
+  MessageSquare,
+  ArrowUp,
+  ArrowDown,
+  ClipboardCheck
 } from 'lucide-react';
+import { formatJourneeLabel, formatMuzillacClubName } from './RencontresTab';
 import { motion, AnimatePresence } from 'motion/react';
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility, getRequiredSex } from '../utils/fftEligibility';
 import { getRankingMeta, getRankingWeight } from '../utils/ranking';
 import { checkSinglesRankingOrder, getNextFftMonthlyRankingRelease } from '../utils/fftCalendar';
@@ -52,6 +59,33 @@ import { saveCompositionToSheet } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
 import { isLicencieMuzillac } from '../utils/licencies';
 
+/**
+ * Convertit JJ/MM/AAAA en AAAA-MM-JJ pour input type="date"
+ */
+export function toIsoDate(dStr?: string): string {
+  if (!dStr) return '';
+  const parts = dStr.split('/');
+  if (parts.length === 3) {
+    const day = parts[0].padStart(2, '0');
+    const month = parts[1].padStart(2, '0');
+    const year = parts[2];
+    return `${year}-${month}-${day}`;
+  }
+  return dStr;
+}
+
+/**
+ * Convertit AAAA-MM-JJ en JJ/MM/AAAA
+ */
+export function fromIsoDate(isoStr?: string): string {
+  if (!isoStr) return '';
+  const parts = isoStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoStr;
+}
+
 interface CompositionModalProps {
   rencontre: Rencontre;
   rencontresList?: Rencontre[];
@@ -65,6 +99,8 @@ interface CompositionModalProps {
   spreadsheetName?: string;
   onOpenGoogleSyncModal?: () => void;
   saison?: string;
+  onOpenSondageModal?: (rencontre: Rencontre) => void;
+  userRole?: UserRole;
 }
 
 type SlotKey = 
@@ -91,6 +127,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   spreadsheetName = 'Données_appli',
   onOpenGoogleSyncModal,
   saison = '2027',
+  onOpenSondageModal,
+  userRole = 'adherent',
 }) => {
   // Navigation / Slider entre rencontres selon les critères actifs
   const [direction, setDirection] = useState<number>(1);
@@ -323,6 +361,50 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const compFormat: CompetitionFormatInfo = useMemo(() => {
     return getCompetitionFormat(rencontre, { formatReduit });
   }, [rencontre, formatReduit]);
+
+  // Numéros des joueurs de simple assignés à chaque match chronologique
+  // Ex: pour 4 simples, les matchs 1, 2, 3, 4 peuvent avoir comme joueurs [4, 2, 3, 1] ou [2, 3, 1, 4]
+  const defaultSinglesPlayerNumbers = useMemo(() => {
+    const n = compFormat.numSingles;
+    if (n === 4) return [4, 2, 3, 1];
+    if (n === 3) return [3, 2, 1];
+    if (n === 5) return [4, 3, 2, 1, 5];
+    const list: number[] = [];
+    for (let i = 1; i <= n; i++) list.push(i);
+    return list;
+  }, [compFormat.numSingles]);
+
+  const [singlesPlayerNumbers, setSinglesPlayerNumbers] = useState<number[]>(defaultSinglesPlayerNumbers);
+
+  useEffect(() => {
+    setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
+  }, [defaultSinglesPlayerNumbers, rencontre?.id]);
+
+  const swapSinglesPlayerNumbers = (indexA: number, indexB: number) => {
+    if (
+      indexA < 0 || 
+      indexA >= singlesPlayerNumbers.length || 
+      indexB < 0 || 
+      indexB >= singlesPlayerNumbers.length
+    ) return;
+    const newOrder = [...singlesPlayerNumbers];
+    const temp = newOrder[indexA];
+    newOrder[indexA] = newOrder[indexB];
+    newOrder[indexB] = temp;
+    setSinglesPlayerNumbers(newOrder);
+  };
+
+  const getMatchTimeSlot = (index: number) => {
+    const courts = Math.max(1, matchCourtsInput);
+    const rotationIndex = Math.floor(index / courts);
+    const [hStr, mStr] = (matchHourInput || '09:00').split(':');
+    const h = parseInt(hStr, 10) || 9;
+    const m = parseInt(mStr, 10) || 0;
+    const totalMinutes = h * 60 + m + rotationIndex * 90;
+    const newH = Math.floor(totalMinutes / 60) % 24;
+    const newM = totalMinutes % 60;
+    return `${String(newH).padStart(2, '0')}h${String(newM).padStart(2, '0')}`;
+  };
 
   // Calcul du planning des créneaux et des rotations par court
   const schedulePlan: MatchSchedulePlan = useMemo(() => {
@@ -634,7 +716,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 🏆 ${rencontre.libelleHomologation} (${rencontre.categorieAgeHomologation} - ${rencontre.sexeHomologation})
 📅 Date : ${scheduleCheck.dayName} ${matchDateInput} à ${matchHourInput}
 📍 Lieu : ${effectiveVenue} (${matchCourtsInput} court(s))
-🆚 Rencontre : ${rencontre.clubAccueilNom} vs ${rencontre.clubVisiteurNom}
+🆚 Rencontre : ${formatMuzillacClubName(rencontre.clubAccueilNom, rencontre.numeroEquipe)} vs ${formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}
 👤 Capitaine : ${rencontre.nomCapitaine}
 
 COMPOSITION OFFICIELLE (${compFormat.categoryLabel}) :
@@ -684,71 +766,64 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
     const player = playerId ? adherentsById.get(playerId) : null;
     const eligibility = player ? checkFFT2027Eligibility(player, rencontre) : null;
     const isSlotIneligible = eligibility && !eligibility.isEligible;
-    const sched = getScheduleSlotFor(slotKey);
+    const isDouble = slotKey.startsWith('double');
 
     return (
       <div 
-        className={`p-3.5 rounded-2xl border transition-all ${
+        className={`p-2.5 rounded-xl border transition-all ${
           isSlotIneligible 
             ? 'bg-rose-950/30 border-rose-500/60 shadow-lg shadow-rose-950/40' 
             : player 
-              ? 'bg-[#1a1f29] border-[#2c3444]' 
+              ? 'bg-[#181d26] border-[#293140]' 
               : 'bg-[#12151b] border-dashed border-[#282f3c] hover:border-[#E65100]/60'
         }`}
       >
-        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-black uppercase tracking-wider text-orange-400">
-              {label}
-            </span>
-            {sched && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-[10px] font-bold">
-                <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                <span>{sched.timeSlot}</span>
-                <span className="text-zinc-500 font-sans">•</span>
-                <span className="text-zinc-300 font-sans">{sched.courtName}</span>
-              </span>
-            )}
-          </div>
-          {player && (
-            <button
-              onClick={() => handleClearSlot(slotKey)}
-              className="text-zinc-500 hover:text-rose-400 text-xs px-1.5 py-0.5 rounded transition cursor-pointer"
-              title="Retirer le joueur"
-            >
-              Retirer
-            </button>
-          )}
-        </div>
-
         {player ? (
           <div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-heading font-black text-white text-sm truncate">
+            {isDouble && (
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-orange-400">
+                  {label}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="font-heading font-black text-white text-xs sm:text-sm truncate leading-tight">
                   {player.nomPrenom}
                 </p>
-                <p className="text-[11px] text-zinc-400">
+                <p className="text-[10px] text-zinc-400">
                   Licence : <span className="font-mono text-zinc-300">{player.licence}</span>
                 </p>
               </div>
 
-              <div className="text-right shrink-0">
-                <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-orange-500/15 border border-orange-500/30 text-orange-300">
-                  {player.dernierClassTennis}
-                </span>
-                <p className="text-[10px] text-zinc-500 mt-0.5">
-                  {player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}
-                </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="text-right">
+                  <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono">
+                    {player.dernierClassTennis}
+                  </span>
+                  <p className="text-[9px] text-zinc-500 mt-0.5">
+                    {player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleClearSlot(slotKey)}
+                  className="text-zinc-500 hover:text-rose-400 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-rose-950/40 border border-zinc-700 transition cursor-pointer"
+                  title="Retirer ce joueur"
+                >
+                  Retirer
+                </button>
               </div>
             </div>
 
             {/* Alerte si inéligible */}
             {isSlotIneligible && eligibility && (
-              <div className="mt-2.5 p-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-[10px] text-rose-300 space-y-1">
+              <div className="mt-1.5 p-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-[10px] text-rose-300 space-y-0.5">
                 <p className="font-black flex items-center gap-1 text-rose-200">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                  JOUEUR INÉLIGIBLE SUR CE MATCH :
+                  <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+                  JOUEUR INÉLIGIBLE :
                 </p>
                 {eligibility.errors.map((err, i) => (
                   <p key={i}>• {err}</p>
@@ -758,11 +833,12 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
           </div>
         ) : (
           <button
+            type="button"
             onClick={() => setActiveSlot({ key: slotKey, label })}
-            className="w-full py-2.5 flex items-center justify-center gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-orange-600/10 rounded-xl transition cursor-pointer"
+            className="w-full py-2 flex items-center justify-center gap-2 rounded-lg transition cursor-pointer hover:bg-orange-600/10"
           >
             <UserCheck className="w-4 h-4 text-[#FF6D00]" />
-            <span>Assigner un joueur éligible</span>
+            <span className="text-[#FF6D00] font-black text-xs">Assigner {label}</span>
           </button>
         )}
       </div>
@@ -891,24 +967,35 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
                 <div>
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
-                      {rencontre.numeroEquipe}
-                    </span>
-                    <span className={`text-[11px] sm:text-xs font-black px-2 py-0.5 rounded-full border ${theme.badgeBg}`}>
+                    {rencontre.journee && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-zinc-800 text-amber-300 border border-zinc-700">
+                        {formatJourneeLabel(rencontre.journee)}
+                      </span>
+                    )}
+                    <span className={`text-[11px] sm:text-xs font-black px-2.5 py-0.5 rounded-full border ${theme.badgeBg}`}>
                       {rencontre.categorieAgeHomologation}{isMixte ? ' • Mixte' : ''}
                     </span>
+                    {rencontre.division && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-800/80 text-zinc-200 border border-zinc-700">
+                        {rencontre.division}
+                      </span>
+                    )}
+                    {rencontre.poule && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-800/80 text-orange-300 border border-zinc-700">
+                        Poule {rencontre.poule.replace(/poule/i, '').trim()}
+                      </span>
+                    )}
                     <span className="text-[11px] sm:text-xs text-orange-400 font-bold flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
                       {scheduleCheck.dayName} {matchDateInput}
                     </span>
                   </div>
 
-                  <h2 className={`text-base sm:text-xl font-heading font-black ${theme.nameText} mt-1 leading-snug`}>
-                    Feuille de match & Composition d'équipe
+                  <h2 className={`text-xl sm:text-2xl font-heading font-black ${theme.nameText} mt-1.5 leading-snug`}>
+                    {formatMuzillacClubName(rencontre.clubAccueilNom, rencontre.numeroEquipe)}{' '}
+                    <span className="text-orange-400 font-normal">vs</span>{' '}
+                    {formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}
                   </h2>
-                  <p className="text-[11px] sm:text-xs text-zinc-400 line-clamp-1">
-                    {rencontre.clubAccueilNom} <strong className="text-zinc-200">vs</strong> {rencontre.clubVisiteurNom} • {rencontre.libelleHomologation}
-                  </p>
                 </div>
               </div>
 
@@ -920,104 +1007,91 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               </button>
             </div>
 
-            {/* ==================== BANDEAU FORMAT OFFICIEL ==================== */}
-            <div className="shrink-0 px-4 sm:px-6 py-2 sm:py-2.5 bg-[#0d0f14] border-b border-[#232936] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 text-xs">
-              <div className="flex items-center space-x-2 text-zinc-300 flex-wrap">
-                <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 font-black">
-                  {compFormat.numSingles} Simples + {compFormat.numDoubles} Double{compFormat.numDoubles > 1 ? 's' : ''}
-                </span>
-                <span className="font-bold text-white">{compFormat.categoryLabel}</span>
-                <span className="text-zinc-500 hidden md:inline">• {compFormat.pointsSystem}</span>
-              </div>
-
-              {/* Toggle format réduit départemental (uniquement si 5 simples par défaut) */}
-              {compFormat.numSingles >= 5 && (
-                <div className="flex items-center space-x-2 shrink-0">
-                  <span className="text-[11px] text-zinc-400">Format :</span>
-                  <button
-                    onClick={() => setFormatReduit(!formatReduit)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                      formatReduit 
-                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' 
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
-                    }`}
-                  >
-                    {formatReduit ? 'Format Réduit (3S + 1D)' : `Standard (${compFormat.numSingles}S + 1D)`}
-                  </button>
-                </div>
-              )}
-            </div>
-
             {/* ==================== CORPS MODALE AVEC DÉFILEMENT VERTICAL STRICT ==================== */}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-6 space-y-4 sm:space-y-6 touch-pan-y">
 
-              {/* ==================== ALERTES & VALIDATIONS DÉFILABLES ==================== */}
-              {/* Alerte si jour inhabituel ou alternance */}
-              {scheduleCheck.warning && (
-                <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs flex items-start space-x-2.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-white">{scheduleCheck.warning}</p>
-                    <p className="text-amber-300 text-[11px] mt-0.5">{scheduleCheck.alternationMessage}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Alerte si infraction Poids des Doubles Régional FFT */}
-              {compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage && (
-                <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/60 text-rose-200 text-xs flex items-start justify-between gap-3 shadow-lg shadow-rose-950/40">
-                  <div className="flex items-start space-x-2.5">
-                    <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-heading font-black text-white text-xs">
-                        INFRACTION FFT RÉGIONALE : POIDS DES DOUBLES
+              {/* ==================== BULLE DE RAPPEL DU RÈGLEMENT FFT ==================== */}
+              {(hasIneligiblePlayer || !rankingOrderCheck.isValid || (compFormat.doubleWeightStrict && !!doublesWeightCheck.errorMessage) || !!scheduleCheck.warning) && (
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-[#290d14] via-[#1f0b14] to-[#170a14] border-2 border-rose-500/70 shadow-xl shadow-rose-950/50 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                      <h4 className="font-heading font-black text-rose-100 text-xs sm:text-sm tracking-wide flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Bulle de rappel : Règlement FFT non respecté</span>
                       </h4>
-                      <p className="text-rose-300 mt-1">
-                        {doublesWeightCheck.errorMessage}
-                      </p>
                     </div>
+                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-rose-500/25 text-rose-300 border border-rose-500/40">
+                      Règles officielles 2027
+                    </span>
                   </div>
 
-                  <button
-                    onClick={handleSwapDoubles}
-                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer shadow"
-                    title="Inverser automatiquement les deux paires de doubles"
-                  >
-                    <ArrowUpDown className="w-3.5 h-3.5" />
-                    <span>Inverser D1 et D2</span>
-                  </button>
-                </div>
-              )}
+                  <div className="space-y-2 text-xs">
+                    {/* 1. Alerte Inéligibilité */}
+                    {hasIneligiblePlayer && (
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-rose-500/40 text-rose-200 space-y-1">
+                        <p className="font-black text-rose-300 text-[11px] flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>Joueur non qualifié ou non éligible :</span>
+                        </p>
+                        <ul className="space-y-0.5 list-disc list-inside text-[11px] text-zinc-300 pl-1">
+                          {currentCompositionIssues.map((issue, idx) => (
+                            <li key={idx}>
+                              <strong className="text-white">{issue.player.nomPrenom}</strong> : {issue.errors.join(' | ')}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
-              {/* Alerte bloquante si joueur inéligible */}
-              {hasIneligiblePlayer && (
-                <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs flex items-start space-x-3 shadow-lg">
-                  <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="font-heading font-black text-white text-xs">
-                      VALIDATION DE FEUILLE BLOQUÉE (Infraction FFT 2027)
-                    </h4>
-                    <ul className="mt-1 space-y-0.5 list-disc list-inside text-[11px] text-rose-200">
-                      {currentCompositionIssues.map((issue, idx) => (
-                        <li key={idx}>
-                          <strong className="text-white">{issue.player.nomPrenom}</strong> : {issue.errors.join(' | ')}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
+                    {/* 2. Alerte Ordre des Simples */}
+                    {!rankingOrderCheck.isValid && (
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-amber-500/40 text-amber-200 space-y-1">
+                        <p className="font-black text-amber-300 text-[11px] flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Hiérarchie des classements (Ordre de force des simples) :</span>
+                        </p>
+                        <p className="text-[11px] text-zinc-300 pl-1">
+                          {rankingOrderCheck.error} (Le joueur le mieux classé doit impérativement figurer en Simple 1).
+                        </p>
+                      </div>
+                    )}
 
-              {/* Alerte ordre des simples */}
-              {!rankingOrderCheck.isValid && (
-                <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/60 text-amber-200 text-xs flex items-start space-x-3">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-heading font-black text-white text-xs">
-                      HIÉRARCHIE DES CLASSEMENTS NON RESPECTÉE (Ordre des Simples FFT)
-                    </h4>
-                    <p className="text-amber-300 mt-0.5">{rankingOrderCheck.error}</p>
+                    {/* 3. Alerte Poids des Doubles */}
+                    {compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage && (
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-purple-500/40 text-purple-200 flex items-start justify-between gap-2 flex-wrap">
+                        <div className="space-y-1">
+                          <p className="font-black text-purple-300 text-[11px] flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                            <span>Règle régionale du Poids des doubles (D1 ≤ D2) :</span>
+                          </p>
+                          <p className="text-[11px] text-zinc-300 pl-1">
+                            {doublesWeightCheck.errorMessage}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleSwapDoubles}
+                          className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[11px] flex items-center gap-1 transition cursor-pointer self-center"
+                        >
+                          <ArrowUpDown className="w-3 h-3" />
+                          <span>Inverser D1 et D2</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 4. Alerte Jour de programmation */}
+                    {scheduleCheck.warning && (
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-zinc-700 text-zinc-300 text-[11px]">
+                        <strong className="text-amber-300 font-bold">{scheduleCheck.warning} : </strong>
+                        <span>{scheduleCheck.alternationMessage}</span>
+                      </div>
+                    )}
                   </div>
+
+                  <p className="text-[10px] text-zinc-400 italic pt-0.5">
+                    💡 Consultez l'onglet <strong className="text-orange-400 not-italic">« Règlements »</strong> pour consulter le texte officiel intégral de chaque directive.
+                  </p>
                 </div>
               )}
 
@@ -1047,110 +1121,73 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </div>
               )}
 
-              {/* Rappel du Gel des Classements si des joueurs sont enregistrés */}
-              {composition.frozenPlayers && composition.frozenPlayers.length > 0 && (
-                <div className="p-3 rounded-2xl bg-orange-950/30 border border-orange-500/40 text-orange-200 text-xs flex items-center justify-between gap-3">
-                  <div className="flex items-center space-x-2">
-                    <Lock className="w-4 h-4 text-[#FF6D00] shrink-0" />
-                    <span>
-                      <strong>Classements officiellement gelés au match :</strong> {composition.frozenPlayers.map(p => `${p.nomPrenom} (${p.classementGele})`).join(' • ')}
-                    </span>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-[#FF6D00] font-mono shrink-0">
-                    {composition.dateValidation || 'Données_appli'}
-                  </span>
-                </div>
-              )}
-          
-          {/* ==================== SECTION LOGISTIQUE DU MATCH (DEMANDE TCM) ==================== */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#090b0e] border border-[#232934] space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1e2430] pb-3">
-              <div className="flex items-center space-x-2">
-                <SlidersHorizontal className="w-4 h-4 text-[#FF6D00]" />
-                <h3 className="font-heading font-black text-white text-sm">
-                  Planification & Logistique TCM
-                </h3>
-              </div>
-              <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                <Sun className="w-3 h-3 text-amber-400" />
-                <span>{scheduleCheck.alternationMessage}</span>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {/* ==================== SECTION LOGISTIQUE DU MATCH ÉPURÉE ==================== */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934]">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
               
-              {/* 1. Date de la rencontre validée */}
-              <div className="p-3 rounded-2xl bg-[#141820] border border-[#232934] space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                  <span>1. Date validée</span>
-                  <span className={`px-1.5 py-0.2 rounded font-black ${
-                    scheduleCheck.isSunday ? 'bg-emerald-500/20 text-emerald-400' :
-                    scheduleCheck.isSaturday ? 'bg-sky-500/20 text-sky-400' : 'bg-amber-500/20 text-amber-400'
-                  }`}>
-                    {scheduleCheck.dayName}
-                  </span>
+              {/* 1. Date avec mini calendrier */}
+              <div className="p-2.5 rounded-xl bg-[#141820] border border-[#232934] space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Date validée
                 </label>
-                <div className="flex items-center space-x-1.5">
-                  <Calendar className="w-4 h-4 text-zinc-500" />
+                <div className="flex items-center space-x-1.5 bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 focus-within:border-orange-500">
+                  <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
                   <input
-                    type="text"
-                    value={matchDateInput}
-                    onChange={(e) => setMatchDateInput(e.target.value)}
-                    placeholder="JJ/MM/AAAA"
-                    className="w-full bg-black/40 border border-[#2a323f] rounded-xl px-2.5 py-1 text-xs text-white font-mono focus:border-orange-500 focus:outline-none"
+                    type="date"
+                    value={toIsoDate(matchDateInput)}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setMatchDateInput(fromIsoDate(e.target.value));
+                      }
+                    }}
+                    className="w-full bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer [color-scheme:dark]"
+                    title="Cliquez pour ouvrir le mini calendrier"
                   />
                 </div>
-                <p className="text-[10px] text-zinc-500">
-                  {compFormat.expectedDay === 'Dimanche' ? 'Normalement le dimanche pour Seniors' : 'Normalement le samedi pour Jeunes'}
-                </p>
               </div>
 
-              {/* 2. Heure de démarrage (9h ou 14h) */}
-              <div className="p-3 rounded-2xl bg-[#141820] border border-[#232934] space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-orange-400" />
-                  <span>2. Heure de démarrage</span>
+              {/* 2. Horaire : Liste 9h, 14h (normaux) et heure paramétrable */}
+              <div className="p-2.5 rounded-xl bg-[#141820] border border-[#232934] space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Horaire
                 </label>
-                <div className="flex items-center space-x-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setMatchHourInput('09:00')}
-                    className={`flex-1 py-1 px-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      matchHourInput === '09:00'
-                        ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                    }`}
+                <div className="space-y-1">
+                  <select
+                    value={
+                      matchHourInput === '09:00' || matchHourInput === '14:00'
+                        ? matchHourInput
+                        : 'autre'
+                    }
+                    onChange={(e) => {
+                      if (e.target.value !== 'autre') {
+                        setMatchHourInput(e.target.value);
+                      }
+                    }}
+                    className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
                   >
-                    9h00 (Matin)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMatchHourInput('14:00')}
-                    className={`flex-1 py-1 px-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                      matchHourInput === '14:00'
-                        ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                    }`}
-                  >
-                    14h00 (AM)
-                  </button>
+                    <option value="09:00">09:00 (Matin standard)</option>
+                    <option value="14:00">14:00 (Après-midi standard)</option>
+                    <option value="autre">⚙️ Autre heure paramétrable...</option>
+                  </select>
+
+                  {matchHourInput !== '09:00' && matchHourInput !== '14:00' && (
+                    <div className="flex items-center space-x-1 bg-black/50 border border-orange-500/50 rounded-lg px-2 py-0.5">
+                      <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                      <input
+                        type="time"
+                        value={matchHourInput}
+                        onChange={(e) => setMatchHourInput(e.target.value)}
+                        className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
+                      />
+                    </div>
+                  )}
                 </div>
-                {matchHourInput !== '09:00' && matchHourInput !== '14:00' && (
-                  <input
-                    type="text"
-                    value={matchHourInput}
-                    onChange={(e) => setMatchHourInput(e.target.value)}
-                    placeholder="Horaire libre (ex: 10h00)"
-                    className="w-full bg-black/40 border border-[#2a323f] rounded-xl px-2 py-0.5 text-xs text-white font-mono mt-1"
-                  />
-                )}
               </div>
 
-              {/* 3. Nombre de courts disponibles */}
-              <div className="p-3 rounded-2xl bg-[#141820] border border-[#232934] space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-sky-400" />
-                  <span>3. Courts disponibles</span>
+              {/* 3. Courts disponibles */}
+              <div className="p-2.5 rounded-xl bg-[#141820] border border-[#232934] space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Courts alloués
                 </label>
                 <div className="flex items-center space-x-1">
                   {[1, 2, 3].map(cnt => (
@@ -1158,7 +1195,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       key={cnt}
                       type="button"
                       onClick={() => setMatchCourtsInput(cnt)}
-                      className={`flex-1 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      className={`flex-1 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                         matchCourtsInput === cnt
                           ? 'bg-sky-600 text-white shadow'
                           : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
@@ -1168,21 +1205,17 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     </button>
                   ))}
                 </div>
-                <p className="text-[10px] text-zinc-500">
-                  {matchCourtsInput === 2 ? 'Standard TCM (2 courts couverts résine)' : `${matchCourtsInput} court(s) alloué(s)`}
-                </p>
               </div>
 
-              {/* 4. Lieu de la rencontre (Clos des Moines / TC Nivillac) */}
-              <div className="p-3 rounded-2xl bg-[#141820] border border-[#232934] space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>4. Lieu du match</span>
+              {/* 4. Lieu du match */}
+              <div className="p-2.5 rounded-xl bg-[#141820] border border-[#232934] space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Lieu du match
                 </label>
                 <select
                   value={matchVenueInput}
                   onChange={(e) => setMatchVenueInput(e.target.value)}
-                  className="w-full bg-black/50 border border-[#2a323f] rounded-xl px-2.5 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                  className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
                 >
                   {!isHome && adverseAddressInfo.hasAdverseAddress && (
                     <option value={adverseAddressInfo.venueLabel}>
@@ -1208,193 +1241,387 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                   </option>
                   <option value="autre">Autre lieu personnalisé...</option>
                 </select>
-
-                {matchVenueInput === 'autre' && (
-                  <input
-                    type="text"
-                    value={customVenueInput}
-                    onChange={(e) => setCustomVenueInput(e.target.value)}
-                    placeholder="Nom ou adresse de la salle..."
-                    className="w-full bg-black/40 border border-[#2a323f] rounded-xl px-2 py-0.5 text-xs text-white mt-1"
-                  />
-                )}
-                
-                {matchVenueInput.includes('Nivillac') && (
-                  <p className="text-[10px] text-amber-300 font-semibold flex items-center gap-1">
-                    <Building className="w-3 h-3 text-amber-400" />
-                    <span>Salle de Nivillac réservée pour délester le Clos des Moines.</span>
-                  </p>
-                )}
-
-                {!isHome && adverseAddressInfo.hasAdverseAddress && (
-                  <p className="text-[10px] text-sky-300 font-semibold flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-sky-400 shrink-0" />
-                    <span className="truncate">Adresse adverse (cols AM-AO) : {adverseAddressInfo.venueLabel}</span>
-                  </p>
-                )}
               </div>
 
             </div>
+          </div>
 
-            {/* ==================== CRÉNEAUX & ORDRE DE PASSAGE DES MATCHS ==================== */}
-            <div className="pt-3 border-t border-[#1e2430] space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Ordre de passage & Créneaux par match ({matchCourtsInput} court{matchCourtsInput > 1 ? 's' : ''} à partir de {matchHourInput})</span>
-                </span>
-                <span className="text-[10px] text-zinc-400">
-                  Rotations de {schedulePlan.dureeMoyenneMatchMin} min
-                </span>
+          {/* ==================== CONTACTS DES CAPITAINES ==================== */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#0d1016] border border-[#232934] space-y-2 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              
+              {/* Capitaine TCM */}
+              <div className="p-3 rounded-xl bg-[#141822] border border-[#232936] flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-orange-400 text-[10px] font-black uppercase tracking-wider">
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Capitaine Muzillac TC</span>
+                  </div>
+                  <p className="font-heading font-black text-white text-sm truncate mt-0.5">
+                    {rencontre.prenomCapitaine ? `${rencontre.prenomCapitaine} ${rencontre.nomCapitaine}` : (rencontre.nomCapitaine || 'Non désigné')}
+                  </p>
+                  {rencontre.portableCapitaine && (
+                    <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                      {rencontre.portableCapitaine}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {rencontre.portableCapitaine && (
+                    <>
+                      <a
+                        href={`tel:${rencontre.portableCapitaine}`}
+                        className="p-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                        title="Appeler le capitaine TCM"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="hidden sm:inline">Appel</span>
+                      </a>
+                      <a
+                        href={`sms:${rencontre.portableCapitaine}`}
+                        className="p-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                        title="SMS au capitaine TCM"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
+                        <span className="hidden sm:inline">SMS</span>
+                      </a>
+                    </>
+                  )}
+                  {rencontre.mailCapitaine && (
+                    <a
+                      href={`mailto:${rencontre.mailCapitaine}`}
+                      className="p-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                      title="Email au capitaine TCM"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="hidden sm:inline">Mail</span>
+                    </a>
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {schedulePlan.rotations.map((rot) => (
-                  <div 
-                    key={rot.rotationNumber}
-                    className="p-3 rounded-2xl bg-[#141820] border border-zinc-800 space-y-2 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between text-xs pb-1.5 border-b border-zinc-800/80">
-                      <span className="font-heading font-black text-orange-400">
-                        Rotation {rot.rotationNumber}
-                      </span>
-                      <span className="font-mono font-black text-white px-2 py-0.5 rounded-lg bg-black/60 border border-zinc-700">
-                        {rot.timeSlot}
-                      </span>
+              {/* Capitaine Adverse */}
+              {(() => {
+                const advNom = rencontre.nomCapitaineAdverse || rencontre.nomCorrespondantAdverse;
+                const advPrenom = rencontre.prenomCapitaineAdverse || rencontre.prenomCorrespondantAdverse || '';
+                const advTel = rencontre.portableCapitaineAdverse || rencontre.portableCorrespondantAdverse;
+                const advMail = rencontre.mailCapitaineAdverse || rencontre.mailCorrespondantAdverse;
+                const advFullName = advNom ? `${advPrenom} ${advNom}`.trim() : null;
+
+                return (
+                  <div className="p-3 rounded-xl bg-[#141822] border border-[#232936] flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-sky-400 text-[10px] font-black uppercase tracking-wider">
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>Capitaine Adverse ({!isHome ? rencontre.clubAccueilNom : rencontre.clubVisiteurNom})</span>
+                      </div>
+                      <p className="font-heading font-black text-sky-100 text-sm truncate mt-0.5">
+                        {advFullName || 'Non communiqué'}
+                      </p>
+                      {advTel && (
+                        <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                          {advTel}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="space-y-1.5">
-                      {rot.matches.map((m) => (
-                        <div 
-                          key={m.id}
-                          className="p-2.5 rounded-xl bg-black/40 border border-zinc-800/80 flex items-center justify-between gap-3 text-xs"
+                    <div className="flex items-center gap-1 shrink-0">
+                      {advTel && (
+                        <>
+                          <a
+                            href={`tel:${advTel}`}
+                            className="p-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                            title="Appeler le capitaine adverse"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="hidden sm:inline">Appel</span>
+                          </a>
+                          <a
+                            href={`sms:${advTel}`}
+                            className="p-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                            title="SMS au capitaine adverse"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
+                            <span className="hidden sm:inline">SMS</span>
+                          </a>
+                        </>
+                      )}
+                      {advMail && (
+                        <a
+                          href={`mailto:${advMail}`}
+                          className="p-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition flex items-center gap-1 text-[11px] font-bold"
+                          title="Email au capitaine adverse"
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-heading font-black text-white text-xs">
-                                {m.matchLabel}
-                              </span>
-                              <span className="text-[10px] font-mono text-orange-400 font-bold px-1.5 py-0.2 rounded bg-orange-500/10 border border-orange-500/20">
-                                {rot.timeSlot}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-zinc-400 block truncate mt-0.5">
-                              {m.courtName}
-                            </span>
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <span className={`text-xs font-bold block truncate max-w-[130px] ${
-                              m.playerName ? 'text-white' : 'text-zinc-500 italic'
-                            }`}>
-                              {m.playerName || 'Non désigné'}
-                            </span>
-                            {m.playerRank && (
-                              <span className="text-[10px] font-mono text-orange-300 font-bold px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 inline-block mt-0.5">
-                                {m.playerRank}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                          <Mail className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="hidden sm:inline">Mail</span>
+                        </a>
+                      )}
                     </div>
                   </div>
-                ))}
+                );
+              })()}
+
+            </div>
+          </div>
+
+          {/* ==================== SONDAGE DES DISPONIBILITÉS DU MATCH ==================== */}
+          {onOpenSondageModal && userRole !== 'adherent' && (() => {
+            const dispoResponses = rencontre.disponibilites || [];
+            const dispoCount = dispoResponses.filter(d => d.statut === 'disponible').length;
+            const incertainCount = dispoResponses.filter(d => d.statut === 'incertain').length;
+            const indispoCount = dispoResponses.filter(d => d.statut === 'indisponible').length;
+
+            return (
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-[#0e131d] border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/40 flex items-center justify-center shrink-0">
+                    <ClipboardCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-heading font-black text-white text-xs sm:text-sm">
+                        Sondage des disponibilités de l'équipe
+                      </span>
+                      {dispoCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          {dispoCount} disponible{dispoCount > 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {incertainCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {incertainCount} incertain{incertainCount > 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {indispoCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                          {indispoCount} indispo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      Les disponibilités renseignées par les adhérents s'affichent automatiquement en tête de liste pour l'affectation aux simples et doubles.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenSondageModal(rencontre)}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition cursor-pointer shadow-md self-start sm:self-auto"
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>Consulter le sondage</span>
+                </button>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
-          {/* ==================== SECTION 1 : SIMPLES (DYNAMIQUES SELON FORMAT) ==================== */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-heading font-black text-white text-sm flex items-center gap-2">
-                <span>Composition des Simples ({compFormat.numSingles} requis)</span>
-                <span className="text-xs text-zinc-400 font-sans font-normal">
-                  (Ordre strictement décroissant des classements FFT)
-                </span>
-              </h3>
-
-              {teamStrength.count > 0 && (
-                <span className="text-xs text-zinc-400">
-                  {teamStrength.count}/{compFormat.numSingles} simples désignés • Classements : <strong className="text-orange-400">{teamStrength.ranks.join(', ')}</strong>
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {renderSlotCard('simple1Id', 'Simple N°1 (Leader)')}
-              {renderSlotCard('simple2Id', 'Simple N°2')}
-              {compFormat.numSingles >= 3 && renderSlotCard('simple3Id', 'Simple N°3')}
-              {compFormat.numSingles >= 4 && renderSlotCard('simple4Id', 'Simple N°4')}
-              {compFormat.numSingles >= 5 && renderSlotCard('simple5Id', 'Simple N°5 (Départemental H)')}
-            </div>
-          </div>
-
-          {/* ==================== SECTION 2 : DOUBLES (DYNAMIQUES SELON FORMAT) ==================== */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <h3 className="font-heading font-black text-white text-sm flex items-center gap-2">
-                  <span>Composition {compFormat.numDoubles === 1 ? 'du Double' : 'des Doubles (2 équipes)'}</span>
-                  {compFormat.doubleWeightStrict && (
-                    <span className="text-xs text-orange-400 font-bold">
-                      • Règle Poids Double 1 ≥ Double 2
-                    </span>
-                  )}
+          {/* ==================== MATCHS OFFICIELS & ORDRE DES PARTIES ==================== */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-orange-400" />
+                <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                  Matchs officiels &amp; Ordre des joueurs
                 </h3>
-                <p className="text-[11px] text-zinc-400">
-                  {compFormat.doubleRules}
-                </p>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30 font-bold">
+                  {compFormat.numSingles}S + {compFormat.numDoubles}D
+                </span>
               </div>
 
-              {compFormat.doubleWeightStrict && doublesWeightCheck.isComplete && (
-                <div className="flex items-center space-x-2">
-                  <span className={`px-2.5 py-1 rounded-xl text-xs font-black border flex items-center gap-1.5 ${
-                    doublesWeightCheck.isValid 
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
-                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                  }`}>
-                    {doublesWeightCheck.isValid ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />}
-                    <span>D1 ({doublesWeightCheck.weightDouble1} pts) {doublesWeightCheck.isValid ? '≥' : '<'} D2 ({doublesWeightCheck.weightDouble2} pts)</span>
-                  </span>
-                </div>
-              )}
+              {/* Boutons pour réinitialiser l'ordre des numéros de joueurs */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
+                  title="Ordre FFT classique (4-2 puis 3-1)"
+                >
+                  Ordre FFT ({defaultSinglesPlayerNumbers.join('-')})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const list: number[] = [];
+                    for (let i = 1; i <= compFormat.numSingles; i++) list.push(i);
+                    setSinglesPlayerNumbers(list);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
+                  title="Ordre numérique (1, 2, 3...)"
+                >
+                  Numérique (1 à {compFormat.numSingles})
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-3">
+            {/* Liste des matchs : Les matchs 1..N restent dans l'ordre chronologique fixe, on permute les numéros de joueurs */}
+            <div className="space-y-2.5">
+              
+              {/* 1. MATCHS DE SIMPLES (Match 1 à compFormat.numSingles) */}
+              {singlesPlayerNumbers.map((playerNum, matchIndex) => {
+                const timeSlot = getMatchTimeSlot(matchIndex);
+                const slotKey = `simple${playerNum}Id` as SlotKey;
+
+                return (
+                  <div
+                    key={`match-simple-${matchIndex}`}
+                    className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md"
+                  >
+                    {/* En-tête du match chronologique avec heure fixe et sélecteur de joueur permutable */}
+                    <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
+                          Match {matchIndex + 1}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-xs font-bold">
+                          <Clock className="w-3 h-3 text-orange-400" />
+                          <span>{timeSlot}</span>
+                        </span>
+
+                        {/* Sélecteur direct du numéro de joueur pour ce match */}
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-[11px] text-zinc-400">Affectation :</span>
+                          <select
+                            value={playerNum}
+                            onChange={(e) => {
+                              const targetNum = parseInt(e.target.value, 10);
+                              const otherIndex = singlesPlayerNumbers.indexOf(targetNum);
+                              if (otherIndex !== -1) {
+                                swapSinglesPlayerNumbers(matchIndex, otherIndex);
+                              }
+                            }}
+                            className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
+                            title="Choisir quel numéro de joueur dispute ce créneau"
+                          >
+                            {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
+                              <option key={num} value={num}>
+                                Joueur n°{num} {num === 1 ? '(Leader)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Flèches de permutation avec le match précédent / suivant */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex - 1)}
+                          disabled={matchIndex === 0}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                            matchIndex === 0
+                              ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                          }`}
+                          title="Permuter avec le match précédent (▲)"
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex + 1)}
+                          disabled={matchIndex === compFormat.numSingles - 1}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                            matchIndex === compFormat.numSingles - 1
+                              ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                          }`}
+                          title="Permuter avec le match suivant (▼)"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bulle compacte Joueur n°X */}
+                    <div>
+                      {renderSlotCard(slotKey, `Joueur n°${playerNum}`)}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* 2. MATCHS DE DOUBLES */}
               {/* Double 1 */}
-              <div className="p-3.5 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-2">
-                <span className="text-[11px] font-black uppercase tracking-wider text-orange-400">
-                  Paire Double 1 {compFormat.doubleWeightStrict ? '(Doit être la plus forte)' : ''}
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {renderSlotCard('double1Player1Id', 'Double 1 - Joueur A')}
-                  {renderSlotCard('double1Player2Id', 'Double 1 - Joueur B')}
+              <div className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md">
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
+                      Match {compFormat.numSingles + 1}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
+                      <Clock className="w-3 h-3 text-purple-400" />
+                      <span>{getMatchTimeSlot(compFormat.numSingles)}</span>
+                    </span>
+                    <span className="font-heading font-black text-white text-xs sm:text-sm">
+                      Double N°1
+                    </span>
+                    {compFormat.doubleWeightStrict && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
+                        Paire N°1 (Poids ≥ D2)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {renderSlotCard('double1Player1Id', 'Joueur 1 (Double 1)')}
+                    {renderSlotCard('double1Player2Id', 'Joueur 2 (Double 1)')}
+                  </div>
+                  {doublesWeightCheck.isComplete && (
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                      <span>Poids total D1 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble1} pts</strong></span>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Double 2 (si Championnat Régional) */}
+              {/* Double 2 (si applicable) */}
               {compFormat.numDoubles >= 2 && (
-                <div className="p-3.5 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-orange-400">
-                      Paire Double 2 (Poids inférieur ou égal au Double 1)
-                    </span>
+                <div className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md">
+                  <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
+                        Match {compFormat.numSingles + 2}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
+                        <Clock className="w-3 h-3 text-purple-400" />
+                        <span>{getMatchTimeSlot(compFormat.numSingles + 1)}</span>
+                      </span>
+                      <span className="font-heading font-black text-white text-xs sm:text-sm">
+                        Double N°2
+                      </span>
+                    </div>
+
                     <button
-                      onClick={handleSwapDoubles}
                       type="button"
+                      onClick={handleSwapDoubles}
                       className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
+                      title="Intervertir la paire D1 et la paire D2"
                     >
-                      <ArrowUpDown className="w-3 h-3" />
+                      <ArrowUpDown className="w-3.5 h-3.5" />
                       <span>Inverser D1 et D2</span>
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {renderSlotCard('double2Player1Id', 'Double 2 - Joueur A')}
-                    {renderSlotCard('double2Player2Id', 'Double 2 - Joueur B')}
+
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {renderSlotCard('double2Player1Id', 'Joueur 1 (Double 2)')}
+                      {renderSlotCard('double2Player2Id', 'Joueur 2 (Double 2)')}
+                    </div>
+                    {doublesWeightCheck.isComplete && (
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                        <span>Poids total D2 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble2} pts</strong></span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
+
             </div>
           </div>
 
@@ -1562,33 +1789,6 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               </div>
             </div>
           )}
-
-          {/* ==================== CERTIFICATION DU CAPITAINE ==================== */}
-          <div className="p-4 rounded-2xl bg-[#161a22] border border-[#252b37] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center space-x-3">
-              <div className="w-9 h-9 rounded-xl bg-orange-500/15 text-orange-400 flex items-center justify-center shrink-0">
-                <UserCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-zinc-400">Capitaine référent :</p>
-                <p className="font-heading font-black text-white text-sm">
-                  {rencontre.nomCapitaine || 'Laurent Le Guennec'}
-                </p>
-              </div>
-            </div>
-
-            {composition.valideParCapitaine ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold self-start sm:self-auto">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                Validée et certifiée FFT le {composition.dateValidation}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold self-start sm:self-auto">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
-                Feuille de match en cours de composition
-              </span>
-            )}
-          </div>
 
         </div>
 

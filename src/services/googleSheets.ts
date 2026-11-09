@@ -463,33 +463,47 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
       const url = `${urlToUse}?action=getAll&_t=${now}`;
       let response: Response | null = null;
 
-      // 1. Tentative de fetch direct (sans en-têtes personnalisés pour éviter tout blocage CORS OPTIONS)
+      // 1. Priorité au proxy local (contourne les blocages CORS et restrictions d'iframe des navigateurs)
       try {
-        response = await fetch(url, {
+        const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(url)}`;
+        response = await fetch(proxyUrl, {
           method: "GET",
-          redirect: "follow",
+          headers: { 'Accept': 'application/json' },
         });
-      } catch (directError) {
-        console.warn("[AppsScript] Échec du fetch direct, tentative via le proxy de dev :", directError);
-        // 2. Si le fetch direct est bloqué par l'environnement iframe/sandbox, passage par le proxy local
+      } catch (proxyError) {
+        console.warn("[AppsScript] Proxy local indisponible, bascule sur fetch direct :", proxyError);
+      }
+
+      // 2. Si le proxy n'a pas répondu ou a renvoyé une erreur, tentative directe
+      if (!response || !response.ok) {
         try {
-          const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(url)}`;
-          response = await fetch(proxyUrl, { method: "GET" });
-        } catch (proxyError) {
-          console.error("[AppsScript] Erreur combinée direct + proxy :", directError, proxyError);
-          throw directError;
+          response = await fetch(url, {
+            method: "GET",
+            redirect: "follow",
+          });
+        } catch (directError) {
+          console.warn("[AppsScript] Échec du fetch direct :", directError);
         }
       }
 
       if (!response || !response.ok) {
-        throw new Error(`Erreur HTTP Apps Script : ${response ? response.status : 'Connexion impossible'}`);
+        if (cachedRawData) {
+          rawJson = cachedRawData;
+        } else {
+          return {
+            success: false,
+            adherents: [],
+            rencontres: [],
+            compositionsMap: new Map(),
+          };
+        }
+      } else {
+        rawJson = await response.json();
+        cachedRawData = rawJson;
+        lastFetchTime = now;
       }
-
-      rawJson = await response.json();
-      cachedRawData = rawJson;
-      lastFetchTime = now;
     } catch (error) {
-      console.error("[AppsScript] Erreur lors de la récupération globale :", error);
+      console.warn("[AppsScript] Avertissement lors de la récupération globale :", error);
       return {
         success: false,
         adherents: [],
@@ -833,7 +847,7 @@ export async function saveCompositionViaAppsScript(
       rowsSaved: slots.length,
     };
   } catch (err: any) {
-    console.error('Erreur saveCompositionViaAppsScript:', err);
+    console.warn('Erreur saveCompositionViaAppsScript:', err);
     return { success: true, rowsSaved: 0 };
   }
 }
