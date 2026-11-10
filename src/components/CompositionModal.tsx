@@ -293,7 +293,6 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }
   }, [activeSlot]);
 
-  const [filterEligibleOnly, setFilterEligibleOnly] = useState(true);
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [blockedAlertMessage, setBlockedAlertMessage] = useState<string | null>(null);
   const [validationSuccess, setValidationSuccess] = useState(false);
@@ -356,6 +355,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
     return map;
   }, [adherents, rencontre]);
+
+  // Rôle et permissions : seuls les capitaines et les membres du bureau peuvent modifier la feuille
+  const canEdit = userRole === 'capitaine' || userRole === 'bureau';
 
   // Analyse du format de championnat officiel (Jeunes, Seniors+, Régional, Départemental)
   const compFormat: CompetitionFormatInfo = useMemo(() => {
@@ -454,37 +456,36 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   // Candidats éligibles pour CETTE rencontre :
   // RÈGLE ABSOLUE FFT : On ne propose JAMAIS d'hommes pour une épreuve Dames, ni de femmes pour une épreuve Messieurs
-  // RÈGLE TCM : Les joueurs à affecter sont prioritairement les licenciés 2027 du club (cols X & AB)
+  // RÈGLE TCM : La liste ne doit comporter UNIQUEMENT que des joueurs éligibles avec une licence de l'année en cours au Tennis Club de Muzillac
   const playersWithEligibility = useMemo(() => {
     return adherents
       .filter(adh => {
+        // 1. Sexe compatible avec l'épreuve
         const playerSex = (adh.civilite === 'Madame' ? 'F' : 'H');
-        if (reqSex === 'Mixte') return true;
-        return playerSex === reqSex;
+        if (reqSex !== 'Mixte' && playerSex !== reqSex) return false;
+
+        // 2. EXCLUSION STRICTE : Licence de l'année en cours au Tennis Club de Muzillac (exclut Vannes et autres clubs)
+        if (!isLicencieMuzillac(adh, saison)) return false;
+
+        // 3. EXCLUSION STRICTE : Éligibilité FFT (catégorie d'âge, licence C/W valide, classement non ND)
+        const eligibility = checkFFT2027Eligibility(adh, rencontre, saison);
+        if (!eligibility.isEligible) return false;
+
+        return true;
       })
       .map(adh => {
         const eligibility = checkFFT2027Eligibility(adh, rencontre, saison);
-        const isLicencie = isLicencieMuzillac(adh, saison);
         const dispo = (rencontre.disponibilites || []).find(d => d.adherentId === adh.id);
         return {
           adherent: adh,
           eligibility,
           meta: getRankingMeta(adh.dernierClassTennis),
           weight: getRankingWeight(adh.dernierClassTennis),
-          isLicencie,
           dispo,
         };
       })
       .sort((a, b) => {
-        // 1. Licencié TCM en priorité
-        if (a.isLicencie && !b.isLicencie) return -1;
-        if (!a.isLicencie && b.isLicencie) return 1;
-
-        // 2. Éligibilité FFT
-        if (a.eligibility.isEligible && !b.eligibility.isEligible) return -1;
-        if (!a.eligibility.isEligible && b.eligibility.isEligible) return 1;
-
-        // 3. Statut sondage de disponibilité (Dispo > Incertain > Non répondu > Indispo)
+        // 1. Statut sondage de disponibilité (Dispo > Incertain > Non répondu > Indispo)
         const getScore = (d?: typeof a.dispo) => {
           if (!d) return 0;
           if (d.statut === 'disponible') return 2;
@@ -496,10 +497,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         const scoreB = getScore(b.dispo);
         if (scoreA !== scoreB) return scoreB - scoreA;
 
-        // 4. Classement FFT décroissant
+        // 2. Classement FFT décroissant
         return b.weight - a.weight;
       });
-  }, [adherents, rencontre, reqSex]);
+  }, [adherents, rencontre, reqSex, saison]);
 
   // Vérifier les joueurs sélectionnés dans le format actif
   const selectedPlayerIds = useMemo(() => {
@@ -562,6 +563,117 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return { count, ranks };
   }, [composition, compFormat, adherentsById]);
 
+  // Contrôle d'affectation : détecte si un joueur est déjà affecté dans cette équipe ou dans une autre équipe
+  const getPlayerAssignment = useCallback((adherent: Adherent, slotKey: SlotKey | null) => {
+    if (!slotKey) return null;
+
+    // 1. Déjà assigné sur CE poste exact
+    if (composition[slotKey] === adherent.id || (adherent.licence && composition[slotKey] === adherent.licence)) {
+      return {
+        isDisabled: false,
+        isCurrentSlot: true,
+        badge: 'Poste actuel',
+        teamName: rencontre.numeroEquipe,
+        details: 'Déjà assigné à ce poste',
+      };
+    }
+
+    // 2. Déjà assigné sur un autre simple dans la même rencontre
+    if (slotKey.startsWith('simple')) {
+      const singleSlots: { key: SlotKey; label: string }[] = [
+        { key: 'simple1Id', label: 'Simple 1' },
+        { key: 'simple2Id', label: 'Simple 2' },
+        { key: 'simple3Id', label: 'Simple 3' },
+        { key: 'simple4Id', label: 'Simple 4' },
+        { key: 'simple5Id', label: 'Simple 5' },
+      ];
+      for (const s of singleSlots) {
+        if (s.key !== slotKey && (composition[s.key] === adherent.id || (adherent.licence && composition[s.key] === adherent.licence))) {
+          return {
+            isDisabled: true,
+            isCurrentSlot: false,
+            badge: `Affecté : ${s.label} (${rencontre.numeroEquipe})`,
+            teamName: rencontre.numeroEquipe,
+            details: `Déjà positionné en ${s.label} pour cette rencontre`,
+          };
+        }
+      }
+    }
+
+    // 3. Déjà assigné sur un double dans la même rencontre
+    if (slotKey.startsWith('double')) {
+      const doubleSlots: { key: SlotKey; label: string }[] = [
+        { key: 'double1Player1Id', label: 'Double 1 (J1)' },
+        { key: 'double1Player2Id', label: 'Double 1 (J2)' },
+        { key: 'double2Player1Id', label: 'Double 2 (J1)' },
+        { key: 'double2Player2Id', label: 'Double 2 (J2)' },
+      ];
+      for (const d of doubleSlots) {
+        if (d.key !== slotKey && (composition[d.key] === adherent.id || (adherent.licence && composition[d.key] === adherent.licence))) {
+          return {
+            isDisabled: true,
+            isCurrentSlot: false,
+            badge: `Affecté : ${d.label} (${rencontre.numeroEquipe})`,
+            teamName: rencontre.numeroEquipe,
+            details: `Déjà positionné en ${d.label} pour cette rencontre`,
+          };
+        }
+      }
+    }
+
+    // 4. Déjà assigné dans UNE AUTRE ÉQUIPE du club (allRencontres / rencontresList)
+    const allMatches = allRencontres || rencontresList || [];
+    const currentMatchDateNorm = (composition.dateRencontreValidee || rencontre.dateRencontre || '').replace(/[-/.\s]/g, '').toLowerCase();
+
+    for (const otherR of allMatches) {
+      if (otherR.id === rencontre.id) continue;
+      if (!otherR.composition) continue;
+
+      const otherComp = otherR.composition;
+      const matchSlots = [
+        otherComp.simple1Id,
+        otherComp.simple2Id,
+        otherComp.simple3Id,
+        otherComp.simple4Id,
+        otherComp.simple5Id,
+        otherComp.double1Player1Id,
+        otherComp.double1Player2Id,
+        otherComp.double2Player1Id,
+        otherComp.double2Player2Id,
+        ...(otherComp.frozenPlayers ? otherComp.frozenPlayers.map(fp => fp.adherentId || fp.licence) : [])
+      ].filter(Boolean);
+
+      const isAssignedInOther = matchSlots.some(id => 
+        id === adherent.id || 
+        (adherent.licence && id === adherent.licence) ||
+        (adherent.nomPrenom && id?.toLowerCase().trim() === adherent.nomPrenom.toLowerCase().trim())
+      );
+
+      if (isAssignedInOther) {
+        const otherDateNorm = (otherComp.dateRencontreValidee || otherR.dateRencontre || '').replace(/[-/.\s]/g, '').toLowerCase();
+        const isSameDate = currentMatchDateNorm && otherDateNorm && currentMatchDateNorm === otherDateNorm;
+        const isSameJournee = rencontre.journee && otherR.journee && String(rencontre.journee).trim() === String(otherR.journee).trim();
+
+        const teamLabel = otherR.numeroEquipe || 'Autre équipe';
+        const journeeLabel = otherR.journee ? ` (J${otherR.journee})` : '';
+        const dateLabel = otherR.dateRencontre ? ` le ${otherR.dateRencontre}` : '';
+
+        // Si même date ou même journée OU composition de l'autre équipe enregistrée / validée
+        if (isSameDate || isSameJournee || otherComp.valideParCapitaine) {
+          return {
+            isDisabled: true,
+            isCurrentSlot: false,
+            badge: `Affecté : ${teamLabel}${journeeLabel}`,
+            teamName: teamLabel,
+            details: `Déjà affecté à ${teamLabel} (${otherR.categorieAgeHomologation || otherR.libelleHomologation || 'Championnat'}${dateLabel})`,
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [composition, rencontre, allRencontres, rencontresList]);
+
   // Assigner un joueur à un poste
   const handleAssignPlayer = (adherent: Adherent, slotKey: SlotKey) => {
     const eligibility = checkFFT2027Eligibility(adherent, rencontre);
@@ -569,6 +681,14 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     if (!eligibility.isEligible) {
       setBlockedAlertMessage(
         `Validation impossible pour ${adherent.nomPrenom} :\n• ` + eligibility.errors.join('\n• ')
+      );
+      return;
+    }
+
+    const assignment = getPlayerAssignment(adherent, slotKey);
+    if (assignment?.isDisabled) {
+      setBlockedAlertMessage(
+        `Impossible d'affecter ${adherent.nomPrenom} : ${assignment.details}`
       );
       return;
     }
@@ -590,6 +710,36 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }));
   };
 
+  // Réordonner automatiquement les joueurs de simple par classement FFT décroissant (1er mardi du mois)
+  const handleAutoReorderSingles = () => {
+    const players: Adherent[] = [];
+    for (let i = 1; i <= compFormat.numSingles; i++) {
+      const key = `simple${i}Id` as SlotKey;
+      const pId = composition[key];
+      if (pId) {
+        const p = adherentsById.get(pId);
+        if (p) players.push(p);
+      }
+    }
+
+    // Tri par poids de classement décroissant (meilleur classement en premier)
+    players.sort((a, b) => getRankingWeight(b.dernierClassTennis) - getRankingWeight(a.dernierClassTennis));
+
+    setComposition(prev => {
+      const updated = { ...prev };
+      for (let i = 1; i <= compFormat.numSingles; i++) {
+        const key = `simple${i}Id` as SlotKey;
+        if (i - 1 < players.length) {
+          updated[key] = players[i - 1].id;
+        } else {
+          updated[key] = undefined;
+        }
+      }
+      return updated;
+    });
+    setBlockedAlertMessage(null);
+  };
+
   // Validation définitive de la feuille de match
   const handleValidateMatchSheet = () => {
     if (hasIneligiblePlayer) {
@@ -599,12 +749,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       return;
     }
 
-    if (!rankingOrderCheck.isValid) {
-      setBlockedAlertMessage(
-        `Blocage Ordre des Classements FFT (1er mardi du mois) :\n${rankingOrderCheck.error}\n\nEn compétition officielle par équipe, les joueurs de simple doivent être ordonnés par classement strictement décroissant.`
-      );
-      return;
-    }
+    // L'ordre des classements fait l'objet d'une alerte informative (recalcul mensuel FFT le 1er mardi du mois) sans bloquer la validation
 
     if (compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage) {
       setBlockedAlertMessage(
@@ -650,12 +795,15 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   // Exécution de l'enregistrement dans Google Sheets Données_appli après confirmation explicite
   const handleConfirmSaveToGsheet = async () => {
-    if (!selectedSpreadsheetId || !rencontre) return;
+    if (!rencontre) return;
     setIsSavingToSheet(true);
     try {
-      const token = await getAccessToken();
-      if (!token) {
-        throw new Error("Jeton d'accès Google expiré. Veuillez reconnecter votre compte Google.");
+      // 1. Récupération optionnelle du token OAuth (ne bloque pas si absent/expiré car la sauvegarde passe par Apps Script)
+      let token: string | null = null;
+      try {
+        token = await getAccessToken();
+      } catch {
+        token = null;
       }
 
       const effectiveVenue = matchVenueInput === 'autre' ? customVenueInput || 'Lieu personnalisé' : matchVenueInput;
@@ -688,8 +836,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       setSheetSaveSuccess(`Composition enregistrée dans Données_appli (${result.rowsSaved} postes figés) !`);
       setTimeout(() => setSheetSaveSuccess(null), 4500);
     } catch (err: any) {
-      console.error(err);
-      setBlockedAlertMessage(`Erreur d'enregistrement Google Sheets : ${err.message}`);
+      console.warn('Erreur enregistrement Google Sheets:', err);
+      setBlockedAlertMessage(`Erreur d'enregistrement Google Sheets : ${err.message || 'accès réseau indisponible'}`);
       setIsConfirmGsheetOpen(false);
     } finally {
       setIsSavingToSheet(false);
@@ -807,14 +955,16 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleClearSlot(slotKey)}
-                  className="text-zinc-500 hover:text-rose-400 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-rose-950/40 border border-zinc-700 transition cursor-pointer"
-                  title="Retirer ce joueur"
-                >
-                  Retirer
-                </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => handleClearSlot(slotKey)}
+                    className="text-zinc-500 hover:text-rose-400 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-rose-950/40 border border-zinc-700 transition cursor-pointer"
+                    title="Retirer ce joueur"
+                  >
+                    Retirer
+                  </button>
+                )}
               </div>
             </div>
 
@@ -831,7 +981,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               </div>
             )}
           </div>
-        ) : (
+        ) : canEdit ? (
           <button
             type="button"
             onClick={() => setActiveSlot({ key: slotKey, label })}
@@ -840,6 +990,10 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
             <UserCheck className="w-4 h-4 text-[#FF6D00]" />
             <span className="text-[#FF6D00] font-black text-xs">Assigner {label}</span>
           </button>
+        ) : (
+          <div className="w-full py-2 flex items-center justify-center gap-1.5 text-zinc-500 text-xs italic">
+            <span>Poste non assigné</span>
+          </div>
         )}
       </div>
     );
@@ -1044,16 +1198,29 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       </div>
                     )}
 
-                    {/* 2. Alerte Ordre des Simples */}
+                    {/* 2. Alerte Ordre des Simples (Non bloquante, recalculs mensuels FFT le 1er mardi du mois) */}
                     {!rankingOrderCheck.isValid && (
-                      <div className="p-2.5 rounded-xl bg-black/40 border border-amber-500/40 text-amber-200 space-y-1">
-                        <p className="font-black text-amber-300 text-[11px] flex items-center gap-1">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span>Hiérarchie des classements (Ordre de force des simples) :</span>
-                        </p>
-                        <p className="text-[11px] text-zinc-300 pl-1">
-                          {rankingOrderCheck.error} (Le joueur le mieux classé doit impérativement figurer en Simple 1).
-                        </p>
+                      <div className="p-3 rounded-xl bg-black/40 border border-amber-500/50 text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="space-y-1">
+                          <p className="font-black text-amber-300 text-[11px] sm:text-xs flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>Alerte hiérarchie des classements (1er mardi du mois) :</span>
+                          </p>
+                          <p className="text-[11px] text-zinc-300 pl-1 leading-relaxed">
+                            {rankingOrderCheck.error}. Les classements ayant pu évoluer après saisie, l'enregistrement reste autorisé ou cliquez ci-contre pour corriger l'ordre :
+                          </p>
+                        </div>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={handleAutoReorderSingles}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer self-start sm:self-center shrink-0 shadow"
+                            title="Trier automatiquement les simples par classement FFT décroissant"
+                          >
+                            <ArrowUpDown className="w-3.5 h-3.5" />
+                            <span>Réordonner les simples</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1121,6 +1288,29 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </div>
               )}
 
+          {/* Statut de la composition officielle */}
+          {composition.valideParCapitaine && (
+            <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 flex items-center justify-between gap-2 shadow-md">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-heading font-black text-white text-xs sm:text-sm">
+                    Composition d'équipe officielle validée
+                  </h4>
+                  <p className="text-[11px] text-emerald-300/80">
+                    Enregistrée dans l'onglet Compositions_Equipes
+                    {composition.dateValidation ? ` le ${composition.dateValidation}` : ''} • Visible par tous les adhérents
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                Équipe validée
+              </span>
+            </div>
+          )}
+
           {/* ==================== SECTION LOGISTIQUE DU MATCH ÉPURÉE ==================== */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934]">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
@@ -1130,20 +1320,27 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Date validée
                 </label>
-                <div className="flex items-center space-x-1.5 bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 focus-within:border-orange-500">
-                  <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                  <input
-                    type="date"
-                    value={toIsoDate(matchDateInput)}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        setMatchDateInput(fromIsoDate(e.target.value));
-                      }
-                    }}
-                    className="w-full bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer [color-scheme:dark]"
-                    title="Cliquez pour ouvrir le mini calendrier"
-                  />
-                </div>
+                {canEdit ? (
+                  <div className="flex items-center space-x-1.5 bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 focus-within:border-orange-500">
+                    <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                    <input
+                      type="date"
+                      value={toIsoDate(matchDateInput)}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setMatchDateInput(fromIsoDate(e.target.value));
+                        }
+                      }}
+                      className="w-full bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer [color-scheme:dark]"
+                      title="Cliquez pour ouvrir le mini calendrier"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1.5 bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1">
+                    <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                    <span className="text-xs text-white font-mono font-bold">{matchDateInput || rencontre.dateRencontre}</span>
+                  </div>
+                )}
               </div>
 
               {/* 2. Horaire : Liste 9h, 14h (normaux) et heure paramétrable */}
@@ -1151,37 +1348,44 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Horaire
                 </label>
-                <div className="space-y-1">
-                  <select
-                    value={
-                      matchHourInput === '09:00' || matchHourInput === '14:00'
-                        ? matchHourInput
-                        : 'autre'
-                    }
-                    onChange={(e) => {
-                      if (e.target.value !== 'autre') {
-                        setMatchHourInput(e.target.value);
+                {canEdit ? (
+                  <div className="space-y-1">
+                    <select
+                      value={
+                        matchHourInput === '09:00' || matchHourInput === '14:00'
+                          ? matchHourInput
+                          : 'autre'
                       }
-                    }}
-                    className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
-                  >
-                    <option value="09:00">09:00 (Matin standard)</option>
-                    <option value="14:00">14:00 (Après-midi standard)</option>
-                    <option value="autre">⚙️ Autre heure paramétrable...</option>
-                  </select>
+                      onChange={(e) => {
+                        if (e.target.value !== 'autre') {
+                          setMatchHourInput(e.target.value);
+                        }
+                      }}
+                      className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
+                    >
+                      <option value="09:00">09:00 (Matin standard)</option>
+                      <option value="14:00">14:00 (Après-midi standard)</option>
+                      <option value="autre">⚙️ Autre heure paramétrable...</option>
+                    </select>
 
-                  {matchHourInput !== '09:00' && matchHourInput !== '14:00' && (
-                    <div className="flex items-center space-x-1 bg-black/50 border border-orange-500/50 rounded-lg px-2 py-0.5">
-                      <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                      <input
-                        type="time"
-                        value={matchHourInput}
-                        onChange={(e) => setMatchHourInput(e.target.value)}
-                        className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
-                      />
-                    </div>
-                  )}
-                </div>
+                    {matchHourInput !== '09:00' && matchHourInput !== '14:00' && (
+                      <div className="flex items-center space-x-1 bg-black/50 border border-orange-500/50 rounded-lg px-2 py-0.5">
+                        <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                        <input
+                          type="time"
+                          value={matchHourInput}
+                          onChange={(e) => setMatchHourInput(e.target.value)}
+                          className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1.5 bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1">
+                    <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                    <span className="text-xs text-orange-300 font-mono font-bold">{matchHourInput || '09:00'}</span>
+                  </div>
+                )}
               </div>
 
               {/* 3. Courts disponibles */}
@@ -1189,22 +1393,28 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Courts alloués
                 </label>
-                <div className="flex items-center space-x-1">
-                  {[1, 2, 3].map(cnt => (
-                    <button
-                      key={cnt}
-                      type="button"
-                      onClick={() => setMatchCourtsInput(cnt)}
-                      className={`flex-1 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        matchCourtsInput === cnt
-                          ? 'bg-sky-600 text-white shadow'
-                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                      }`}
-                    >
-                      {cnt} {cnt > 1 ? 'courts' : 'court'}
-                    </button>
-                  ))}
-                </div>
+                {canEdit ? (
+                  <div className="flex items-center space-x-1">
+                    {[1, 2, 3].map(cnt => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setMatchCourtsInput(cnt)}
+                        className={`flex-1 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          matchCourtsInput === cnt
+                            ? 'bg-sky-600 text-white shadow'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                        }`}
+                      >
+                        {cnt} {cnt > 1 ? 'courts' : 'court'}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-sky-300 font-bold">
+                    {matchCourtsInput} court{matchCourtsInput > 1 ? 's' : ''}
+                  </div>
+                )}
               </div>
 
               {/* 4. Lieu du match */}
@@ -1212,35 +1422,41 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Lieu du match
                 </label>
-                <select
-                  value={matchVenueInput}
-                  onChange={(e) => setMatchVenueInput(e.target.value)}
-                  className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
-                >
-                  {!isHome && adverseAddressInfo.hasAdverseAddress && (
-                    <option value={adverseAddressInfo.venueLabel}>
-                      🚗 {adverseAddressInfo.venueLabel}
+                {canEdit ? (
+                  <select
+                    value={matchVenueInput}
+                    onChange={(e) => setMatchVenueInput(e.target.value)}
+                    className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
+                  >
+                    {!isHome && adverseAddressInfo.hasAdverseAddress && (
+                      <option value={adverseAddressInfo.venueLabel}>
+                        🚗 {adverseAddressInfo.venueLabel}
+                      </option>
+                    )}
+                    <option value="Clos des Moines - 2 courts couverts résine (TCM)">
+                      Clos des Moines (Résine TCM)
                     </option>
-                  )}
-                  <option value="Clos des Moines - 2 courts couverts résine (TCM)">
-                    Clos des Moines (Résine TCM)
-                  </option>
-                  <option value="Salle du TC Nivillac (Emprunt TCM 3 équipes)">
-                    Salle TC Nivillac (Emprunt 3 équipes)
-                  </option>
-                  <option value="Clos des Moines - 2 courts extérieurs (Béton poreux)">
-                    Clos des Moines (Extérieurs TCM)
-                  </option>
-                  {!isHome && (
-                    <option value={`${rencontre.clubAccueilNom} (Installations adverses)`}>
-                      {rencontre.clubAccueilNom} (Déplacement)
+                    <option value="Salle du TC Nivillac (Emprunt TCM 3 équipes)">
+                      Salle TC Nivillac (Emprunt 3 équipes)
                     </option>
-                  )}
-                  <option value="Salle omnisports municipale (Repli)">
-                    Salle omnisports municipale (Repli)
-                  </option>
-                  <option value="autre">Autre lieu personnalisé...</option>
-                </select>
+                    <option value="Clos des Moines - 2 courts extérieurs (Béton poreux)">
+                      Clos des Moines (Extérieurs TCM)
+                    </option>
+                    {!isHome && (
+                      <option value={`${rencontre.clubAccueilNom} (Installations adverses)`}>
+                        {rencontre.clubAccueilNom} (Déplacement)
+                      </option>
+                    )}
+                    <option value="Salle omnisports municipale (Repli)">
+                      Salle omnisports municipale (Repli)
+                    </option>
+                    <option value="autre">Autre lieu personnalisé...</option>
+                  </select>
+                ) : (
+                  <div className="bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-zinc-200 truncate" title={matchVenueInput}>
+                    {matchVenueInput}
+                  </div>
+                )}
               </div>
 
             </div>
@@ -1431,30 +1647,32 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               </div>
 
               {/* Boutons pour réinitialiser l'ordre des numéros de joueurs */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
-                  title="Ordre FFT classique (4-2 puis 3-1)"
-                >
-                  Ordre FFT ({defaultSinglesPlayerNumbers.join('-')})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const list: number[] = [];
-                    for (let i = 1; i <= compFormat.numSingles; i++) list.push(i);
-                    setSinglesPlayerNumbers(list);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
-                  title="Ordre numérique (1, 2, 3...)"
-                >
-                  Numérique (1 à {compFormat.numSingles})
-                </button>
-              </div>
+              {canEdit && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
+                    title="Ordre FFT classique (4-2 puis 3-1)"
+                  >
+                    Ordre FFT ({defaultSinglesPlayerNumbers.join('-')})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const list: number[] = [];
+                      for (let i = 1; i <= compFormat.numSingles; i++) list.push(i);
+                      setSinglesPlayerNumbers(list);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
+                    title="Ordre numérique (1, 2, 3...)"
+                  >
+                    Numérique (1 à {compFormat.numSingles})
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Liste des matchs : Les matchs 1..N restent dans l'ordre chronologique fixe, on permute les numéros de joueurs */}
@@ -1484,56 +1702,64 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                         {/* Sélecteur direct du numéro de joueur pour ce match */}
                         <div className="flex items-center space-x-1.5">
                           <span className="text-[11px] text-zinc-400">Affectation :</span>
-                          <select
-                            value={playerNum}
-                            onChange={(e) => {
-                              const targetNum = parseInt(e.target.value, 10);
-                              const otherIndex = singlesPlayerNumbers.indexOf(targetNum);
-                              if (otherIndex !== -1) {
-                                swapSinglesPlayerNumbers(matchIndex, otherIndex);
-                              }
-                            }}
-                            className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
-                            title="Choisir quel numéro de joueur dispute ce créneau"
-                          >
-                            {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
-                              <option key={num} value={num}>
-                                Joueur n°{num} {num === 1 ? '(Leader)' : ''}
-                              </option>
-                            ))}
-                          </select>
+                          {canEdit ? (
+                            <select
+                              value={playerNum}
+                              onChange={(e) => {
+                                const targetNum = parseInt(e.target.value, 10);
+                                const otherIndex = singlesPlayerNumbers.indexOf(targetNum);
+                                if (otherIndex !== -1) {
+                                  swapSinglesPlayerNumbers(matchIndex, otherIndex);
+                                }
+                              }}
+                              className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
+                              title="Choisir quel numéro de joueur dispute ce créneau"
+                            >
+                              {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
+                                <option key={num} value={num}>
+                                  Joueur n°{num} {num === 1 ? '(Leader)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="font-bold text-xs text-orange-300 bg-black/60 border border-orange-500/30 px-2 py-0.5 rounded-lg">
+                              Joueur n°{playerNum} {playerNum === 1 ? '(Leader)' : ''}
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       {/* Flèches de permutation avec le match précédent / suivant */}
-                      <div className="flex items-center space-x-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex - 1)}
-                          disabled={matchIndex === 0}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                            matchIndex === 0
-                              ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                          }`}
-                          title="Permuter avec le match précédent (▲)"
-                        >
-                          <ArrowUp className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex + 1)}
-                          disabled={matchIndex === compFormat.numSingles - 1}
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                            matchIndex === compFormat.numSingles - 1
-                              ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                              : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                          }`}
-                          title="Permuter avec le match suivant (▼)"
-                        >
-                          <ArrowDown className="w-3 h-3" />
-                        </button>
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex - 1)}
+                            disabled={matchIndex === 0}
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                              matchIndex === 0
+                                ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                            }`}
+                            title="Permuter avec le match précédent (▲)"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex + 1)}
+                            disabled={matchIndex === compFormat.numSingles - 1}
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                              matchIndex === compFormat.numSingles - 1
+                                ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                            }`}
+                            title="Permuter avec le match suivant (▼)"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Bulle compacte Joueur n°X */}
@@ -1597,15 +1823,17 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleSwapDoubles}
-                      className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
-                      title="Intervertir la paire D1 et la paire D2"
-                    >
-                      <ArrowUpDown className="w-3.5 h-3.5" />
-                      <span>Inverser D1 et D2</span>
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={handleSwapDoubles}
+                        className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
+                        title="Intervertir la paire D1 et la paire D2"
+                      >
+                        <ArrowUpDown className="w-3.5 h-3.5" />
+                        <span>Inverser D1 et D2</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1637,16 +1865,11 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                  <label className="text-[11px] sm:text-xs text-zinc-400 flex items-center space-x-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={filterEligibleOnly}
-                      onChange={(e) => setFilterEligibleOnly(e.target.checked)}
-                      className="rounded accent-orange-500"
-                    />
-                    <span className="hidden sm:inline">Uniquement éligibles FFT</span>
-                    <span className="sm:hidden">Éligibles</span>
-                  </label>
+                  <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden sm:inline">{playersWithEligibility.length} licenciés TCM éligibles</span>
+                    <span className="sm:hidden">Licenciés TCM</span>
+                  </span>
                   <button
                     onClick={() => setActiveSlot(null)}
                     className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
@@ -1680,16 +1903,16 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               {/* Rappel du barème pour cette sélection */}
               <div className="p-2.5 sm:p-3 rounded-xl bg-[#171b24] border border-[#262c3b] text-xs text-zinc-300 grid grid-cols-3 gap-1.5 text-center sm:text-left">
                 <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">1. Règle Licence :</span>
-                  <span className="font-bold text-white text-[11px] sm:text-xs">Statut 'C' ou 'W'</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">1. Club &amp; Licence :</span>
+                  <span className="font-bold text-emerald-400 text-[11px] sm:text-xs">TCM ({saison})</span>
                 </div>
                 <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">2. Règle Sexe :</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">2. Sexe épreuve :</span>
                   <span className="font-bold text-orange-400 text-[11px] sm:text-xs">{reqSex === 'H' ? 'Messieurs (H)' : reqSex === 'F' ? 'Dames (F)' : 'Mixte'}</span>
                 </div>
                 <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">3. Règle Classement :</span>
-                  <span className="font-bold text-emerald-400 text-[11px] sm:text-xs">Non ND</span>
+                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">3. Catégorie d'âge :</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs">{rencontre.categorieAgeHomologation || 'TCM'}</span>
                 </div>
               </div>
 
@@ -1697,7 +1920,6 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               <div className="max-h-64 sm:max-h-72 overflow-y-auto space-y-1.5 pr-1 touch-pan-y">
                 {playersWithEligibility
                   .filter(item => {
-                    if (filterEligibleOnly && !item.eligibility.isEligible) return false;
                     if (!playerSearchQuery.trim()) return true;
                     const q = playerSearchQuery.toLowerCase().trim();
                     const name = (item.adherent.nomPrenom || '').toLowerCase();
@@ -1705,43 +1927,48 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     const lic = (item.adherent.licence || '').toLowerCase();
                     return name.includes(q) || rank.includes(q) || lic.includes(q);
                   })
-                  .map(({ adherent, eligibility, isLicencie, dispo }) => {
-                    const isAlreadySelected = selectedPlayerIds.includes(adherent.id);
+                  .map(({ adherent, dispo }) => {
+                    const assignment = getPlayerAssignment(adherent, activeSlot.key);
+                    const isDisabled = !!assignment?.isDisabled;
+                    const isCurrentSlot = !!assignment?.isCurrentSlot;
 
                     return (
                       <div
                         key={adherent.id}
-                        onClick={() => handleAssignPlayer(adherent, activeSlot.key)}
-                        className={`p-3 rounded-2xl border transition flex items-center justify-between cursor-pointer ${
-                          !eligibility.isEligible
-                            ? 'bg-rose-950/20 border-rose-900/40 hover:border-rose-500 opacity-70'
-                            : isAlreadySelected
-                              ? 'bg-orange-950/30 border-orange-500/50 text-white'
-                              : 'bg-[#181c25] border-[#262c3a] hover:border-orange-500/60'
+                        onClick={() => {
+                          if (isDisabled) return;
+                          handleAssignPlayer(adherent, activeSlot.key);
+                        }}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between ${
+                          isDisabled
+                            ? 'bg-[#10131a] border-zinc-800/80 opacity-60 cursor-not-allowed select-none'
+                            : isCurrentSlot
+                              ? 'bg-emerald-950/20 border-emerald-500/40 text-white cursor-default'
+                              : 'bg-[#181c25] border-[#262c3a] hover:border-orange-500/60 hover:bg-[#1d222e] cursor-pointer group'
                         }`}
+                        title={isDisabled ? assignment.details : `Assigner ${adherent.nomPrenom} au ${activeSlot.label}`}
                       >
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                            eligibility.isEligible ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                        <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                            isDisabled 
+                              ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-700' 
+                              : isCurrentSlot
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                           }`}>
-                            {eligibility.isEligible ? '✓' : '✕'}
+                            {isDisabled ? <Lock className="w-3.5 h-3.5 text-zinc-400" /> : isCurrentSlot ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : '✓'}
                           </div>
 
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                              <span className="font-heading font-black text-white text-xs sm:text-sm">
+                              <span className={`font-heading font-black text-xs sm:text-sm truncate ${isDisabled ? 'text-zinc-400' : 'text-white'}`}>
                                 {adherent.nomPrenom}
                               </span>
-                              <span className="px-2 py-0.2 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                              <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold shrink-0">
                                 {adherent.dernierClassTennis}
                               </span>
-                              {isLicencie && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
-                                  Licencié 2027 TCM
-                                </span>
-                              )}
                               {dispo && (
-                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
                                   dispo.statut === 'disponible'
                                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                     : dispo.statut === 'incertain'
@@ -1753,33 +1980,39 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                                     : dispo.statut === 'incertain' ? '🟡 Incertain' : '🔴 Indispo'}
                                 </span>
                               )}
-                              {isAlreadySelected && (
-                                <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-orange-500 text-white">
-                                  Déjà assigné
-                                </span>
-                              )}
                             </div>
 
-                            <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
-                              <span>Licence {adherent.licence} ({adherent.millesimeLicence || '2027'})</span>
-                              <span>•</span>
-                              <span>{adherent.civilite === 'Monsieur' ? 'Homme' : 'Femme'}</span>
-                              <span>•</span>
-                              <span>{adherent.dateNaissance || 'Date N/A'}</span>
-                            </p>
+                            {/* Ligne détails ou motif d'affectation */}
+                            {isDisabled ? (
+                              <p className="text-[11px] text-amber-400 font-medium flex items-center gap-1 mt-0.5 truncate">
+                                <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                <span className="truncate">{assignment.details}</span>
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                                <span>Licence {adherent.licence} ({adherent.millesimeLicence || '2027'})</span>
+                                <span>•</span>
+                                <span>{adherent.ageSportif ? `${adherent.ageSportif} ans` : adherent.dateNaissance || 'TCM'}</span>
+                              </p>
+                            )}
                           </div>
                         </div>
 
-                        {/* Statut Éligibilité */}
-                        <div>
-                          {eligibility.isEligible ? (
-                            <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Éligible</span>
+                        {/* Statut / Badge d'affectation à droite */}
+                        <div className="shrink-0">
+                          {isDisabled ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-sm">
+                              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>{assignment.badge}</span>
+                            </span>
+                          ) : isCurrentSlot ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>Actuellement assigné</span>
                             </span>
                           ) : (
-                            <span className="text-[10px] text-rose-400 font-semibold max-w-[180px] text-right block truncate" title={eligibility.errors.join(' | ')}>
-                              {eligibility.errors[0]}
+                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-orange-500/20 text-orange-400 border border-orange-500/40 group-hover:bg-orange-500 group-hover:text-white transition">
+                              Assigner
                             </span>
                           )}
                         </div>
@@ -1811,7 +2044,12 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               Fermer
             </button>
 
-            {selectedSpreadsheetId ? (
+            {!canEdit ? (
+              <div className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-bold shadow-sm">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Mode consultation adhérent</span>
+              </div>
+            ) : selectedSpreadsheetId ? (
               <button
                 onClick={handleValidateMatchSheet}
                 disabled={hasIneligiblePlayer || (compFormat.doubleWeightStrict && !doublesWeightCheck.isValid)}

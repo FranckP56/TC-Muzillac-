@@ -131,19 +131,28 @@ export function checkFFT2027Eligibility(
   const errors: string[] = [];
   const saisonNum = parseInt(saison, 10) || 2027;
 
-  // 1. VÉRIFICATION DU TYPE ET DU MILLÉSIME DE LICENCE
-  // Types autorisés : 'C' (Club Compétition) ou 'W' (Compétition Web)
+  // 1. VÉRIFICATION DU CLUB DE RATTACHEMENT ET DE LA LICENCE (Muzillac Tennis Club)
+  // Types autorisés : 'C' (Club Compétition) ou 'W' (Compétition Web) + Saison active au TCM
   const rawLicenceType = (adherent.typeLicence || 'C').trim().toUpperCase();
   const millesime = String(adherent.millesimeLicence || '').trim();
   const hasLicenceNumber = !!adherent.licence && adherent.licence.trim().length > 3;
+  const rawClub = (adherent.clubRattachement || '').toUpperCase().trim();
+  const isMuzillac = 
+    rawClub.includes('MUZILLAC') || 
+    rawClub === 'MUZILLAC TENNIS CLUB' || 
+    rawClub.includes('TCM');
 
   let licenceValid = true;
   let licenceError: string | undefined;
 
-  // Si le millésime est renseigné et antérieur à la saison active
-  if (millesime && millesime !== saison) {
+  // Doit impérativement être licencié au Tennis Club de Muzillac
+  if (!isMuzillac) {
     licenceValid = false;
-    licenceError = `Licence non renouvelée pour le millésime ${saison} (dernière licence : ${millesime})`;
+    licenceError = `Non licencié au Tennis Club de Muzillac (Club actuel : ${adherent.clubRattachement || 'Autre club'})`;
+    errors.push(licenceError);
+  } else if (!millesime || (millesime !== saison && !millesime.includes(saison))) {
+    licenceValid = false;
+    licenceError = `Licence non renouvelée pour le millésime ${saison} (dernière licence : ${millesime || 'Inconnue'})`;
     errors.push(licenceError);
   } else if (!hasLicenceNumber) {
     licenceValid = false;

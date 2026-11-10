@@ -120,7 +120,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
         });
       }
     } catch (err: any) {
-      console.error(err);
+      console.warn('Erreur direct push InfosClubTab:', err);
       setDirectPushStatus({
         type: 'error',
         text: `Erreur : ${err.message || "Échec d'envoi vers Google Sheets"}`,

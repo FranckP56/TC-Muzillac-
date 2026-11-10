@@ -855,8 +855,8 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
                       {/* Statut de composition de l'équipe (discret dans l'en-tête) */}
                       {compStatus.isValidated ? (
-                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Validée FFT
+                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shadow-sm">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Équipe validée
                         </span>
                       ) : compStatus.doubleWeightIssue ? (
                         <span className="text-[9px] px-2 py-0.5 rounded font-black bg-rose-500/20 text-rose-400 border border-rose-500/30">

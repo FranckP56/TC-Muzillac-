@@ -85,7 +85,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         await searchFilesWithToken(res.accessToken);
       }
     } catch (err: any) {
-      console.error(err);
+      console.warn('Erreur connexion Google:', err);
       setAuthError(err.message || 'Échec de connexion Google.');
     } finally {
       setIsSigningIn(false);
@@ -198,7 +198,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setSyncStatus(`Synchronisation terminée avec succès ! (${adherents.length} adhérents, ${rencontres.length} rencontres)`);
       setTimeout(() => setSyncStatus(null), 4000);
     } catch (err: any) {
-      console.error(err);
+      console.warn('Erreur synchronisation Google Sheets:', err);
       setSyncStatus(`Erreur de synchronisation : ${err.message}`);
     } finally {
       setIsSyncing(false);

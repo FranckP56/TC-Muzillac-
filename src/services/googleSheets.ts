@@ -571,7 +571,25 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
         }
       }
     } else if (rawRen[0]?.numeroEquipe || rawRen[0]?.libelleHomologation) {
-      rencontres.push(...rawRen);
+      for (const item of rawRen) {
+        if (!item) continue;
+        const parsed = { ...item };
+        const parsedNumOnly = (parsed.numeroEquipe || '').replace(/\D/g, '');
+        const normDate = normalizeSheetMatchKey(parsed.dateRencontre);
+        
+        const compEntry = 
+          compositionsMap.get(parsed.id) ||
+          compositionsMap.get(normalizeSheetMatchKey(parsed.id)) ||
+          (parsed.dateRencontre && parsed.numeroEquipe ? 
+            (compositionsMap.get(`date_${normDate}_eq_${normalizeSheetMatchKey(parsed.numeroEquipe)}`) ||
+             (parsedNumOnly ? compositionsMap.get(`date_${normDate}_eq_${parsedNumOnly}`) : undefined)) : 
+            undefined);
+
+        if (compEntry) {
+          parsed.composition = compEntry.composition;
+        }
+        rencontres.push(parsed);
+      }
     }
   }
 
