@@ -1,6 +1,0 @@
-{
-  "summary":  "Plan d'implémentation pour la persistance dynamique des compositions d'équipes dans Compositions_Equipes, l'extraction systématique au démarrage, la visibilité dédiée pour les adhérents et la gestion non-bloquante des alertes de classements mensuels FFT.",
-  "updatedAt":  "2026-11-10T14:36:55.822651505Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

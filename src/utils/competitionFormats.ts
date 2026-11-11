@@ -133,10 +133,40 @@ export function getCompetitionFormat(
     cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
 
   if (isJeunes) {
+    // RÈGLE COMITÉ DU MORBIHAN (56) :
+    // - Les rencontres jeunes se disputent généralement en 2 simples et 1 double (2S + 1D) notamment chez les filles et les plus jeunes (11/12 ans).
+    // - Dans les divisions masculines 13/14 ans et 17/18 ans (selon les engagements de la saison), le format est en 3 simples et 1 double (3S + 1D).
+    // C'est le cas effectif des 2 équipes garçons 13/14 ans et 17/18 ans du Muzillac Tennis Club.
+    const isBoys13To18 = 
+      (cat.includes('13') || cat.includes('14') || cat.includes('15') || cat.includes('16') || cat.includes('17') || cat.includes('18')) &&
+      sexe !== 'Dames' && !lib.includes('fille') && !cat.includes('fille');
+
+    if (isBoys13To18) {
+      return {
+        type: 'jeunes',
+        categoryLabel: 'Championnat Jeunes 13/14 & 17/18 Garçons (3S + 1D)',
+        divisionLabel: 'Comité du Morbihan (Départemental)',
+        isRegional: false,
+        isJeunes: true,
+        isUnder10: false,
+        isSeniorsPlus: false,
+        numSingles: options?.formatReduit ? 2 : 3,
+        numDoubles: 1,
+        minPlayers: 3,
+        maxPlayers: 5,
+        pointsSystem: '3 simples (1 pt chacun) + 1 double (1 pt) = 4 points en jeu',
+        matchRules: '13 à 18 ans Garçons : Format 2 (2 sets à 6 jeux, 3e set Super Tie-Break 10 points). Balles dures sur terrain classique.',
+        doubleRules: 'Double systématiquement en formule simplifiée (point décisif No-Ad et Super Tie-Break 10 points au 3e set). Les joueurs de simple peuvent faire le double.',
+        expectedDay: 'Samedi',
+        orderOfPlay: 'Simples 1, 2, 3 puis le Double (sur 2 courts : S1 & S2 lancés, puis S3 & Double).',
+        doubleWeightStrict: false,
+      };
+    }
+
     return {
       type: 'jeunes',
-      categoryLabel: 'Championnat Jeunes (Filles ou Garçons)',
-      divisionLabel: 'Ligue de Bretagne / Comité 56',
+      categoryLabel: 'Championnat Jeunes Filles & 11/12 ans (2S + 1D)',
+      divisionLabel: 'Comité du Morbihan / Ligue de Bretagne',
       isRegional: false,
       isJeunes: true,
       isUnder10,
@@ -149,7 +179,7 @@ export function getCompetitionFormat(
       matchRules: isUnder10
         ? 'Moins de 10 ans (Galaxie Tennis) : Terrains réduits & balles souples/intermédiaires. Formats très courts (sets de 3 ou 4 jeux, point décisif No-Ad, super tie-break).'
         : '11 à 18 ans : Terrain classique & balles dures. Simples au meilleur des 3 sets (3e set Super Tie-Break 10 points en départemental).',
-      doubleRules: 'Double systématiquement en formule simplifiée (point décisif No-Ad et Super Tie-Break 10 points au 3e set). Les 2 joueurs de simple peuvent faire le double ensemble.',
+      doubleRules: 'Double en formule simplifiée (point décisif No-Ad et Super Tie-Break 10 points au 3e set). Les 2 joueurs de simple peuvent faire le double ensemble.',
       expectedDay: 'Samedi',
       orderOfPlay: 'Simple 1, Simple 2, puis le Double',
       doubleWeightStrict: false,

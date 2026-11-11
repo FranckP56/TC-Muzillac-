@@ -58,6 +58,7 @@ import { ConfirmSaveCompositionModal } from './ConfirmSaveCompositionModal';
 import { saveCompositionToSheet } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
 import { isLicencieMuzillac } from '../utils/licencies';
+import { isSameWeekend, isBadenCupMatch } from '../utils/dateUtils';
 
 /**
  * Convertit JJ/MM/AAAA en AAAA-MM-JJ pour input type="date"
@@ -621,13 +622,27 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       }
     }
 
-    // 4. Déjà assigné dans UNE AUTRE ÉQUIPE du club (allRencontres / rencontresList)
+    // 4. Déjà assigné dans UNE AUTRE ÉQUIPE du club le MÊME WEEK-END
+    // RÈGLE FFT / TCM : Un joueur ne peut pas jouer dans 2 équipes différentes le même week-end (samedi/dimanche).
+    // PRÉCISION BADEN CUP : L'équipe Baden Cup (+65 ans) se joue en semaine et n'affecte pas les championnats
+    // du week-end (un joueur peut donc jouer en Baden Cup en semaine et en championnat le week-end sans aucun conflit).
+    const isCurrentBaden = isBadenCupMatch(rencontre);
     const allMatches = allRencontres || rencontresList || [];
-    const currentMatchDateNorm = (composition.dateRencontreValidee || rencontre.dateRencontre || '').replace(/[-/.\s]/g, '').toLowerCase();
+    const currentDateStr = composition.dateRencontreValidee || matchDateInput || rencontre.dateRencontre || '';
 
     for (const otherR of allMatches) {
       if (otherR.id === rencontre.id) continue;
       if (!otherR.composition) continue;
+
+      // Si l'une des deux rencontres est la Baden Cup, PAS de conflit avec les championnats du week-end !
+      const isOtherBaden = isBadenCupMatch(otherR);
+      if (isCurrentBaden || isOtherBaden) {
+        // La Baden Cup ne bloque pas et n'est pas bloquée par les championnats
+        // Sauf si les deux sont la Baden Cup elle-même sur la même date
+        if (!(isCurrentBaden && isOtherBaden)) {
+          continue;
+        }
+      }
 
       const otherComp = otherR.composition;
       const matchSlots = [
@@ -650,22 +665,21 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       );
 
       if (isAssignedInOther) {
-        const otherDateNorm = (otherComp.dateRencontreValidee || otherR.dateRencontre || '').replace(/[-/.\s]/g, '').toLowerCase();
-        const isSameDate = currentMatchDateNorm && otherDateNorm && currentMatchDateNorm === otherDateNorm;
-        const isSameJournee = rencontre.journee && otherR.journee && String(rencontre.journee).trim() === String(otherR.journee).trim();
+        const otherDateStr = otherComp.dateRencontreValidee || otherR.dateRencontre || '';
+        const sameWeekend = isSameWeekend(currentDateStr, otherDateStr);
 
-        const teamLabel = otherR.numeroEquipe || 'Autre équipe';
-        const journeeLabel = otherR.journee ? ` (J${otherR.journee})` : '';
-        const dateLabel = otherR.dateRencontre ? ` le ${otherR.dateRencontre}` : '';
+        // Blocage UNIQUEMENT si les deux rencontres ont lieu le même week-end
+        if (sameWeekend) {
+          const teamLabel = otherR.numeroEquipe || 'Autre équipe';
+          const journeeLabel = otherR.journee ? ` (J${otherR.journee})` : '';
+          const dateLabel = otherR.dateRencontre ? ` le ${otherR.dateRencontre}` : '';
 
-        // Si même date ou même journée OU composition de l'autre équipe enregistrée / validée
-        if (isSameDate || isSameJournee || otherComp.valideParCapitaine) {
           return {
             isDisabled: true,
             isCurrentSlot: false,
             badge: `Affecté : ${teamLabel}${journeeLabel}`,
             teamName: teamLabel,
-            details: `Déjà affecté à ${teamLabel} (${otherR.categorieAgeHomologation || otherR.libelleHomologation || 'Championnat'}${dateLabel})`,
+            details: `Déjà affecté à ${teamLabel} pour ce même week-end (${otherR.categorieAgeHomologation || otherR.libelleHomologation || 'Championnat'}${dateLabel})`,
           };
         }
       }

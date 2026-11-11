@@ -140,8 +140,12 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
 
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div className="flex items-start space-x-4 sm:space-x-5">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-[#BF360C] via-[#E65100] to-[#FF6D00] flex items-center justify-center font-heading font-black text-white text-2xl sm:text-3xl shadow-2xl shadow-orange-950/80 border border-orange-400/40 shrink-0">
-              TCM
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-[#BF360C] via-[#E65100] to-[#FF6D00] flex items-center justify-center font-heading font-black text-white text-2xl sm:text-3xl shadow-2xl shadow-orange-950/80 border border-orange-400/40 shrink-0 overflow-hidden">
+              {clubInfo.logoUrl ? (
+                <img src={clubInfo.logoUrl} alt="Logo TCM" className="w-full h-full object-contain p-1" />
+              ) : (
+                'TCM'
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">

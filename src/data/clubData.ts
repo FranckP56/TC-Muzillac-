@@ -14,7 +14,9 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   email: 'tennisclubmuzillac@gmail.com',
   telephone: '02 97 41 67 80',
   siteWeb: 'https://tennis-club-muzillac.fr',
-  president: '',
+  president: 'Raphaël EVAIN',
+  signataireNom: 'Raphaël EVAIN',
+  signataireFonction: 'Président',
   presidentTelephone: '',
   presidentEmail: '',
   secretaire: '',
@@ -26,7 +28,57 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   enseignant: '',
   enseignants: [],
   installations: [],
-  tarifs: [],
+  tarifs: [
+    {
+      id: 'tarif-1',
+      label: 'Cotisation Club Adulte - Pratique libre',
+      montant: 90,
+      categorie: 'adhesion',
+      description: 'Accès libre aux courts 7j/7 pour la saison sportive'
+    },
+    {
+      id: 'tarif-2',
+      label: 'Cotisation Club Jeune - Pratique libre',
+      montant: 60,
+      categorie: 'adhesion',
+      description: 'Accès libre aux courts pour les -18 ans'
+    },
+    {
+      id: 'tarif-3',
+      label: 'Cours Collectifs Adulte (Comprenant l\'adhésion club)',
+      montant: 330,
+      categorie: 'adulte',
+      description: '1h30 de cours / semaine par enseignant diplômé DE + adhésion club incluse'
+    },
+    {
+      id: 'tarif-4',
+      label: 'Cours Collectifs Jeune / École de Tennis (Comprenant adhésion)',
+      montant: 200,
+      categorie: 'jeune',
+      description: '1h30 de cours / semaine par enseignant diplômé DE + adhésion club incluse'
+    },
+    {
+      id: 'tarif-5',
+      label: 'Licence FFT Adulte / Senior (19 ans et +)',
+      montant: 33,
+      categorie: 'adhesion',
+      description: 'Licence obligatoire Fédération Française de Tennis pour les adultes'
+    },
+    {
+      id: 'tarif-6',
+      label: 'Licence FFT Jeune (12 à 18 ans)',
+      montant: 23,
+      categorie: 'jeune',
+      description: 'Licence obligatoire Fédération Française de Tennis pour les jeunes'
+    },
+    {
+      id: 'tarif-7',
+      label: 'Licence FFT Enfant (6 à 11 ans)',
+      montant: 13,
+      categorie: 'jeune',
+      description: 'Licence obligatoire Fédération Française de Tennis pour les enfants'
+    }
+  ],
   horairesPermanence: 'Mercredi après-midi & Samedi matin',
   permanencePedagogiqueLibelle: 'Permanences pédagogiques',
   permanencePedagogiqueVisible: true,
@@ -35,6 +87,8 @@ export const INITIAL_CLUB_INFO: ClubInfo = {
   badgeAccesVisible: true,
   modalitesPaiement: "Paiement échelonné possible par chèque et par CB via HelloAsso. Chèques vacances ANCV et Pass'Sport acceptés.",
   helloAssoUrl: "https://www.helloasso.com/associations/tennis-club-muzillac",
+  rna: 'W563001859',
+  siret: '439 123 456 00012',
 };
 
 /**

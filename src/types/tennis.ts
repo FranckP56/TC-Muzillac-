@@ -41,6 +41,8 @@ export interface Adherent {
   compteTenUp: string; // 'Créé' | 'Non créé'
   ville?: string;
   codePostal?: string;
+  adresse?: string;
+  representantLegal?: string;
   clubRattachement?: string;
   commentaire?: string;
 }
@@ -202,6 +204,14 @@ export interface ClubInfo {
   badgeAccesVisible?: boolean;
   modalitesPaiement?: string;
   helloAssoUrl?: string;
+  logoUrl?: string;
+  signatureUrl?: string;
+  tamponUrl?: string;
+  siret?: string;
+  rna?: string;
+  signataireNom?: string;
+  signataireFonction?: string;
+  ribIban?: string;
 }
 
 export interface EligibilityResult {

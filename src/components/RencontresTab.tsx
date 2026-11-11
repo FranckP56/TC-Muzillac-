@@ -933,12 +933,48 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 
                   {/* Ligne 3 : Logistique du match (Horaire sur X courts & Adresse complète sur 2 lignes avec itinéraire) */}
                   <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
-                    <div className="flex items-center gap-1.5 text-zinc-300 text-[11px]">
-                      <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                      <span className="text-zinc-400">Horaire :</span>
-                      <strong className="text-white font-mono">{matchHour}</strong>
-                      <span className="text-zinc-500 font-bold">•</span>
-                      <span className="text-zinc-300 font-medium">Sur {r.composition?.nombreCourts || 2} courts</span>
+                    <div className="flex items-center justify-between gap-1.5 text-zinc-300 text-[11px] flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                        <span className="text-zinc-400">Horaire :</span>
+                        {userRole === 'admin' || userRole === 'bureau' ? (
+                          <div 
+                            className="flex items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <select
+                              value={matchHour === '09:00' || matchHour === '14:00' ? matchHour : 'autre'}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val !== 'autre') {
+                                  onUpdateMatchHour?.(r.id, val);
+                                }
+                              }}
+                              className="bg-black/70 border border-zinc-700 hover:border-orange-500 rounded px-1.5 py-0.5 text-white font-mono font-bold text-[11px] cursor-pointer focus:outline-none"
+                              title="Changer l'horaire de la rencontre"
+                            >
+                              <option value="09:00">09:00</option>
+                              <option value="14:00">14:00</option>
+                              <option value="autre">⚙️ {matchHour !== '09:00' && matchHour !== '14:00' ? matchHour : 'Autre...'}</option>
+                            </select>
+                            {matchHour !== '09:00' && matchHour !== '14:00' && (
+                              <input
+                                type="time"
+                                value={matchHour}
+                                onChange={(e) => onUpdateMatchHour?.(r.id, e.target.value)}
+                                className="bg-black/70 border border-orange-500/70 rounded px-1 py-0.5 text-white font-mono text-[11px] w-20"
+                                title="Horaire personnalisé"
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <strong className="text-white font-mono">{matchHour}</strong>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-zinc-500 font-bold">•</span>
+                        <span className="text-zinc-300 font-medium">Sur {r.composition?.nombreCourts || 2} courts</span>
+                      </div>
                     </div>
 
                     {/* Lieu & Adresse complète sur 2 lignes (adresse, code postal, ville) avec itinéraire Maps */}

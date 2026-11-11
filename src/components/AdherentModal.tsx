@@ -13,7 +13,9 @@ import {
   ShieldAlert,
   Award,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent } from '../types/tennis';
@@ -26,6 +28,8 @@ interface AdherentModalProps {
   onUpdateSolde?: (id: string, newSolde: number) => void;
   adherentsList?: Adherent[];
   onSelectAdherent?: (adherent: Adherent) => void;
+  onOpenAttestation?: (adherent: Adherent) => void;
+  onOpenRelance?: (adherent: Adherent) => void;
 }
 
 export const AdherentModal: React.FC<AdherentModalProps> = ({
@@ -33,6 +37,8 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
   onClose,
   adherentsList,
   onSelectAdherent,
+  onOpenAttestation,
+  onOpenRelance,
 }) => {
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
   const [direction, setDirection] = React.useState<number>(1);
@@ -114,6 +120,7 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
   const birthYear = extractBirthYear(adherent.dateNaissance);
   const ageSportif2027 = birthYear ? 2027 - birthYear : null;
   const ageDisplay = adherent.ageSportif ? `${adherent.ageSportif} ans` : (ageSportif2027 ? `${ageSportif2027} ans` : null);
+  const isOwed = adherent.soldeDu !== undefined && adherent.soldeDu < 0;
 
   // Thème contrasté selon le sexe pour ressortir nettement sur fond noir
   const theme = isFemme ? {
@@ -312,6 +319,34 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                 <span className="truncate">Email</span>
               </a>
             </div>
+
+            {/* Raccourcis complémentaires : Attestation Officielle & Relance */}
+            {(onOpenAttestation || onOpenRelance) && (
+              <div className={`shrink-0 flex items-center gap-2 p-2.5 sm:px-5 border-b ${theme.headerBorder} bg-black/20`}>
+                {onOpenAttestation && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenAttestation(adherent)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-500/35 transition cursor-pointer"
+                    title="Imprimer l'attestation officielle de cotisation et licence FFT (CSE, CAF, Pass'Sport)"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Attestation officielle</span>
+                  </button>
+                )}
+                {onOpenRelance && isOwed && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenRelance(adherent)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 hover:text-white border border-rose-500/40 transition cursor-pointer animate-pulse"
+                    title={`Relancer l'adhérent pour son solde dû de ${Math.abs(adherent.soldeDu)} €`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Relance de cotisation</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* ==================== 3. CORPS DE LA FICHE DÉTAILLÉE ==================== */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5">

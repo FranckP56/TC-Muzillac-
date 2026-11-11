@@ -20,6 +20,46 @@ export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
 export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
 export const TCM_CUSTOM_CLUB_INFO_KEY = 'tcm_custom_club_info_v3';
+export const TCM_CUSTOM_COMPOSITIONS_KEY = 'tcm_custom_compositions_v3';
+
+export function saveLocalComposition(matchId: string, comp: MatchComposition): void {
+  try {
+    const raw = localStorage.getItem(TCM_CUSTOM_COMPOSITIONS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[matchId] = comp;
+    map[normalizeSheetMatchKey(matchId)] = comp;
+    localStorage.setItem(TCM_CUSTOM_COMPOSITIONS_KEY, JSON.stringify(map));
+  } catch (e) {
+    console.warn("Erreur sauvegarde locale composition:", e);
+  }
+}
+
+export function loadLocalCompositions(): Record<string, MatchComposition> {
+  try {
+    const raw = localStorage.getItem(TCM_CUSTOM_COMPOSITIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function cleanTimeValue(val: any, fallback = '14:00'): string {
+  if (!val) return fallback;
+  const s = String(val).trim();
+  if (s.includes('T')) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+  }
+  const match = s.match(/(\d{1,2})[:hH](\d{2})/);
+  if (match) {
+    return `${match[1].padStart(2, '0')}:${match[2]}`;
+  }
+  return s || fallback;
+}
 
 export function saveClubInfoToLocal(info: ClubInfo): void {
   try {
@@ -139,68 +179,51 @@ export function normalizeSheetMatchKey(str: string): string {
 /**
  * Parsing des compositions depuis les lignes brutes de l'onglet Compositions_Equipes
  */
-function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }> {
+function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }> {
   const map = new Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }>();
-  if (!rows || rows.length <= 1) return map;
+  if (!rawComps) return map;
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!Array.isArray(row) || row.length === 0) continue;
+  // 1. Cas où rawComps est un dictionnaire/objet renvoyé par Apps Script : { "rencontre-1": { matchId, ... } }
+  if (typeof rawComps === 'object' && !Array.isArray(rawComps)) {
+    for (const [key, val] of Object.entries(rawComps)) {
+      if (!val || typeof val !== 'object') continue;
+      const v = val as any;
+      const matchId = String(v.matchId || key).trim();
+      const heureDebut = cleanTimeValue(v.heureDebut, '14:00');
+      const lieuRencontre = String(v.lieuRencontre || 'Clos des Moines (Muzillac)').trim();
+      const nombreCourts = parseInt(String(v.nombreCourts), 10) || 2;
+      const dateVal = String(v.dateRencontre || '').trim();
+      const normDateVal = normalizeDateString(dateVal);
+      const numEqVal = String(v.numeroEquipe || '').trim();
 
-    const matchId = String(row[0] || '').trim();
-    const dateVal = String(row[1] || '').trim();
-    const numEqVal = String(row[2] || '').trim();
-    const poste = String(row[8] || '').trim();
-    const nomPrenom = String(row[9] || '').trim();
-    const licence = String(row[10] || '').trim();
-    const rawClassementGele = String(row[11] || '').trim();
-    const classementGele = cleanRanking(rawClassementGele);
-    const dateNaissance = normalizeDateString(row[12] || '');
-    const ageSportif = String(row[13] || '').trim();
-    const typeLicence = String(row[14] || '').trim();
+      const frozenSlots: FrozenPlayerSlot[] = Array.isArray(v.frozenPlayers) ? v.frozenPlayers : [];
 
-    let heureDebut = '09:00';
-    let lieuRencontre = 'Clos des Moines (Muzillac)';
-    let nombreCourts = 2;
-    let dateEnreg = '';
-    let valide = false;
-
-    if (row.length > 17) {
-      heureDebut = String(row[15] || '09:00').trim();
-      // Si l'heure est au format ISO 1899-12-30T13:50:39, extraire l'heure
-      if (heureDebut.includes('T')) {
-        const dObj = new Date(heureDebut);
-        if (!isNaN(dObj.getTime())) {
-          heureDebut = dObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        }
-      }
-      lieuRencontre = String(row[16] || 'Clos des Moines (Muzillac)').trim();
-      nombreCourts = parseInt(String(row[17]), 10) || 2;
-      dateEnreg = String(row[18] || '').trim();
-      valide = String(row[19] || '').toLowerCase() === 'oui' || String(row[19] || '').toLowerCase() === 'true';
-    } else {
-      dateEnreg = String(row[15] || '').trim();
-      valide = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
-    }
-
-    if (!matchId || !poste || !nomPrenom) continue;
-
-    const normDateVal = normalizeDateString(dateVal);
-
-    let entry = map.get(matchId);
-    if (!entry) {
-      entry = {
-        composition: {
-          valideParCapitaine: valide,
-          dateValidation: dateEnreg,
-          dateRencontreValidee: normDateVal || dateVal || undefined,
-          heureDebut,
-          lieuRencontre,
-          nombreCourts,
-          frozenPlayers: [],
-        },
-        frozenSlots: [],
+      const comp: MatchComposition = {
+        valideParCapitaine: !!v.valideParCapitaine,
+        dateValidation: String(v.dateValidation || ''),
+        dateRencontreValidee: normDateVal || dateVal || undefined,
+        heureDebut,
+        lieuRencontre,
+        nombreCourts,
+        frozenPlayers: frozenSlots,
       };
+
+      // Assigner les clés de postes directes
+      frozenSlots.forEach(s => {
+        const cleanPoste = (s.poste || '').toLowerCase().trim();
+        const pId = s.adherentId || s.licence || s.nomPrenom;
+        if (cleanPoste.includes('simple 1') || cleanPoste === 's1') comp.simple1Id = pId;
+        else if (cleanPoste.includes('simple 2') || cleanPoste === 's2') comp.simple2Id = pId;
+        else if (cleanPoste.includes('simple 3') || cleanPoste === 's3') comp.simple3Id = pId;
+        else if (cleanPoste.includes('simple 4') || cleanPoste === 's4') comp.simple4Id = pId;
+        else if (cleanPoste.includes('simple 5') || cleanPoste === 's5') comp.simple5Id = pId;
+        else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) comp.double1Player1Id = pId;
+        else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) comp.double1Player2Id = pId;
+        else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) comp.double2Player1Id = pId;
+        else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) comp.double2Player2Id = pId;
+      });
+
+      const entry = { composition: comp, frozenSlots };
       map.set(matchId, entry);
       map.set(normalizeSheetMatchKey(matchId), entry);
       if (dateVal && numEqVal) {
@@ -210,45 +233,139 @@ function parseCompositionsRows(rows: any[][]): Map<string, { composition: MatchC
         }
       }
     }
+  }
 
-    const playerId = licence || nomPrenom;
-    const slot: FrozenPlayerSlot = {
-      poste,
-      adherentId: playerId,
-      nomPrenom,
-      licence,
-      classementGele: classementGele || 'NC',
-      dateNaissance,
-      ageSportif,
-      typeLicence,
-    };
+  // 2. Cas où rawComps est un tableau de lignes 2D de l'onglet Compositions_Equipes
+  else if (Array.isArray(rawComps) && rawComps.length > 1 && Array.isArray(rawComps[0])) {
+    for (let i = 1; i < rawComps.length; i++) {
+      const row = rawComps[i];
+      if (!Array.isArray(row) || row.length === 0) continue;
 
-    entry.frozenSlots.push(slot);
-    if (entry.composition.frozenPlayers) {
-      entry.composition.frozenPlayers.push(slot);
+      const matchId = String(row[0] || '').trim();
+      const dateVal = String(row[1] || '').trim();
+      const numEqVal = String(row[2] || '').trim();
+      const poste = String(row[8] || '').trim();
+      const nomPrenom = String(row[9] || '').trim();
+      const licence = String(row[10] || '').trim();
+      const rawClassementGele = String(row[11] || '').trim();
+      const classementGele = cleanRanking(rawClassementGele);
+      const dateNaissance = normalizeDateString(row[12] || '');
+      const ageSportif = String(row[13] || '').trim();
+      const typeLicence = String(row[14] || '').trim();
+
+      let heureDebut = '14:00';
+      let lieuRencontre = 'Clos des Moines (Muzillac)';
+      let nombreCourts = 2;
+      let dateEnreg = '';
+      let valide = false;
+
+      // Détection intelligente selon le contenu de row[15]
+      if (row.length > 17 || (row[15] && String(row[15]).includes(':'))) {
+        heureDebut = cleanTimeValue(row[15], '14:00');
+        lieuRencontre = String(row[16] || 'Clos des Moines (Muzillac)').trim();
+        nombreCourts = parseInt(String(row[17]), 10) || 2;
+        dateEnreg = String(row[18] || row[15] || '').trim();
+        valide = String(row[19] || row[16] || '').toLowerCase() === 'oui' || String(row[19] || row[16] || '').toLowerCase() === 'true';
+      } else {
+        dateEnreg = String(row[15] || '').trim();
+        valide = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
+      }
+
+      if (!matchId || !poste || !nomPrenom) continue;
+
+      const normDateVal = normalizeDateString(dateVal);
+
+      let entry = map.get(matchId);
+      if (!entry) {
+        entry = {
+          composition: {
+            valideParCapitaine: valide,
+            dateValidation: dateEnreg,
+            dateRencontreValidee: normDateVal || dateVal || undefined,
+            heureDebut,
+            lieuRencontre,
+            nombreCourts,
+            frozenPlayers: [],
+          },
+          frozenSlots: [],
+        };
+        map.set(matchId, entry);
+        map.set(normalizeSheetMatchKey(matchId), entry);
+        if (dateVal && numEqVal) {
+          map.set(`date_${normalizeSheetMatchKey(dateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
+          if (normDateVal) {
+            map.set(`date_${normalizeSheetMatchKey(normDateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
+          }
+        }
+      }
+
+      const playerId = licence || nomPrenom;
+      const slot: FrozenPlayerSlot = {
+        poste,
+        adherentId: playerId,
+        nomPrenom,
+        licence,
+        classementGele: classementGele || 'NC',
+        dateNaissance,
+        ageSportif,
+        typeLicence,
+      };
+
+      entry.frozenSlots.push(slot);
+      if (entry.composition.frozenPlayers) {
+        entry.composition.frozenPlayers.push(slot);
+      }
+
+      // Assigner les clés de postes directes
+      const cleanPoste = poste.toLowerCase().trim();
+      if (cleanPoste.includes('simple 1') || cleanPoste === 's1') {
+        entry.composition.simple1Id = playerId;
+      } else if (cleanPoste.includes('simple 2') || cleanPoste === 's2') {
+        entry.composition.simple2Id = playerId;
+      } else if (cleanPoste.includes('simple 3') || cleanPoste === 's3') {
+        entry.composition.simple3Id = playerId;
+      } else if (cleanPoste.includes('simple 4') || cleanPoste === 's4') {
+        entry.composition.simple4Id = playerId;
+      } else if (cleanPoste.includes('simple 5') || cleanPoste === 's5') {
+        entry.composition.simple5Id = playerId;
+      } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
+        entry.composition.double1Player1Id = playerId;
+      } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
+        entry.composition.double1Player2Id = playerId;
+      } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
+        entry.composition.double2Player1Id = playerId;
+      } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
+        entry.composition.double2Player2Id = playerId;
+      }
     }
+  }
 
-    // Assigner les clés de postes directes pour que les modales et fiches de match les reconnaissent instantanément
-    const cleanPoste = poste.toLowerCase().trim();
-    if (cleanPoste.includes('simple 1') || cleanPoste === 's1') {
-      entry.composition.simple1Id = playerId;
-    } else if (cleanPoste.includes('simple 2') || cleanPoste === 's2') {
-      entry.composition.simple2Id = playerId;
-    } else if (cleanPoste.includes('simple 3') || cleanPoste === 's3') {
-      entry.composition.simple3Id = playerId;
-    } else if (cleanPoste.includes('simple 4') || cleanPoste === 's4') {
-      entry.composition.simple4Id = playerId;
-    } else if (cleanPoste.includes('simple 5') || cleanPoste === 's5') {
-      entry.composition.simple5Id = playerId;
-    } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
-      entry.composition.double1Player1Id = playerId;
-    } else if (cleanPoste.includes('double 1') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
-      entry.composition.double1Player2Id = playerId;
-    } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j1') || cleanPoste.includes('1er') || cleanPoste.includes('joueur 1'))) {
-      entry.composition.double2Player1Id = playerId;
-    } else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) {
-      entry.composition.double2Player2Id = playerId;
+  // 3. Fusion avec les compositions et horaires sauvegardés localement pour ne jamais les perdre
+  try {
+    const localMap = loadLocalCompositions();
+    for (const [k, localComp] of Object.entries(localMap)) {
+      if (!localComp) continue;
+      const existing = map.get(k) || map.get(normalizeSheetMatchKey(k));
+      if (!existing) {
+        map.set(k, { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
+        map.set(normalizeSheetMatchKey(k), { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
+      } else {
+        if (localComp.heureDebut) {
+          existing.composition.heureDebut = localComp.heureDebut;
+        }
+        if (localComp.lieuRencontre) {
+          existing.composition.lieuRencontre = localComp.lieuRencontre;
+        }
+        if (localComp.nombreCourts) {
+          existing.composition.nombreCourts = localComp.nombreCourts;
+        }
+        if (localComp.valideParCapitaine) {
+          existing.composition.valideParCapitaine = true;
+        }
+      }
     }
+  } catch (err) {
+    console.warn("Erreur merge localCompositions:", err);
   }
 
   return map;
@@ -410,6 +527,14 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
       else if (key.includes('tresorier') && (key.includes('tel') || key.includes('portable'))) result.tresorierTelephone = formatFrenchPhoneNumber(val);
       else if (key.includes('tresorier') && key.includes('mail')) result.tresorierEmail = val;
       else if (key.includes('tresorier') || key.includes('trésorier')) result.tresorier = val;
+      else if (key.includes('logo')) result.logoUrl = val;
+      else if (key.includes('signature')) result.signatureUrl = val;
+      else if (key.includes('tampon') || key.includes('cachet')) result.tamponUrl = val;
+      else if (key.includes('siret')) result.siret = val;
+      else if (key.includes('rna')) result.rna = val;
+      else if (key.includes('signataire') && key.includes('fonction')) result.signataireFonction = val;
+      else if (key.includes('signataire')) result.signataireNom = val;
+      else if (key.includes('rib') || key.includes('iban')) result.ribIban = val;
     }
   } else if (typeof rawClubInfo === 'object') {
     if (rawClubInfo.adresse) result.adresse = rawClubInfo.adresse;
@@ -440,6 +565,14 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
     if (rawClubInfo.tresorierEmail) result.tresorierEmail = rawClubInfo.tresorierEmail;
     if (rawClubInfo.modalitesPaiement) result.modalitesPaiement = rawClubInfo.modalitesPaiement;
     if (rawClubInfo.helloAssoUrl) result.helloAssoUrl = rawClubInfo.helloAssoUrl;
+    if (rawClubInfo.logoUrl) result.logoUrl = rawClubInfo.logoUrl;
+    if (rawClubInfo.signatureUrl) result.signatureUrl = rawClubInfo.signatureUrl;
+    if (rawClubInfo.tamponUrl) result.tamponUrl = rawClubInfo.tamponUrl;
+    if (rawClubInfo.siret) result.siret = rawClubInfo.siret;
+    if (rawClubInfo.rna) result.rna = rawClubInfo.rna;
+    if (rawClubInfo.signataireNom) result.signataireNom = rawClubInfo.signataireNom;
+    if (rawClubInfo.signataireFonction) result.signataireFonction = rawClubInfo.signataireFonction;
+    if (rawClubInfo.ribIban) result.ribIban = rawClubInfo.ribIban;
   }
 
   return Object.keys(result).length > 0 ? result : undefined;
@@ -813,9 +946,13 @@ export async function saveCompositionViaAppsScript(
       });
     }
 
+    // Persistance locale immédiate systématique
+    saveLocalComposition(rencontre.id, composition);
+
     const payload = {
       action: 'saveComposition',
       rencontreId: rencontre.id,
+      id: rencontre.id,
       dateRencontre: composition.dateRencontreValidee || rencontre.dateRencontre,
       numeroEquipe: rencontre.numeroEquipe,
       libelleHomologation: rencontre.libelleHomologation,
@@ -823,12 +960,33 @@ export async function saveCompositionViaAppsScript(
       sexeHomologation: rencontre.sexeHomologation,
       clubAccueilNom: rencontre.clubAccueilNom,
       clubVisiteurNom: rencontre.clubVisiteurNom,
-      heureDebut: composition.heureDebut || '09:00',
+      heureDebut: composition.heureDebut || '14:00',
       lieuRencontre: composition.lieuRencontre || 'Clos des Moines (Muzillac)',
       nombreCourts: composition.nombreCourts || 2,
       dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
       valideParCapitaine: composition.valideParCapitaine ?? true,
       slots,
+      rencontre: {
+        id: rencontre.id,
+        dateRencontre: composition.dateRencontreValidee || rencontre.dateRencontre,
+        numeroEquipe: rencontre.numeroEquipe,
+        libelleHomologation: rencontre.libelleHomologation,
+        categorieAgeHomologation: rencontre.categorieAgeHomologation,
+        sexeHomologation: rencontre.sexeHomologation,
+        clubAccueilNom: rencontre.clubAccueilNom,
+        clubVisiteurNom: rencontre.clubVisiteurNom,
+        heureDebut: composition.heureDebut || '14:00',
+        lieuRencontre: composition.lieuRencontre || 'Clos des Moines (Muzillac)',
+        nombreCourts: composition.nombreCourts || 2,
+      },
+      composition: {
+        heureDebut: composition.heureDebut || '14:00',
+        lieuRencontre: composition.lieuRencontre || 'Clos des Moines (Muzillac)',
+        nombreCourts: composition.nombreCourts || 2,
+        dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
+        valideParCapitaine: composition.valideParCapitaine ?? true,
+      },
+      frozenPlayers: slots,
     };
 
     const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
@@ -913,6 +1071,14 @@ export async function saveClubInfoViaAppsScript(
         })),
         installations: clubInfo.installations || [],
         tarifs: clubInfo.tarifs || [],
+        rna: clubInfo.rna || '',
+        siret: clubInfo.siret || '',
+        signataireNom: clubInfo.signataireNom || clubInfo.president || '',
+        signataireFonction: clubInfo.signataireFonction || 'Président',
+        logoUrl: clubInfo.logoUrl || '',
+        signatureUrl: clubInfo.signatureUrl || '',
+        tamponUrl: clubInfo.tamponUrl || '',
+        ribIban: clubInfo.ribIban || '',
       },
     };
 
@@ -1091,6 +1257,14 @@ export async function saveClubInfoToSheet(
         ["Message Ouverture Courts", clubInfo.ouvertureCourtsMessage || "Courts ouverts 7j/7"],
         ["Afficher Accès Badge", clubInfo.badgeAccesVisible !== false ? "OUI" : "NON"],
         ["Modalités Paiement", clubInfo.modalitesPaiement || ""],
+        ["Logo URL", clubInfo.logoUrl || ""],
+        ["Signature URL", clubInfo.signatureUrl || ""],
+        ["Tampon Cachet URL", clubInfo.tamponUrl || ""],
+        ["SIRET", clubInfo.siret || ""],
+        ["Numéro RNA", clubInfo.rna || ""],
+        ["Nom Signataire", clubInfo.signataireNom || clubInfo.president || ""],
+        ["Fonction Signataire", clubInfo.signataireFonction || "Président"],
+        ["IBAN / RIB", clubInfo.ribIban || ""],
       ];
 
       await fetch(
@@ -1106,6 +1280,27 @@ export async function saveClubInfoToSheet(
       ).catch(() => {
         // L'onglet Club_Info n'existe pas encore sur le GSheet, ignoré sans bloquer
       });
+
+      // 3. Mise à jour ou création de l'onglet Cotisations_Tarifs si disponible
+      if (clubInfo.tarifs && Array.isArray(clubInfo.tarifs) && clubInfo.tarifs.length > 0) {
+        const tRows = [
+          ["Catégorie", "Formule / Libellé", "Montant (€)", "Description / Précisions"]
+        ];
+        clubInfo.tarifs.forEach(t => {
+          tRows.push([t.categorie || "adulte", t.label || "", String(t.montant || 0), t.description || ""]);
+        });
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(COTISATIONS_SHEET_TITLE)}!A1:D${tRows.length}?valueInputOption=USER_ENTERED`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ values: tRows }),
+          }
+        ).catch(e => console.warn("Mise à jour Cotisations_Tarifs direct GSheets API:", e));
+      }
 
     } catch (e: any) {
       console.warn("Erreur mise à jour Bureau_Profs direct Sheets API:", e);

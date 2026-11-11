@@ -125,6 +125,9 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const club = rawClub ? String(rawClub).trim() : 'MUZILLAC TENNIS CLUB';
   const commentaire = String(cols[idxCommentaire >= 0 ? idxCommentaire : 62] || '').trim();
   const ageSportif = String(cols[idxAgeSportif >= 0 ? idxAgeSportif : 39] || '').trim();
+  const adresse = String(cols[10] || cols[11] || '').trim();
+  const codePostal = String(cols[12] || '56190').trim();
+  const representantLegal = String(cols[8] || '').trim();
 
   return {
     id: `adh-${rowIndex}-${licence || nomPrenom.replace(/\s+/g, '_')}`,
@@ -143,6 +146,9 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
     groupeEnseignement: groupe,
     compteTenUp: tenUp,
     ville,
+    codePostal,
+    adresse,
+    representantLegal,
     clubRattachement: club,
     commentaire,
   };

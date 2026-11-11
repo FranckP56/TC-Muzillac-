@@ -20,6 +20,8 @@ import { SondageDisponibilitesModal } from './components/SondageDisponibilitesMo
 import { GsheetDataModal } from './components/GsheetDataModal';
 import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { ReglesFftModal } from './components/ReglesFftModal';
+import { AttestationModal } from './components/AttestationModal';
+import { RelanceModal } from './components/RelanceModal';
 import { User } from 'firebase/auth';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { initAuth, getAccessToken } from './services/auth';
@@ -28,13 +30,15 @@ import {
   fetchAllDataFromAppsScript,
   saveCompositionViaAppsScript,
   saveClubInfoViaAppsScript,
+  saveClubInfoToSheet,
   TCM_APPS_SCRIPT_URL,
   TCM_DEFAULT_SHEET_ID,
   saveDatasetToCache,
   loadDatasetFromCache,
   getLastSyncTimestamp,
   saveClubInfoToLocal,
-  loadClubInfoFromLocal
+  loadClubInfoFromLocal,
+  saveLocalComposition
 } from './services/googleSheets';
 import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
@@ -217,6 +221,8 @@ export default function App() {
   const [isNewMatchModalOpen, setIsNewMatchModalOpen] = useState(false);
   const [isEditClubModalOpen, setIsEditClubModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  const [attestationAdherent, setAttestationAdherent] = useState<Adherent | null>(null);
+  const [relanceAdherent, setRelanceAdherent] = useState<Adherent | null>(null);
 
   // Authentification Google & Données_appli Direct
   const [googleUser, setGoogleUser] = useState<User | null>(null);
@@ -479,11 +485,16 @@ export default function App() {
     }
   };
 
-  // Modification de l'horaire d'une rencontre
+  // Modification de l'horaire d'une rencontre avec persistance locale et synchronisation
   const handleUpdateMatchHour = (rencontreId: string, hour: string) => {
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
-        return { ...r, heure: hour };
+        const updatedComp: MatchComposition = {
+          ...(r.composition || {}),
+          heureDebut: hour,
+        };
+        saveLocalComposition(r.id, updatedComp);
+        return { ...r, heure: hour, composition: updatedComp };
       }
       return r;
     }));
@@ -520,15 +531,21 @@ export default function App() {
     setRencontres(prev => [newMatch, ...prev]);
   };
 
-  // RÈGLE 3 : Sauvegarde des informations du club via requête HTTP POST JSON
+  // RÈGLE 3 : Sauvegarde des informations du club via requête HTTP POST JSON & GSheets Direct
   const handleSaveClubInfo = async (updatedInfo: ClubInfo) => {
     const sanitized = sanitizeLoadedTarifs(updatedInfo);
     setClubInfo(sanitized);
     saveClubInfoToLocal(sanitized);
     try {
-      await saveClubInfoViaAppsScript(sanitized, gasUrl || TCM_APPS_SCRIPT_URL);
+      let token: string | null = null;
+      try {
+        token = await getAccessToken();
+      } catch {
+        token = null;
+      }
+      await saveClubInfoToSheet(sanitized, selectedSpreadsheetId || TCM_DEFAULT_SHEET_ID, token);
     } catch (e) {
-      console.warn('Erreur envoi POST ClubInfo vers Apps Script:', e);
+      console.warn('Erreur envoi ClubInfo vers Apps Script / GSheets API:', e);
     }
   };
 
@@ -702,6 +719,7 @@ export default function App() {
         {activeTab === 'adherents' && (userRole === 'admin' || userRole === 'bureau') && (
           <AdherentsTab
             adherents={adherents}
+            clubInfo={clubInfo}
             userRole={userRole}
             onSelectAdherent={(adh, list) => {
               setSelectedAdherent(adh);
@@ -712,6 +730,7 @@ export default function App() {
               setGsheetModalDefaultTab('mapping');
               setIsGsheetModalOpen(true);
             }}
+            onSaveClubInfo={handleSaveClubInfo}
             lastSyncTime={lastSyncTime}
             isLoadingFile={isLoadingFile}
             onRefreshFromFile={() => handleLoadFromRealFile(false)}
@@ -738,6 +757,27 @@ export default function App() {
             setModalAdherentList(null);
           }}
           onUpdateSolde={handleUpdateSolde}
+          onOpenAttestation={(adh) => setAttestationAdherent(adh)}
+          onOpenRelance={(adh) => setRelanceAdherent(adh)}
+        />
+      )}
+
+      {/* Modale d'attestation officielle de paiement (CSE / Pass'Sport / CAF) */}
+      {attestationAdherent && (
+        <AttestationModal
+          adherent={attestationAdherent}
+          clubInfo={clubInfo}
+          onClose={() => setAttestationAdherent(null)}
+          onSaveClubInfo={handleSaveClubInfo}
+        />
+      )}
+
+      {/* Modale de relance par SMS & Email */}
+      {relanceAdherent && (
+        <RelanceModal
+          adherent={relanceAdherent}
+          clubInfo={clubInfo}
+          onClose={() => setRelanceAdherent(null)}
         />
       )}
 

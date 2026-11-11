@@ -187,6 +187,14 @@ function getClubInfo() {
     else if (key.includes('tresorier') && (key.includes('tel') || key.includes('portable'))) info.tresorierTelephone = formatPhoneNumber(val);
     else if (key.includes('tresorier') && key.includes('mail')) info.tresorierEmail = val;
     else if (key.includes('tresorier') || key.includes('trésorier')) info.tresorier = val;
+    else if (key.includes('logo')) info.logoUrl = val;
+    else if (key.includes('signature')) info.signatureUrl = val;
+    else if (key.includes('tampon') || key.includes('cachet')) info.tamponUrl = val;
+    else if (key.includes('siret')) info.siret = val;
+    else if (key.includes('rna')) info.rna = val;
+    else if (key.includes('signataire') && key.includes('fonction')) info.signataireFonction = val;
+    else if (key.includes('signataire')) info.signataireNom = val;
+    else if (key.includes('rib') || key.includes('iban')) info.ribIban = val;
   }
 
   return info;
@@ -233,11 +241,35 @@ function saveClubInfo(payload) {
     ["Email Secrétaire", info.secretaireEmail || ""],
     ["Trésorier", info.tresorier || ""],
     ["Téléphone Trésorier", formatPhoneNumber(info.tresorierTelephone)],
-    ["Email Trésorier", info.tresorierEmail || ""]
+    ["Email Trésorier", info.tresorierEmail || ""],
+    ["Logo URL", info.logoUrl || ""],
+    ["Signature URL", info.signatureUrl || ""],
+    ["Tampon Cachet URL", info.tamponUrl || ""],
+    ["SIRET", info.siret || ""],
+    ["Numéro RNA", info.rna || ""],
+    ["Nom Signataire", info.signataireNom || info.president || ""],
+    ["Fonction Signataire", info.signataireFonction || "Président"],
+    ["IBAN / RIB", info.ribIban || ""]
   ];
 
   sheet.clearContents();
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+
+  // Sauvegarder également les tarifs dans l'onglet Cotisations_Tarifs s'ils sont fournis
+  if (info.tarifs && Array.isArray(info.tarifs) && info.tarifs.length > 0) {
+    let tarifsSheet = ss.getSheetByName(SHEET_TARIFS);
+    if (!tarifsSheet) {
+      tarifsSheet = ss.insertSheet(SHEET_TARIFS);
+      tarifsSheet.setTabColor('#10B981');
+    }
+    const tRows = [["Catégorie", "Formule / Libellé", "Montant (€)", "Description / Précisions"]];
+    info.tarifs.forEach(function(t) {
+      tRows.push([t.categorie || "adulte", t.label || "", t.montant || 0, t.description || ""]);
+    });
+    tarifsSheet.clearContents();
+    tarifsSheet.getRange(1, 1, tRows.length, 4).setValues(tRows);
+  }
+
   return { success: true, rowsSaved: rows.length };
 }
 
@@ -557,12 +589,32 @@ function getSavedCompositions() {
     if (!matchId) continue;
 
     if (!result[matchId]) {
+      var hDeb = '14:00';
+      var lieu = 'Clos des Moines (Muzillac)';
+      var nCourts = 2;
+      var dateVal = '';
+      var valCap = false;
+
+      if (row.length > 17 || (row[15] && String(row[15]).indexOf(':') >= 0)) {
+        hDeb = String(row[15] || '14:00').trim();
+        lieu = String(row[16] || 'Clos des Moines (Muzillac)').trim();
+        nCourts = parseInt(row[17], 10) || 2;
+        dateVal = String(row[18] || row[15] || '').trim();
+        valCap = String(row[19] || row[16] || '').toLowerCase() === 'oui' || String(row[19] || row[16] || '').toLowerCase() === 'true';
+      } else {
+        dateVal = String(row[15] || '').trim();
+        valCap = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
+      }
+
       result[matchId] = {
         matchId: matchId,
         dateRencontre: String(row[1] || ''),
         numeroEquipe: String(row[2] || ''),
-        dateValidation: String(row[15] || ''),
-        valideParCapitaine: String(row[16] || '').toLowerCase() === 'oui',
+        heureDebut: hDeb,
+        lieuRencontre: lieu,
+        nombreCourts: nCourts,
+        dateValidation: dateVal,
+        valideParCapitaine: valCap,
         frozenPlayers: []
       };
     }
@@ -595,16 +647,29 @@ function saveFrozenComposition(payload) {
       "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
       "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence",
       "Classement Gelé au Match", "Date Naissance", "Âge Sportif", "Type Licence",
-      "Date Enregistrement", "Validé par Capitaine"
+      "Heure Début", "Lieu Rencontre", "Nombre Courts", "Date Enregistrement", "Validé par Capitaine"
     ]);
     sheet.setFrozenRows(1);
   }
 
-  const match = payload.rencontre || {};
-  const composition = payload.composition || {};
-  const players = payload.frozenPlayers || [];
+  const matchId = payload.rencontreId || (payload.rencontre && payload.rencontre.id) || payload.id || '';
+  const dateRencontre = payload.dateRencontre || (payload.rencontre && payload.rencontre.dateRencontre) || '';
+  const numeroEquipe = payload.numeroEquipe || (payload.rencontre && payload.rencontre.numeroEquipe) || '';
+  const libelleHomologation = payload.libelleHomologation || (payload.rencontre && payload.rencontre.libelleHomologation) || '';
+  const categorieAgeHomologation = payload.categorieAgeHomologation || (payload.rencontre && payload.rencontre.categorieAgeHomologation) || '';
+  const sexeHomologation = payload.sexeHomologation || (payload.rencontre && payload.rencontre.sexeHomologation) || '';
+  const clubAccueilNom = payload.clubAccueilNom || (payload.rencontre && payload.rencontre.clubAccueilNom) || '';
+  const clubVisiteurNom = payload.clubVisiteurNom || (payload.rencontre && payload.rencontre.clubVisiteurNom) || '';
+  const heureDebut = payload.heureDebut || (payload.composition && payload.composition.heureDebut) || '14:00';
+  const lieuRencontre = payload.lieuRencontre || (payload.composition && payload.composition.lieuRencontre) || 'Clos des Moines (Muzillac)';
+  const nombreCourts = payload.nombreCourts || (payload.composition && payload.composition.nombreCourts) || 2;
+  const dateValidation = payload.dateValidation || (payload.composition && payload.composition.dateValidation) || Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy");
+  const isValide = payload.valideParCapitaine !== undefined ? payload.valideParCapitaine : (payload.composition && payload.composition.valideParCapitaine);
+  const valideParCapitaine = isValide ? 'OUI' : 'NON';
 
-  if (!match.id || players.length === 0) {
+  const players = payload.slots || payload.frozenPlayers || [];
+
+  if (!matchId || players.length === 0) {
     return { success: false, error: "Données de rencontre ou joueurs manquants." };
   }
 
@@ -614,24 +679,22 @@ function saveFrozenComposition(payload) {
   keptRows.push(header);
 
   for (let i = 1; i < existingValues.length; i++) {
-    if (String(existingValues[i][0]).trim() !== String(match.id).trim()) {
+    if (String(existingValues[i][0]).trim() !== String(matchId).trim()) {
       keptRows.push(existingValues[i]);
     }
   }
 
-  const now = Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy");
-
   for (let p = 0; p < players.length; p++) {
     const pl = players[p];
     keptRows.push([
-      match.id,
-      match.dateRencontre || '',
-      match.numeroEquipe || '',
-      match.libelleHomologation || '',
-      match.categorieAgeHomologation || '',
-      match.sexeHomologation || '',
-      match.clubAccueilNom || '',
-      match.clubVisiteurNom || '',
+      matchId,
+      dateRencontre,
+      numeroEquipe,
+      libelleHomologation,
+      categorieAgeHomologation,
+      sexeHomologation,
+      clubAccueilNom,
+      clubVisiteurNom,
       pl.poste || '',
       pl.nomPrenom || '',
       pl.licence || '',
@@ -639,8 +702,11 @@ function saveFrozenComposition(payload) {
       pl.dateNaissance || '',
       pl.ageSportif || '',
       pl.typeLicence || '',
-      composition.dateValidation || now,
-      composition.valideParCapitaine ? 'OUI' : 'NON'
+      heureDebut,
+      lieuRencontre,
+      nombreCourts,
+      dateValidation,
+      valideParCapitaine
     ]);
   }
 

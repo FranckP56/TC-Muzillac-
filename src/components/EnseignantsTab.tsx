@@ -25,11 +25,13 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Adherent, ClubInfo, Enseignant } from '../types/tennis';
+import { AttestationModal } from './AttestationModal';
 
 interface EnseignantsTabProps {
   adherents: Adherent[];
   clubInfo: ClubInfo;
   onSelectAdherent?: (adh: Adherent) => void;
+  onSaveClubInfo?: (info: ClubInfo) => Promise<void> | void;
 }
 
 
@@ -79,6 +81,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
   adherents,
   clubInfo,
   onSelectAdherent,
+  onSaveClubInfo,
 }) => {
   const [activeSubView, setActiveSubView] = useState<'eleves' | 'enseignants'>('eleves');
   const [searchQuery, setSearchQuery] = useState('');
@@ -821,133 +824,14 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       )}
 
       {/* ==================== MODAL ATTESTATION DE PAIEMENT & LICENCE ==================== */}
-      {attestationAdherent && (() => {
-        const doc = generateAttestationContent(attestationAdherent);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-            <div className="relative w-full max-w-2xl bg-white text-zinc-900 rounded-3xl shadow-2xl p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto">
-              
-              {/* Header document */}
-              <div className="flex items-start justify-between border-b-2 border-orange-500 pb-4">
-                <div>
-                  <h2 className="text-xl font-black font-heading tracking-tight text-orange-600">
-                    TENNIS CLUB DE MUZILLAC (TCM)
-                  </h2>
-                  <p className="text-xs text-zinc-600">
-                    Affilié FFT • Code Club : {doc.codeClub} • Ligue de Bretagne
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {clubInfo.adresse}, {clubInfo.codePostal} {clubInfo.ville}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    SOLDE ACQUITTÉ
-                  </span>
-                  <p className="text-[11px] text-zinc-500 mt-1">Date : {doc.dateJour}</p>
-                </div>
-              </div>
-
-              {/* Titre officiel */}
-              <div className="text-center py-2">
-                <h1 className="text-lg sm:text-xl font-heading font-black uppercase tracking-wider text-zinc-900">
-                  ATTESTATION DE COTISATION & LICENCE FFT
-                </h1>
-                <p className="text-xs text-zinc-500 font-semibold mt-0.5">
-                  Saison Sportive Officielle {doc.saison}
-                </p>
-              </div>
-
-              {/* Corps de l'attestation */}
-              <div className="space-y-4 text-xs sm:text-sm text-zinc-800 leading-relaxed">
-                <p>
-                  Je soussigné, <strong>{doc.president}</strong>, agissant en qualité de Président du <strong>{doc.clubNom}</strong>, certifie par la présente que :
-                </p>
-
-                <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <span className="text-zinc-500 text-xs block">Nom & Prénom de l'adhérent :</span>
-                      <strong className="text-zinc-900 text-base">{doc.adherentNom}</strong>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 text-xs block">Date de naissance :</span>
-                      <strong className="text-zinc-900">{doc.dateNaissance}</strong>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 text-xs block">Numéro de Licence FFT :</span>
-                      <strong className="text-zinc-900 font-mono">{doc.licence}</strong>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 text-xs block">Formule / Groupe :</span>
-                      <strong className="text-zinc-900">{doc.groupe}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <p>
-                  Est bien inscrit(e) et titulaire d'une licence au sein de notre association sportive pour la saison <strong>{doc.saison}</strong>, et s'est <strong>intégralement acquitté(e)</strong> du montant de sa cotisation et de ses cours de tennis.
-                </p>
-
-                <p className="text-xs text-zinc-600 italic">
-                  Cette attestation est délivrée à l'intéressé(e) pour servir et valoir ce que de droit (Comités d'entreprise, Pass'Sport, CAF, mutuelles ou participation employeur).
-                </p>
-              </div>
-
-              {/* Signature & Cachet */}
-              <div className="flex items-end justify-between pt-4 border-t border-zinc-200">
-                <div className="text-xs text-zinc-500">
-                  <p>Fait à Muzillac,</p>
-                  <p>Le {doc.dateJour}</p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-xs font-bold text-zinc-800">Pour le Tennis Club de Muzillac</p>
-                  <p className="text-xs text-zinc-600">Le Bureau & la Direction Pédagogique</p>
-                  <div className="w-28 h-12 border border-dashed border-zinc-300 rounded-lg mt-1 flex items-center justify-center text-[10px] text-zinc-400 uppercase font-bold">
-                    Cachet TCM
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions Footer */}
-              <div className="pt-4 border-t border-zinc-200 flex items-center justify-between no-print">
-                <button
-                  onClick={() => setAttestationAdherent(null)}
-                  className="px-4 py-2 rounded-xl bg-zinc-200 hover:bg-zinc-300 text-zinc-800 text-xs font-bold transition cursor-pointer"
-                >
-                  Fermer
-                </button>
-
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => {
-                      const text = `ATTESTATION DE COTISATION TCM\nAdhérent : ${doc.adherentNom}\nLicence FFT : ${doc.licence}\nSaison : ${doc.saison}\nSolde : ACQUITTÉ\nFait à Muzillac le ${doc.dateJour}`;
-                      navigator.clipboard.writeText(text);
-                      setCopiedAttestation(true);
-                      setTimeout(() => setCopiedAttestation(false), 2000);
-                    }}
-                    className="px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {copiedAttestation ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedAttestation ? 'Copié !' : 'Copier'}</span>
-                  </button>
-
-                  <button
-                    onClick={() => window.print()}
-                    className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Imprimer / Télécharger PDF</span>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        );
-      })()}
+      {attestationAdherent && (
+        <AttestationModal
+          adherent={attestationAdherent}
+          clubInfo={clubInfo}
+          onClose={() => setAttestationAdherent(null)}
+          onSaveClubInfo={onSaveClubInfo}
+        />
+      )}
 
     </div>
   );

@@ -238,6 +238,17 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
     }));
   };
 
+  const handleImageUpload = (field: 'logoUrl' | 'signatureUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setFormData(prev => ({ ...prev, [field]: base64 }));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = () => {
     const formatted: ClubInfo = {
       ...formData,
@@ -1160,6 +1171,112 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-zinc-400 block mb-1">Numéro RNA (ex: W563001859)</label>
+                <input
+                  type="text"
+                  value={formData.rna || ''}
+                  onChange={(e) => setFormData({ ...formData, rna: e.target.value })}
+                  placeholder="W563001859"
+                  className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-zinc-400 block mb-1">Numéro SIRET (14 chiffres)</label>
+                <input
+                  type="text"
+                  value={formData.siret || ''}
+                  onChange={(e) => setFormData({ ...formData, siret: e.target.value })}
+                  placeholder="439 123 456 00012"
+                  className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-zinc-400 block mb-1">Nom Signataire officiel</label>
+                <input
+                  type="text"
+                  value={formData.signataireNom || ''}
+                  onChange={(e) => setFormData({ ...formData, signataireNom: e.target.value })}
+                  placeholder="Gilles LE BOURNOT"
+                  className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] text-zinc-400 block mb-1">Fonction Signataire</label>
+                <input
+                  type="text"
+                  value={formData.signataireFonction || ''}
+                  onChange={(e) => setFormData({ ...formData, signataireFonction: e.target.value })}
+                  placeholder="Président"
+                  className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-[11px] text-zinc-400 block mb-1">IBAN / RIB du club</label>
+                <input
+                  type="text"
+                  value={formData.ribIban || ''}
+                  onChange={(e) => setFormData({ ...formData, ribIban: e.target.value })}
+                  placeholder="FR76 XXXX XXXX XXXX XXXX XXXX XXX"
+                  className="w-full px-3 py-2 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none font-mono"
+                />
+              </div>
+
+              {/* Images officielles pour attestations et documents */}
+              <div className="sm:col-span-2 pt-2 border-t border-zinc-800 space-y-3">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Visuels & Certifications (Logo, Signature, Tampon)
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Logo du Club</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{formData.logoUrl ? 'Changer' : 'Téléverser'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('logoUrl', e)} />
+                      </label>
+                      {formData.logoUrl && (
+                        <img src={formData.logoUrl} alt="Logo" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Signature officielle</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{formData.signatureUrl ? 'Changer' : 'Téléverser'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('signatureUrl', e)} />
+                      </label>
+                      {formData.signatureUrl && (
+                        <img src={formData.signatureUrl} alt="Signature" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Cachet / Tampon du Club</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{formData.tamponUrl ? 'Changer' : 'Téléverser'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('tamponUrl', e)} />
+                      </label>
+                      {formData.tamponUrl && (
+                        <img src={formData.tamponUrl} alt="Tampon" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
