@@ -32,7 +32,7 @@ import { checkFFT2027Eligibility } from '../utils/fftEligibility';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
 import { getCompetitionFormat, validateMatchDateAndSchedule } from '../utils/competitionFormats';
 import { getAdverseClubFullAddress, computeMatchRotationSchedule } from '../utils/matchScheduling';
-import { normalizeDateString, parseDateToJs } from '../utils/dateUtils';
+import { normalizeDateString, parseDateToJs, isBadenCupMatch } from '../utils/dateUtils';
 import { MatchItineraryModal } from './MatchItineraryModal';
 
 interface RencontresTabProps {
@@ -262,10 +262,15 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
   // Championnats distincts
   const uniqueChampionnats = useMemo(() => {
     const set = new Set<string>();
+    let hasBaden = false;
     rencontres.forEach(r => {
+      if (isBadenCupMatch(r)) hasBaden = true;
       const champ = r.libelleHomologation || r.division;
       if (champ && champ.trim()) set.add(champ.trim());
     });
+    if (hasBaden || rencontres.some(r => (r.categorieAgeHomologation || '').includes('65'))) {
+      set.add('Baden Cup (+65 ans)');
+    }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
   }, [rencontres]);
 
@@ -314,7 +319,12 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
       // 4. Filtre Championnat
       if (filterChampionnat !== 'all') {
         const champ = (r.libelleHomologation || r.division || '').trim();
-        if (champ !== filterChampionnat) return false;
+        const isBadenFilter = filterChampionnat.toLowerCase().includes('baden');
+        if (isBadenFilter) {
+          if (!isBadenCupMatch(r) && !champ.toLowerCase().includes('baden')) return false;
+        } else if (champ !== filterChampionnat) {
+          return false;
+        }
       }
 
       // 5. Filtre Catégorie d'âge
@@ -475,142 +485,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
         )}
       </div>
 
-      {/* Alerte Cycle des Mises à Jour & Règles FFT (Réservé au profil Admin) */}
-      {userRole === 'admin' && (() => {
-        const nextRanking = getNextFftMonthlyRankingRelease();
-        const weeklyInfo = getWeeklyScheduleInfo();
-        return (
-          <div className="space-y-3">
-            <div className="p-3.5 bg-gradient-to-r from-[#141820] to-[#12151c] rounded-2xl border border-orange-500/20 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-xl bg-orange-500/15 text-[#FF6D00] flex items-center justify-center font-bold shrink-0">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-heading font-black text-white text-xs">
-                      Cycle Officiel FFT {saison} :
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                      Mise à jour résultats : Chaque Lundi
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    Prochaine parution mensuelle FFT : <strong className="text-orange-400">{nextRanking.formattedDate}</strong> (dans {nextRanking.daysRemaining} j).
-                    Tout changement de classement le 1er mardi réordonne l'ordre des simples (Simple 1 &ge; Simple 2).
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center space-x-2 text-[11px] self-end md:self-auto shrink-0 text-zinc-400">
-                <button
-                  onClick={() => setShowRulesGuide(!showRulesGuide)}
-                  className="px-3 py-1.5 rounded-xl bg-[#1c222e] hover:bg-[#252d3d] border border-zinc-700 hover:border-orange-500/40 text-orange-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                >
-                  <Info className="w-3.5 h-3.5 text-[#FF6D00]" />
-                  <span>Règles Formats &amp; Logistique</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showRulesGuide ? 'rotate-180' : ''}`} />
-                </button>
-                <span className="px-2 py-1 rounded-xl bg-black/40 border border-zinc-800 text-zinc-300">
-                  Phase : <strong className="text-white">{weeklyInfo.phase}</strong>
-                </span>
-              </div>
-            </div>
-
-            {/* Guide Accordéon des Formats FFT Bretagne & Logistique TCM */}
-            {showRulesGuide && (
-              <div className="p-4 bg-[#11141a] rounded-2xl border border-orange-500/30 text-xs space-y-3.5 animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
-                  <div className="flex items-center space-x-2">
-                    <Scale className="w-4 h-4 text-[#FF6D00]" />
-                    <span className="font-heading font-black text-white text-sm">
-                      Règles Officielles des Championnats par Équipes &amp; Logistique TCM
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-zinc-400">Ligue de Bretagne &amp; Comité 56 Morbihan</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* 1. Calendrier & Alternance */}
-                  <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-orange-400 font-bold">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>1. Calendrier &amp; Alternance</span>
-                    </div>
-                    <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
-                      <li><strong>Seniors+ (+35, +45...)</strong> : Hommes et Femmes jouent le <em>même week-end</em> (dimanche). Pas de championnat jeunes.</li>
-                      <li><strong>Championnats Seniors</strong> : 1 week-end Dames le dimanche (&amp; Garçons le samedi d'avant), puis 1 week-end Hommes le dimanche (&amp; Filles le samedi d'avant) hors vacances scolaires.</li>
-                      <li><strong>Horaires officiels</strong> : 9h00 ou 14h00.</li>
-                      <li><strong>Lieux TCM</strong> : Clos des Moines (2 résines) ; Nivillac en emprunt si 3 équipes à domicile.</li>
-                    </ul>
-                  </div>
-
-                  {/* 2. Seniors : Divisions & Formats Officiels */}
-                  <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-purple-400 font-bold">
-                      <Trophy className="w-3.5 h-3.5" />
-                      <span>2. Divisions Seniors</span>
-                    </div>
-                    <div className="text-[11px] text-zinc-300 space-y-2">
-                      <div>
-                        <strong className="text-pink-400 block font-heading">Féminin :</strong>
-                        <ul className="list-disc list-inside space-y-0.5 text-[10px]">
-                          <li><strong>Pré-Régionale</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
-                          <li><strong>Division D1</strong> : 4 simples + 1 double</li>
-                          <li><strong>Divisions D2 &amp; D3</strong> : 3 simples + 1 double</li>
-                        </ul>
-                      </div>
-                      <div>
-                        <strong className="text-blue-400 block font-heading">Masculin :</strong>
-                        <ul className="list-disc list-inside space-y-0.5 text-[10px]">
-                          <li><strong>Pré-Régionale</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
-                          <li><strong>Division D1</strong> : 4S + 2D (Poids D1 &ge; D2)</li>
-                          <li><strong>Divisions D2 &amp; D3</strong> : 5 simples + 1 double</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. Ordre des parties & Déroulement à suivre */}
-                  <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-sky-400 font-bold">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>3. Ordre des parties</span>
-                    </div>
-                    <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
-                      <li><strong>Déroulement à suivre</strong> : Rencontres en continu dès 09H ou 14H (plus de convocation horaire match par match).</li>
-                      <li><strong>Jeudi 20H00</strong> : L’ordre est proposé par le capitaine qui se déplace avant jeudi 20h.</li>
-                      <li><strong>En cas de désaccord</strong> :
-                        <ul className="list-none pl-1 space-y-0.5 text-[10px] text-zinc-400">
-                          <li>• <em>Pré-Régional</em> : 4-2, 3-1, doubles (sur 2 courts) OU 4-2, D2, 3-1, D1 sur 1 court (2S / 1D / 2S / 1D).</li>
-                          <li>• <em>Hommes D1 / D2 / D3</em> : 4-3-2-1-5 - double (sur 2 courts, le double en même temps que le dernier simple).</li>
-                          <li>• <em>Femmes D2 / D3</em> : 1-2-3 - double.</li>
-                        </ul>
-                      </li>
-                      <li><strong>Repos des doubles</strong> : Éviter de placer les joueurs de double en dernier simple.</li>
-                      <li><strong>2 terrains de surfaces différentes</strong> : Le capitaine qui reçoit propose au visiteur de choisir le terrain pour chaque simple.</li>
-                    </ul>
-                  </div>
-
-                  {/* 4. Circulation des joueurs & Règle du N-1 */}
-                  <div className="p-3 bg-[#161a22] rounded-xl border border-zinc-800 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                      <Shield className="w-3.5 h-3.5" />
-                      <span>4. Circulation des joueurs</span>
-                    </div>
-                    <ul className="text-[11px] text-zinc-300 space-y-1 list-disc list-inside">
-                      <li><strong className="text-emerald-300">Règle du N-1 (Forfait)</strong> : Permet de pallier un forfait de dernière minute sans changer toutes les équipes. Le remplaçant joue en dernière position.</li>
-                      <li><strong>Condition N-1</strong> : L’avant-dernier joueur de l'équipe supérieure doit avoir un <em>classement &ge; au N°1 de l’équipe en dessous</em> (ex: 15/4 &ge; 15/5).</li>
-                      <li><strong>Barrages (Phases finales)</strong> : Minimum <strong className="text-amber-300">3 rencontres jouées</strong> à ce niveau.</li>
-                      <li><strong>Gel des classements</strong> : Si l'équipe supérieure ne joue pas (ou forfait), ses 4 ou 5 classements sont <strong className="text-rose-300">gelés</strong> pour la journée.</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* ==================== BARRE DE RECHERCHE & FILTRES MULTI-CRITÈRES ==================== */}
       <div className="bg-[#141820] p-4 rounded-2xl border border-[#252b37] space-y-3 text-xs">

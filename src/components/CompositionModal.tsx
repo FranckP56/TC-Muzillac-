@@ -772,11 +772,6 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       return;
     }
 
-    if (selectedPlayerIds.length === 0) {
-      setBlockedAlertMessage("Veuillez désigner au moins un joueur sur la feuille de match.");
-      return;
-    }
-
     const effectiveVenue = matchVenueInput === 'autre' ? customVenueInput || 'Lieu personnalisé' : matchVenueInput;
 
     const updated: MatchComposition = {
@@ -1649,6 +1644,43 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
           {/* ==================== MATCHS OFFICIELS & ORDRE DES PARTIES ==================== */}
           <div className="space-y-3">
+            {/* Rappel des Règles de l'Ordre des Matchs */}
+            <div className="p-3.5 rounded-2xl bg-[#0e1219] border border-[#232a37] text-xs space-y-2">
+              <div className="flex items-center justify-between text-orange-400 font-bold">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Règles de déroulement &amp; Ordre des matchs</span>
+                </div>
+                <span className="text-[10px] text-zinc-400 font-mono">Jeudi 20h00</span>
+              </div>
+
+              <div className="text-[11px] text-zinc-300 space-y-1.5 leading-relaxed">
+                <p>
+                  • <strong>Déroulement à suivre</strong> : Rencontres en continu dès 09H ou 14H (plus de convocation horaire match par match).
+                </p>
+                <p>
+                  • <strong>Proposition du capitaine visiteur</strong> : L’ordre des parties est proposé par le capitaine qui se déplace avant le <strong>jeudi 20h00</strong> précédant la rencontre.
+                </p>
+                <p>
+                  • <strong>Sur 1 court en Pré-Régional</strong> : Possibilité de faire 2 simples / 1 double / 2 simples / 1 double (4-2, Double 2, 3-1, Double 1).
+                </p>
+                <div className="p-2 rounded-xl bg-black/40 border border-zinc-800 text-[10px] space-y-0.5 text-zinc-400">
+                  <p className="font-bold text-zinc-200">Ordres appliqués en cas de désaccord :</p>
+                  <p>• <em>Féminines &amp; Pré-Régional</em> : 4-2, 3-1, doubles (sur 2 courts) OU 4-2, D2, 3-1, D1 (sur 1 court).</p>
+                  <p>• <em>Masculines D1 / D2 / D3</em> : 4-3-2-1-5 - double (double joué en même temps que le dernier simple sur 2 courts).</p>
+                  <p>• <em>Féminines D2 / D3</em> : 1-2-3 - double.</p>
+                </div>
+                <p className="text-[10px] text-zinc-400 italic">
+                  💡 <strong>Joueurs de double</strong> : Dans la mesure du possible, ne pas les placer en dernière rencontre de simple. Un capitaine peut demander d'attendre la fin du match d'un joueur prévu en double.
+                </p>
+                {schedulePlan.surfacesDifferentesActif && (
+                  <div className="p-2 rounded-xl bg-purple-950/30 border border-purple-500/30 text-[10px] text-purple-200">
+                    🎾 <strong>2 terrains de surfaces différentes</strong> : Lors de l'échange du jeudi soir, le capitaine qui reçoit propose au capitaine qui se déplace de choisir le terrain pour chacun des matchs en simple (ex : 4 et 2 sur terrain A, 3 et 1 sur terrain B).
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-orange-400" />
@@ -2120,7 +2152,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      <span>Valider la composition</span>
+                      <span>{selectedPlayerIds.length === 0 ? 'Valider la feuille de match (Date & Lieu)' : 'Valider la composition'}</span>
                     </>
                   )}
                 </button>

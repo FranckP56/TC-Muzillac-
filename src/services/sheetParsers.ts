@@ -85,6 +85,17 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const licence = String(cols[idxLicence >= 0 ? idxLicence : 22] || '').trim();
   const millesime = String(cols[idxMillesime >= 0 ? idxMillesime : 23] || '').trim();
 
+  // Colonne BA (index 52) : Inscription / Formule cours
+  const idxFormule = findColIdx(rawHeaders, ['formule cours', 'inscrit cours', 'cours collectif', 'formule', 'statut cours', 'inscription cours'], 52);
+  const rawFormule = String(cols[idxFormule >= 0 ? idxFormule : 52] || '').trim();
+  const lowerFormule = rawFormule.toLowerCase();
+  const inscritEnCours = rawFormule !== '' && 
+    rawFormule !== '0' && 
+    lowerFormule !== 'non' && 
+    lowerFormule !== 'false' && 
+    lowerFormule !== 'pratique libre' &&
+    lowerFormule !== 'aucun';
+
   let rawGroupe = String(cols[idxGroupe >= 0 ? idxGroupe : 54] || '').trim();
   if (!rawGroupe) rawGroupe = 'Pratique libre';
   const groupe = rawGroupe.split('(')[0].trim() || rawGroupe;
@@ -144,6 +155,8 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
     licence,
     ageSportif,
     groupeEnseignement: groupe,
+    formuleCours: rawFormule,
+    inscritEnCours: inscritEnCours || (groupe !== 'Pratique libre' && groupe !== ''),
     compteTenUp: tenUp,
     ville,
     codePostal,

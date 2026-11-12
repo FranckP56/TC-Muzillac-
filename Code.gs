@@ -201,6 +201,15 @@ function getClubInfo() {
 }
 
 /**
+ * Sécurisation de la taille des cellules pour éviter l'erreur Google Sheets (limite de 50 000 caractères par cellule)
+ */
+function safeCellValue(val) {
+  if (val === null || val === undefined) return '';
+  var s = String(val);
+  return s.length > 48000 ? s.substring(0, 48000) : s;
+}
+
+/**
  * Enregistre ou met à jour les informations du club dans l'onglet Club_Info (créé automatiquement si absent)
  */
 function saveClubInfo(payload) {
@@ -252,8 +261,12 @@ function saveClubInfo(payload) {
     ["IBAN / RIB", info.ribIban || ""]
   ];
 
+  const sanitizedRows = rows.map(function(r) {
+    return [r[0], safeCellValue(r[1])];
+  });
+
   sheet.clearContents();
-  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.getRange(1, 1, sanitizedRows.length, 2).setValues(sanitizedRows);
 
   // Sauvegarder également les tarifs dans l'onglet Cotisations_Tarifs s'ils sont fournis
   if (info.tarifs && Array.isArray(info.tarifs) && info.tarifs.length > 0) {

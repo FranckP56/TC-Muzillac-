@@ -113,9 +113,6 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white border border-white/15">
-                  {roleDef.badge}
-                </span>
                 <span className="flex items-center gap-1 text-[10px] text-zinc-400">
                   <KeyRound className="w-3 h-3 text-orange-400" />
                   Code sécurisé
@@ -137,19 +134,17 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
 
         {/* Formulaire de saisie du PIN */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <p className="text-xs text-zinc-300 leading-relaxed">
-            {roleDef.description}
-          </p>
-
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-orange-400" />
                 <span>Code PIN d'autorisation</span>
               </label>
-              <span className="text-[10px] text-zinc-400 font-mono">
-                (Défaut : <strong className="text-orange-400">{defaultHint}</strong>)
-              </span>
+              {targetRole === 'admin' && (
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  (Défaut : <strong className="text-orange-400">{defaultHint}</strong>)
+                </span>
+              )}
             </div>
 
             <div className="relative">
@@ -183,16 +178,18 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
             )}
           </div>
 
-          {/* Raccourcis pavé numérique rapide */}
-          <div className="flex items-center justify-center gap-1.5 pt-1">
-            <button
-              type="button"
-              onClick={() => setPin(defaultHint)}
-              className="text-[11px] font-bold text-orange-400 hover:text-orange-300 hover:underline px-2 py-1 rounded cursor-pointer"
-            >
-              Remplir avec le code par défaut ({defaultHint})
-            </button>
-          </div>
+          {/* Raccourcis pavé numérique rapide (uniquement pour l'admin) */}
+          {targetRole === 'admin' && (
+            <div className="flex items-center justify-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setPin(defaultHint)}
+                className="text-[11px] font-bold text-orange-400 hover:text-orange-300 hover:underline px-2 py-1 rounded cursor-pointer"
+              >
+                Remplir avec le code par défaut ({defaultHint})
+              </button>
+            </div>
+          )}
 
           {/* Boutons d'action */}
           <div className="grid grid-cols-2 gap-3 pt-3 border-t border-zinc-800">

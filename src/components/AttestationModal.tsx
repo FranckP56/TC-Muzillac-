@@ -14,12 +14,66 @@ import {
   Loader2,
   Mail,
   MessageSquare,
-  Share2
+  Share2,
+  UserCheck,
+  RotateCcw
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { Adherent, ClubInfo } from '../types/tennis';
 import { extractBirthYear } from '../utils/fftEligibility';
+
+const LOCAL_SIGNATAIRE_KEY = 'tcm_attestation_local_signataire_v2';
+
+/**
+ * Compresse automatiquement une image téléversée pour qu'elle tienne dans la limite
+ * de 50 000 caractères par cellule de Google Sheets (< 30 Ko en base64)
+ */
+async function compressImageFile(file: File, maxWidth = 350, maxHeight = 350, quality = 0.82): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        // Essai en PNG pour conserver la transparence
+        const png = canvas.toDataURL('image/png');
+        if (png.length < 32000) {
+          resolve(png);
+        } else {
+          // Sinon JPEG avec compression
+          const jpeg = canvas.toDataURL('image/jpeg', quality);
+          resolve(jpeg);
+        }
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
 
 interface AttestationModalProps {
   adherent: Adherent;
@@ -36,12 +90,14 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isEditingClubInfo, setIsEditingClubInfo] = useState(false);
+  const [editSection, setEditSection] = useState<'club' | 'signataire'>('club');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [signataireSaveSuccess, setSignataireSaveSuccess] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
 
-  // Formulaire Club_Info (stocké dans l'onglet Club_Info de Données_appli)
+  // Formulaire Club_Info (stocké de façon partagée dans l'onglet Club_Info de Données_appli)
   const [editClub, setEditClub] = useState<ClubInfo>({
     ...clubInfo,
     nom: clubInfo.nom || 'Tennis Club de Muzillac',
@@ -53,8 +109,42 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     email: clubInfo.email || 'tennisclubmuzillac@gmail.com',
     rna: clubInfo.rna || 'W563001859',
     siret: clubInfo.siret || '439 123 456 00012',
-    signataireNom: clubInfo.signataireNom || clubInfo.president || 'Gilles LE BOURNOT',
+    signataireNom: clubInfo.signataireNom || clubInfo.president || 'Raphaël EVAIN',
     signataireFonction: clubInfo.signataireFonction || 'Président',
+  });
+
+  // Profil du signataire spécifique à ce poste / appareil (ex: secrétaire, trésorier, etc.)
+  const [localSignataire, setLocalSignataire] = useState<{
+    nom: string;
+    fonction: string;
+    civilite: 'Je soussigné' | 'Je soussignée';
+    signatureUrl: string;
+    isCustom: boolean;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_SIGNATAIRE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.nom || parsed.signatureUrl)) {
+          return {
+            nom: parsed.nom || '',
+            fonction: parsed.fonction || 'Secrétaire du TCM',
+            civilite: parsed.civilite || 'Je soussigné',
+            signatureUrl: parsed.signatureUrl || '',
+            isCustom: true,
+          };
+        }
+      }
+    } catch {
+      // Ignorer
+    }
+    return {
+      nom: clubInfo.signataireNom || clubInfo.president || 'Raphaël EVAIN',
+      fonction: clubInfo.signataireFonction || 'Président du TCM',
+      civilite: 'Je soussigné',
+      signatureUrl: clubInfo.signatureUrl || '',
+      isCustom: false,
+    };
   });
 
   const birthYear = extractBirthYear(adherent.dateNaissance);
@@ -145,19 +235,37 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
-  // Gestion du téléversement d'image en Base64 (Logo, Signature, Tampon)
-  const handleFileUpload = (field: 'logoUrl' | 'signatureUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
+  // Définition du signataire effectif pour le document
+  const effectiveSignataireNom = localSignataire.nom || editClub.signataireNom || editClub.president || 'Raphaël EVAIN';
+  const effectiveSignataireFonction = localSignataire.fonction || editClub.signataireFonction || 'Président du TCM';
+  const effectiveSignataireFormule = localSignataire.civilite || 'Je soussigné';
+  const effectiveSignatureUrl = localSignataire.signatureUrl || editClub.signatureUrl || '';
+
+  // Gestion du téléversement d'image du Club (Logo, Tampon) avec compression automatique
+  const handleFileUpload = async (field: 'logoUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setEditClub((prev: ClubInfo) => ({ ...prev, [field]: base64 }));
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, 350, 350, 0.82);
+      setEditClub((prev: ClubInfo) => ({ ...prev, [field]: compressed }));
+    } catch (err) {
+      console.warn("Erreur compression image club:", err);
+    }
   };
 
-  // Sauvegarde des modifications dans Club_Info (GSheet Données_appli)
+  // Téléversement de la signature du signataire local
+  const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file, 350, 200, 0.85);
+      setLocalSignataire(prev => ({ ...prev, signatureUrl: compressed, isCustom: true }));
+    } catch (err) {
+      console.warn("Erreur compression signature:", err);
+    }
+  };
+
+  // Sauvegarde des données officielles du club dans Club_Info (GSheet Données_appli)
   const handleSaveClubInfo = async () => {
     setIsSaving(true);
     try {
@@ -167,13 +275,41 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
       setSaveSuccess(true);
       setTimeout(() => {
         setSaveSuccess(false);
-        setIsEditingClubInfo(false);
-      }, 1500);
+      }, 2000);
     } catch (e) {
       console.warn("Erreur sauvegarde ClubInfo:", e);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Sauvegarde du signataire local (spécifique à l'appareil de l'utilisateur)
+  const handleSaveLocalSignataire = () => {
+    try {
+      localStorage.setItem(LOCAL_SIGNATAIRE_KEY, JSON.stringify(localSignataire));
+      setSignataireSaveSuccess(true);
+      setTimeout(() => setSignataireSaveSuccess(false), 2000);
+    } catch (e) {
+      console.warn("Erreur sauvegarde signataire local:", e);
+    }
+  };
+
+  // Rétablissement du signataire par défaut (Président Raphaël EVAIN)
+  const handleResetLocalSignataire = () => {
+    try {
+      localStorage.removeItem(LOCAL_SIGNATAIRE_KEY);
+    } catch {
+      // Ignorer
+    }
+    setLocalSignataire({
+      nom: editClub.president || 'Raphaël EVAIN',
+      fonction: 'Président du TCM',
+      civilite: 'Je soussigné',
+      signatureUrl: editClub.signatureUrl || '',
+      isCustom: false,
+    });
+    setSignataireSaveSuccess(true);
+    setTimeout(() => setSignataireSaveSuccess(false), 2000);
   };
 
   // Génération directe d'un fichier PDF A4 imprimable à télécharger
@@ -212,6 +348,7 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
 
   // Texte intégral conforme au modèle pour copie dans le presse-papier et envoi email/WhatsApp
   const effectiveModeStr = modeReglement === 'autre' ? (customModeReglement || 'Autre mode') : modeReglement;
+  const accordHabilite = effectiveSignataireFormule === 'Je soussignée' ? 'habilitée' : 'habilité';
   const fullText = `[Logo du club]
 ${editClub.nom || 'Tennis Club de Muzillac'}
 Association loi 1901 à but non lucratif
@@ -225,7 +362,7 @@ Contact : ${editClub.telephone || '02 97 41 67 80'} | ${editClub.email || 'tenni
 ATTESTATION DE PAIEMENT DE COTISATION SPORTIVE
 Saison sportive 2026 / 2027
 
-Je soussigné, ${editClub.signataireNom || editClub.president || 'Raphaël EVAIN'}, agissant en qualité de ${editClub.signataireFonction || 'Président'} de l’association ${editClub.nom || 'Tennis Club de Muzillac'}, dûment habilité à délivrer la présente attestation, certifie que :
+${effectiveSignataireFormule}, ${effectiveSignataireNom}, agissant en qualité de ${effectiveSignataireFonction} de l’association ${editClub.nom || 'Tennis Club de Muzillac'}, dûment ${accordHabilite} à délivrer la présente attestation, certifie que :
 
 Mme / M. : ${adherent.nomPrenom}
 Né(e) le : ${adherent.dateNaissance || 'Non renseignée'}
@@ -248,8 +385,8 @@ ${showModalitesPaiement ? `Modalités de règlement :
 
 Fait à ${editClub.ville || 'Muzillac'}, le ${dateJourStr}.
 
-${editClub.signataireNom || editClub.president || 'Raphaël EVAIN'}
-${editClub.signataireFonction || 'Président du TCM'}
+${effectiveSignataireNom}
+${effectiveSignataireFonction}
 [Signature et cachet officiel de l'association]`;
 
   const handleCopy = () => {
@@ -311,7 +448,7 @@ ${editClub.signataireFonction || 'Président du TCM'}
         )}
         
         {/* =================================================================== */}
-        {/* BARRE D'OUTILS SUPÉRIEURE UNIQUE (Bandeau du bas supprimé selon la demande) */}
+        {/* BARRE D'OUTILS SUPÉRIEURE UNIQUE */}
         {/* =================================================================== */}
         <div className="no-print p-3.5 sm:p-4 bg-[#171c26] border-b border-[#252c3a] flex items-center justify-between gap-2.5 shrink-0 flex-wrap">
           <div className="flex items-center space-x-2.5 min-w-0">
@@ -333,10 +470,10 @@ ${editClub.signataireFonction || 'Président du TCM'}
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' 
                   : 'bg-[#1e2430] hover:bg-zinc-700 text-zinc-300 border-zinc-700'
               }`}
-              title="Personnaliser les informations, logo et signature du club dans Club_Info"
+              title="Personnaliser les données officielles (Club_Info) ou le signataire"
             >
               <Settings2 className="w-3.5 h-3.5 text-orange-400" />
-              <span className="hidden sm:inline">Modifier Club_Info</span>
+              <span className="hidden sm:inline">Paramètres Attestation</span>
             </button>
 
             <button
@@ -368,205 +505,296 @@ ${editClub.signataireFonction || 'Président du TCM'}
         </div>
 
         {/* =================================================================== */}
-        {/* PANNEAU D'ÉDITION DES PARAMÈTRES CLUB_INFO (Masqué à l'impression) */}
+        {/* PANNEAU D'ÉDITION AVEC ONGLETS : CLUB (GSHEET) vs SIGNATAIRE (LOCAL) */}
         {/* =================================================================== */}
         {isEditingClubInfo && (
-          <div className="no-print p-4 sm:p-5 bg-[#181e2b] border-b border-[#2d3648] space-y-4 shrink-0 max-h-80 overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Building className="w-4 h-4 text-orange-400" />
-                <h3 className="font-heading font-black text-sm text-white">
-                  Informations administratives & Images (Onglet Club_Info de Données_appli)
-                </h3>
-              </div>
-              <span className="text-[11px] text-zinc-400">
-                Sauvegarde permanente dans Google Sheets
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Nom officiel de l'association</label>
-                <input
-                  type="text"
-                  value={editClub.nom || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, nom: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
-                  placeholder="Tennis Club de Muzillac"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Nom & Prénom du Signataire</label>
-                <input
-                  type="text"
-                  value={editClub.signataireNom || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, signataireNom: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
-                  placeholder="Gilles LE BOURNOT"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Qualité / Fonction</label>
-                <input
-                  type="text"
-                  value={editClub.signataireFonction || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, signataireFonction: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
-                  placeholder="Président"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Numéro RNA (ex: W563001859)</label>
-                <input
-                  type="text"
-                  value={editClub.rna || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, rna: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
-                  placeholder="W563001859"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Numéro SIRET (14 chiffres)</label>
-                <input
-                  type="text"
-                  value={editClub.siret || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, siret: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
-                  placeholder="439 123 456 00012"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Numéro d'affiliation FFT</label>
-                <input
-                  type="text"
-                  value={editClub.codeClub || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, codeClub: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
-                  placeholder="52 56 0212"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Siège social / Adresse</label>
-                <input
-                  type="text"
-                  value={editClub.adresse || ''}
-                  onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, adresse: e.target.value }))}
-                  className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
-                  placeholder="Complexe du Clos des Moines, Rue du Stade"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Code Postal & Ville</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={editClub.codePostal || ''}
-                    onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, codePostal: e.target.value }))}
-                    className="w-20 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none font-mono"
-                    placeholder="56190"
-                  />
-                  <input
-                    type="text"
-                    value={editClub.ville || ''}
-                    onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, ville: e.target.value }))}
-                    className="flex-1 bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
-                    placeholder="Muzillac"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Contact Téléphone & Email</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={editClub.telephone || ''}
-                    onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, telephone: e.target.value }))}
-                    className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
-                    placeholder="02 97 41 67 80"
-                  />
-                  <input
-                    type="email"
-                    value={editClub.email || ''}
-                    onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, email: e.target.value }))}
-                    className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
-                    placeholder="tennisclubmuzillac@gmail.com"
-                  />
-                </div>
-              </div>
-
-              {/* Téléversements d'images : Logo, Signature, Tampon */}
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Logo officiel du Club</label>
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
-                    <Upload className="w-3.5 h-3.5 text-orange-400" />
-                    <span>{editClub.logoUrl ? 'Changer logo' : 'Téléverser logo'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('logoUrl', e)} />
-                  </label>
-                  {editClub.logoUrl && (
-                    <img src={editClub.logoUrl} alt="Logo" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Signature du Signataire</label>
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
-                    <Upload className="w-3.5 h-3.5 text-orange-400" />
-                    <span>{editClub.signatureUrl ? 'Changer signature' : 'Téléverser signature'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('signatureUrl', e)} />
-                  </label>
-                  {editClub.signatureUrl && (
-                    <img src={editClub.signatureUrl} alt="Signature" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 mb-1 font-semibold">Cachet / Tampon du Club</label>
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
-                    <Upload className="w-3.5 h-3.5 text-orange-400" />
-                    <span>{editClub.tamponUrl ? 'Changer tampon' : 'Téléverser tampon'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('tamponUrl', e)} />
-                  </label>
-                  {editClub.tamponUrl && (
-                    <img src={editClub.tamponUrl} alt="Tampon" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
+          <div className="no-print p-4 sm:p-5 bg-[#181e2b] border-b border-[#2d3648] space-y-4 shrink-0 max-h-96 overflow-y-auto animate-fadeIn">
+            
+            {/* Onglets de sélection du panneau */}
+            <div className="flex items-center gap-2 border-b border-[#2d3648] pb-3 flex-wrap">
               <button
-                onClick={handleSaveClubInfo}
-                disabled={isSaving}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
+                type="button"
+                onClick={() => setEditSection('club')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  editSection === 'club'
+                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 shadow-sm'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
               >
-                {saveSuccess ? (
-                  <>
-                    <Check className="w-4 h-4 text-white" />
-                    <span>Enregistré dans Club_Info !</span>
-                  </>
-                ) : isSaving ? (
-                  <span>Enregistrement en cours...</span>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>Enregistrer dans l'onglet Club_Info</span>
-                  </>
-                )}
+                <Building className="w-3.5 h-3.5 text-orange-400" />
+                <span>1. Données du Club (Enregistrées sur Google Sheet)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditSection('signataire')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  editSection === 'signataire'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                <span>2. Signataire de l'attestation (Profil sur cet appareil)</span>
               </button>
             </div>
+
+            {/* SECTION 1 : DONNÉES DU CLUB (GOOGLE SHEETS CLUB_INFO) */}
+            {editSection === 'club' && (
+              <div className="space-y-3">
+                <div className="p-2.5 bg-orange-500/10 border border-orange-500/25 rounded-xl text-[11px] text-orange-200 leading-snug">
+                  ℹ️ Ces données (RNA, SIRET, logo, tampon) sont <strong>partagées avec tous les membres</strong> et synchronisées directement dans l'onglet <strong>Club_Info</strong> de votre Google Sheet <em>Données_appli</em>.
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Numéro RNA (ex: W563001859)</label>
+                    <input
+                      type="text"
+                      value={editClub.rna || ''}
+                      onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, rna: e.target.value }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
+                      placeholder="W563001859"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Numéro SIRET (14 chiffres)</label>
+                    <input
+                      type="text"
+                      value={editClub.siret || ''}
+                      onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, siret: e.target.value }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
+                      placeholder="439 123 456 00012"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Numéro d'affiliation FFT</label>
+                    <input
+                      type="text"
+                      value={editClub.codeClub || ''}
+                      onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, codeClub: e.target.value }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none font-mono"
+                      placeholder="52 56 0212"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Nom officiel de l'association</label>
+                    <input
+                      type="text"
+                      value={editClub.nom || ''}
+                      onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, nom: e.target.value }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
+                      placeholder="Tennis Club de Muzillac"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Siège social / Adresse</label>
+                    <input
+                      type="text"
+                      value={editClub.adresse || ''}
+                      onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, adresse: e.target.value }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
+                      placeholder="Complexe du Clos des Moines, Rue du Stade"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Code Postal & Ville</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editClub.codePostal || ''}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, codePostal: e.target.value }))}
+                        className="w-20 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none font-mono"
+                        placeholder="56190"
+                      />
+                      <input
+                        type="text"
+                        value={editClub.ville || ''}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, ville: e.target.value }))}
+                        className="flex-1 bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-orange-500 outline-none"
+                        placeholder="Muzillac"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Contact Téléphone & Email</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editClub.telephone || ''}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, telephone: e.target.value }))}
+                        className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
+                        placeholder="02 97 41 67 80"
+                      />
+                      <input
+                        type="email"
+                        value={editClub.email || ''}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, email: e.target.value }))}
+                        className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
+                        placeholder="tennisclubmuzillac@gmail.com"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Téléversements d'images avec compression automatique pour GSheet */}
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Logo officiel du Club</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{editClub.logoUrl ? 'Changer logo' : 'Téléverser logo'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('logoUrl', e)} />
+                      </label>
+                      {editClub.logoUrl && (
+                        <img src={editClub.logoUrl} alt="Logo" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Cachet / Tampon officiel du Club</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{editClub.tamponUrl ? 'Changer tampon' : 'Téléverser tampon'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('tamponUrl', e)} />
+                      </label>
+                      {editClub.tamponUrl && (
+                        <img src={editClub.tamponUrl} alt="Tampon" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={handleSaveClubInfo}
+                    disabled={isSaving}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    {saveSuccess ? (
+                      <>
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Enregistré dans Club_Info (GSheet) !</span>
+                      </>
+                    ) : isSaving ? (
+                      <span>Enregistrement sur Google Sheets...</span>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Enregistrer dans l'onglet Club_Info (GSheet)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* SECTION 2 : SIGNATAIRE LOCAL (SPÉCIFIQUE À CE POSTE / APPAREIL) */}
+            {editSection === 'signataire' && (
+              <div className="space-y-3">
+                <div className="p-2.5 bg-purple-500/10 border border-purple-500/25 rounded-xl text-[11px] text-purple-200 leading-snug">
+                  ✍️ <strong>Profil local personnalisé :</strong> Par défaut, le document est émis au nom du Président (<strong>Raphaël EVAIN</strong>). Si vous êtes <strong>Secrétaire</strong> ou <strong>Trésorier(e)</strong>, vous pouvez renseigner ci-dessous votre propre nom, qualité et signature : ils seront enregistrés <strong>uniquement sur votre appareil</strong> sans modifier le Google Sheet du club.
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Formule d'accord</label>
+                    <select
+                      value={localSignataire.civilite}
+                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, civilite: e.target.value as any, isCustom: true }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none cursor-pointer"
+                    >
+                      <option value="Je soussigné">Je soussigné (Masculin)</option>
+                      <option value="Je soussignée">Je soussignée (Féminin)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Nom & Prénom du Signataire</label>
+                    <input
+                      type="text"
+                      value={localSignataire.nom}
+                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, nom: e.target.value, isCustom: true }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none"
+                      placeholder="Ex: Raphaël EVAIN ou Marie DUPONT"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Qualité / Fonction</label>
+                    <input
+                      type="text"
+                      value={localSignataire.fonction}
+                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, fonction: e.target.value, isCustom: true }))}
+                      className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none"
+                      placeholder="Ex: Secrétaire du TCM, Présidente, etc."
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <label className="block text-zinc-400 mb-1 font-semibold">Signature du signataire (image)</label>
+                    <div className="flex items-center gap-3">
+                      <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-4 py-2 text-zinc-300 text-xs flex items-center justify-center gap-2">
+                        <Upload className="w-4 h-4 text-purple-400" />
+                        <span>{localSignataire.signatureUrl ? 'Changer ma signature' : 'Téléverser ma signature'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleSignatureUpload} />
+                      </label>
+                      {localSignataire.signatureUrl && (
+                        <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-zinc-700">
+                          <img src={localSignataire.signatureUrl} alt="Signature" className="h-8 max-w-[120px] object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setLocalSignataire(prev => ({ ...prev, signatureUrl: '', isCustom: true }))}
+                            className="text-zinc-500 hover:text-rose-500 text-xs ml-1"
+                            title="Supprimer la signature"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetLocalSignataire}
+                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    title="Revenir au Président par défaut (Raphaël EVAIN)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Rétablir le Président par défaut</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveLocalSignataire}
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black transition flex items-center gap-2 shadow-md cursor-pointer"
+                  >
+                    {signataireSaveSuccess ? (
+                      <>
+                        <Check className="w-4 h-4 text-white" />
+                        <span>Signataire enregistré sur cet appareil !</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Enregistrer mon profil de signataire (local)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
@@ -796,7 +1024,7 @@ ${editClub.signataireFonction || 'Président du TCM'}
             {/* 3. DÉCLARATION & IDENTIFICATION DU BÉNÉFICIAIRE */}
             <div className="space-y-4 text-xs sm:text-sm text-black leading-relaxed text-justify">
               <p>
-                Je soussigné, <strong>{editClub.signataireNom || editClub.president || 'Raphaël EVAIN'}</strong>, agissant en qualité de <strong>{editClub.signataireFonction || 'Président'}</strong> de l’association <strong>{editClub.nom || 'Tennis Club de Muzillac'}</strong>, dûment habilité à délivrer la présente attestation, certifie que :
+                {effectiveSignataireFormule}, <strong>{effectiveSignataireNom}</strong>, agissant en qualité de <strong>{effectiveSignataireFonction}</strong> de l’association <strong>{editClub.nom || 'Tennis Club de Muzillac'}</strong>, dûment {accordHabilite} à délivrer la présente attestation, certifie que :
               </p>
 
               {/* Fiche adhérent épurée (simple encadré noir sur fond blanc) */}
@@ -896,9 +1124,9 @@ ${editClub.signataireFonction || 'Président du TCM'}
                   />
                 )}
 
-                {editClub.signatureUrl ? (
+                {effectiveSignatureUrl ? (
                   <img 
-                    src={editClub.signatureUrl} 
+                    src={effectiveSignatureUrl} 
                     alt="Signature officielle" 
                     className="w-[150px] max-w-[4cm] h-auto object-contain shrink-0" 
                     style={{ mixBlendMode: 'multiply', filter: 'contrast(125%) brightness(102%)' }}

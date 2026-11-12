@@ -38,6 +38,8 @@ export interface Adherent {
   licence: string;
   ageSportif: string; // ex: '51', '14', 'Senior'
   groupeEnseignement: string;
+  formuleCours?: string; // Information cours / formule (colonne BA)
+  inscritEnCours?: boolean; // Vrai si inscrit en cours (colonne BA)
   compteTenUp: string; // 'Créé' | 'Non créé'
   ville?: string;
   codePostal?: string;

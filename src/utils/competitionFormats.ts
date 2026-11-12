@@ -186,11 +186,34 @@ export function getCompetitionFormat(
     };
   }
 
-  // 2. Détection Seniors+ (Vétérans : +35, +45, +55, +65...)
+  // 2. Détection Baden Cup (+65 ans en semaine) & Seniors+ (Vétérans : +35, +45, +55, +65...)
+  const isBadenCup = lib.includes('baden') || cat.includes('65') || div.includes('baden');
   const isSeniorsPlus = 
+    isBadenCup ||
     cat.includes('+') || cat.includes('35') || cat.includes('45') || 
-    cat.includes('55') || cat.includes('65') || cat.includes('vétéran') || 
-    cat.includes('senior+');
+    cat.includes('55') || cat.includes('vétéran') || cat.includes('senior+');
+
+  if (isBadenCup) {
+    return {
+      type: 'seniors_plus',
+      categoryLabel: 'Coupe Baden Cup +65 (En semaine)',
+      divisionLabel: div.toUpperCase() || 'Baden Cup +65',
+      isRegional: false,
+      isJeunes: false,
+      isUnder10: false,
+      isSeniorsPlus: true,
+      numSingles: 3,
+      numDoubles: 1,
+      minPlayers: 3,
+      maxPlayers: 5,
+      pointsSystem: '3 simples + 1 double',
+      matchRules: 'Rencontres de Baden Cup disputées en semaine. 3 simples + 1 double.',
+      doubleRules: 'Double avec point décisif No-Ad et Super Tie-Break 10 points au 3e set.',
+      expectedDay: 'Samedi', // pas de blocage le dimanche
+      orderOfPlay: 'Simples à suivre puis le Double (ou proposition du capitaine visiteur avant jeudi 20h)',
+      doubleWeightStrict: false,
+    };
+  }
 
   if (isSeniorsPlus) {
     return {

@@ -672,6 +672,8 @@ export default function App() {
             adherents={adherents}
             userRole={userRole}
             saison={saison}
+            clubInfo={clubInfo}
+            onSaveClubInfo={handleSaveClubInfo}
             onSelectAdherent={(adh, list) => {
               setSelectedAdherent(adh);
               setModalAdherentList(list || null);
@@ -708,6 +710,7 @@ export default function App() {
           <EnseignantsTab
             adherents={adherents}
             clubInfo={clubInfo}
+            onSaveClubInfo={handleSaveClubInfo}
             onSelectAdherent={(adh) => {
               setSelectedAdherent(adh);
               setModalAdherentList(adherents);

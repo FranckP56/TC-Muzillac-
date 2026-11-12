@@ -150,6 +150,12 @@ function handleSaveComposition(payload) {
   return createJsonResponse({ success: true, rowsSaved: slots.length });
 }
 
+function safeCellValue(val) {
+  if (val === null || val === undefined) return '';
+  var s = String(val);
+  return s.length > 48000 ? s.substring(0, 48000) : s;
+}
+
 function handleSaveClubInfo(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var info = payload.clubInfo || payload || {};
@@ -188,10 +194,21 @@ function handleSaveClubInfo(payload) {
     ["Email Secrétaire", info.secretaireEmail || ""],
     ["Trésorier", info.tresorier || ""],
     ["Téléphone Trésorier", info.tresorierTelephone || ""],
-    ["Email Trésorier", info.tresorierEmail || ""]
+    ["Email Trésorier", info.tresorierEmail || ""],
+    ["Logo URL", info.logoUrl || ""],
+    ["Signature URL", info.signatureUrl || ""],
+    ["Tampon Cachet URL", info.tamponUrl || ""],
+    ["SIRET", info.siret || ""],
+    ["Numéro RNA", info.rna || ""],
+    ["Nom Signataire", info.signataireNom || info.president || ""],
+    ["Fonction Signataire", info.signataireFonction || "Président"],
+    ["IBAN / RIB", info.ribIban || ""]
   ];
+  var sanitizedCRows = cRows.map(function(r) {
+    return [r[0], safeCellValue(r[1])];
+  });
   cSheet.clearContents();
-  cSheet.getRange(1, 1, cRows.length, 2).setValues(cRows);
+  cSheet.getRange(1, 1, sanitizedCRows.length, 2).setValues(sanitizedCRows);
 
   // 2. Mise à jour de Bureau_Profs si l'onglet existe
   var bSheet = ss.getSheetByName('Bureau_Profs');

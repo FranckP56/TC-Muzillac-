@@ -97,25 +97,54 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
   const [attestationAdherent, setAttestationAdherent] = useState<Adherent | null>(null);
   const [copiedAttestation, setCopiedAttestation] = useState(false);
 
+  // Helper : Vérifie si un membre est inscrit aux cours de tennis (colonne BA)
+  const isEleveEnCours = (a: Adherent): boolean => {
+    if (a.inscritEnCours !== undefined && a.inscritEnCours) {
+      return true;
+    }
+    if (a.formuleCours && a.formuleCours.trim() !== '' && a.formuleCours !== '0' && a.formuleCours.toLowerCase() !== 'non' && a.formuleCours.toLowerCase() !== 'pratique libre') {
+      return true;
+    }
+    const g = (a.groupeEnseignement || '').trim();
+    return g !== '' && g !== 'Pratique libre' && g !== 'Aucun' && g !== 'Non affecté';
+  };
+
+  // Helper : Vérifie si un membre a un groupe de cours assigné (colonne BC)
+  const hasAssignedGroup = (a: Adherent): boolean => {
+    const g = (a.groupeEnseignement || '').trim();
+    return g !== '' && g !== 'Pratique libre' && g !== 'Non affecté' && g !== 'À affecter' && g !== 'Aucun' && g !== 'Sans groupe';
+  };
+
+  // Élèves réellement inscrits en cours (colonne BA ou groupe renseigné)
+  const elevesEnCours = useMemo(() => {
+    return adherents.filter(a => isEleveEnCours(a));
+  }, [adherents]);
+
+  // Élèves inscrits en cours (colonne BA) mais SANS groupe (colonne BC)
+  const nonAffectesList = useMemo(() => {
+    return adherents.filter(a => isEleveEnCours(a) && !hasAssignedGroup(a));
+  }, [adherents]);
+
   // Liste distincte des groupes d'enseignement présents dans le fichier
   const distinctGroupes = useMemo(() => {
     const set = new Set<string>();
     adherents.forEach(a => {
-      if (a.groupeEnseignement && a.groupeEnseignement.trim() && a.groupeEnseignement !== 'Pratique libre') {
+      if (hasAssignedGroup(a)) {
         set.add(a.groupeEnseignement.trim());
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
   }, [adherents]);
 
-  // Regroupement des groupes par jour (Lundi en plus gros, Mardi, Mercredi, etc.)
+  // Regroupement des groupes par jour (Lundi en plus gros, Mardi, Mercredi, etc.) + Section Non affecté
   const groupsByDay = useMemo(() => {
     const groupStatsMap = new Map<string, GroupInfo>();
 
     adherents.forEach(a => {
-      const g = (a.groupeEnseignement || '').trim();
-      if (!g || g === 'Pratique libre') return;
+      if (!isEleveEnCours(a)) return;
+      if (!hasAssignedGroup(a)) return;
 
+      const g = (a.groupeEnseignement || '').trim();
       const current = groupStatsMap.get(g) || { name: g, count: 0, dueCount: 0, totalDue: 0 };
       current.count += 1;
       if (a.soldeDu < 0) {
@@ -149,20 +178,40 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       section.groups.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
     });
 
+    // Bulle/Section "Non affecté" si des élèves sont inscrits en cours (colonne BA) mais sans groupe (colonne BC)
+    if (nonAffectesList.length > 0) {
+      const dueCount = nonAffectesList.filter(a => a.soldeDu < 0).length;
+      const totalDue = nonAffectesList.filter(a => a.soldeDu < 0).reduce((sum, a) => sum + Math.abs(a.soldeDu), 0);
+
+      sortedSections.push({
+        dayKey: 'non_affecte_sec',
+        dayLabel: 'ÉLÈVES À AFFECTER (INSCRITS EN COURS SANS GROUPE)',
+        order: 99,
+        groups: [{
+          name: 'Non affecté',
+          count: nonAffectesList.length,
+          dueCount,
+          totalDue,
+        }],
+        totalStudents: nonAffectesList.length,
+      });
+    }
+
     return sortedSections;
-  }, [adherents]);
+  }, [adherents, nonAffectesList]);
 
   // Filtrage des élèves
   const filteredEleves = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
-    return adherents.filter(adh => {
+    return elevesEnCours.filter(adh => {
       // Recherche textuelle
       const matchesSearch = 
         !q ||
         adh.nomPrenom.toLowerCase().includes(q) ||
         adh.licence.toLowerCase().includes(q) ||
         (adh.groupeEnseignement && adh.groupeEnseignement.toLowerCase().includes(q)) ||
+        (adh.formuleCours && adh.formuleCours.toLowerCase().includes(q)) ||
         adh.telephonePortable.includes(q) ||
         adh.email.toLowerCase().includes(q);
 
@@ -174,7 +223,9 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       if (filterSolde === 'credit' && adh.soldeDu <= 0) return false;
 
       // Filtre Groupe
-      if (filterGroupe !== 'all') {
+      if (filterGroupe === 'non_affecte' || filterGroupe === 'Non affecté') {
+        if (hasAssignedGroup(adh)) return false;
+      } else if (filterGroupe !== 'all') {
         if (!adh.groupeEnseignement || !adh.groupeEnseignement.includes(filterGroupe)) {
           return false;
         }
@@ -182,24 +233,25 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
 
       return true;
     });
-  }, [adherents, searchQuery, filterSolde, filterGroupe]);
+  }, [elevesEnCours, searchQuery, filterSolde, filterGroupe]);
 
-  // Statistiques financières de l'enseignement
+  // Statistiques financières de l'enseignement (comptabilisant strictement les élèves en cours)
   const stats = useMemo(() => {
-    const total = adherents.length;
-    const dueList = adherents.filter(a => a.soldeDu < 0);
+    const totalInscritsCours = elevesEnCours.length;
+    const dueList = elevesEnCours.filter(a => a.soldeDu < 0);
     const totalDue = dueList.reduce((sum, a) => sum + Math.abs(a.soldeDu || 0), 0);
-    const upToDateCount = adherents.filter(a => a.soldeDu === 0).length;
-    const creditCount = adherents.filter(a => a.soldeDu > 0).length;
+    const upToDateCount = elevesEnCours.filter(a => a.soldeDu === 0).length;
+    const creditCount = elevesEnCours.filter(a => a.soldeDu > 0).length;
 
     return {
-      total,
+      totalInscritsCours,
       dueCount: dueList.length,
       totalDue,
       upToDateCount,
       creditCount,
+      nonAffectesCount: nonAffectesList.length,
     };
-  }, [adherents]);
+  }, [elevesEnCours, nonAffectesList]);
 
   // Générateur du texte SMS de relance de paiement
   const generateRelanceSmsText = (adh: Adherent) => {
@@ -289,11 +341,14 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
           </div>
         </div>
 
-        {/* Chiffres clés de trésorerie & élèves */}
+        {/* Chiffres clés de trésorerie & élèves en cours */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-zinc-800/80">
           <div className="bg-[#12151b]/80 p-3 rounded-xl border border-zinc-800">
-            <p className="text-[11px] text-zinc-400">Total Élèves / Adhérents</p>
-            <p className="text-lg font-heading font-black text-white">{stats.total}</p>
+            <p className="text-[11px] text-zinc-400">Total Élèves en Cours</p>
+            <p className="text-lg font-heading font-black text-white flex items-baseline gap-1.5">
+              <span>{stats.totalInscritsCours}</span>
+              <span className="text-[10px] text-orange-400 font-normal">(colonne BA)</span>
+            </p>
           </div>
 
           <div className="bg-[#12151b]/80 p-3 rounded-xl border border-zinc-800">
@@ -316,9 +371,9 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
           </div>
 
           <div className="bg-[#12151b]/80 p-3 rounded-xl border border-zinc-800">
-            <p className="text-[11px] text-zinc-400">Avoirs / Trop-perçu</p>
+            <p className="text-[11px] text-zinc-400">À Affecter (Sans groupe)</p>
             <p className="text-lg font-heading font-black text-amber-400">
-              {stats.creditCount} élèves
+              {stats.nonAffectesCount} élève{stats.nonAffectesCount > 1 ? 's' : ''}
             </p>
           </div>
         </div>
@@ -342,18 +397,32 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 />
               </div>
 
-              {/* Filtre Solde */}
+              {/* Filtre Solde & Groupe */}
               <div className="flex items-center gap-1.5 flex-wrap text-xs">
                 <button
-                  onClick={() => setFilterSolde('all')}
+                  onClick={() => { setFilterGroupe('all'); setFilterSolde('all'); }}
                   className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
-                    filterSolde === 'all'
+                    filterGroupe === 'all' && filterSolde === 'all'
                       ? 'bg-orange-600 text-white'
                       : 'bg-[#181d26] text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
-                  Tous ({adherents.length})
+                  Tous en cours ({stats.totalInscritsCours})
                 </button>
+
+                {stats.nonAffectesCount > 0 && (
+                  <button
+                    onClick={() => { setFilterGroupe('non_affecte'); setFilterSolde('all'); }}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                      filterGroupe === 'non_affecte' || filterGroupe === 'Non affecté'
+                        ? 'bg-amber-600 text-white shadow-md'
+                        : 'bg-amber-500/15 text-amber-300 hover:text-white border border-amber-500/30'
+                    }`}
+                  >
+                    ⚠️ Non affectés ({stats.nonAffectesCount})
+                  </button>
+                )}
+
                 <button
                   onClick={() => setFilterSolde('due')}
                   className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
@@ -411,68 +480,95 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 )}
               </div>
 
-              {/* Sections par Jour (Lundi en plus gros, Mardi, etc.) */}
+              {/* Sections par Jour (Lundi en plus gros, Mardi, etc.) + Non affectés */}
               <div className="space-y-4">
-                {groupsByDay.map((daySec) => (
-                  <div key={daySec.dayKey} className="space-y-2.5">
-                    
-                    {/* Nom du jour EN PLUS GROS */}
-                    <div className="flex items-center space-x-2 pt-1">
-                      <span className="w-3 h-3 rounded-full bg-gradient-to-br from-[#BF360C] to-[#FF6D00] shadow-sm"></span>
-                      <h4 className="text-base sm:text-lg font-heading font-black text-white uppercase tracking-tight">
-                        {daySec.dayLabel}
-                      </h4>
-                      <span className="text-xs text-zinc-400 font-bold">
-                        ({daySec.groups.length} groupe{daySec.groups.length > 1 ? 's' : ''} • {daySec.totalStudents} élèves)
-                      </span>
-                    </div>
+                {groupsByDay.map((daySec) => {
+                  const isNonAffecteSec = daySec.dayKey === 'non_affecte_sec';
+                  return (
+                    <div key={daySec.dayKey} className="space-y-2.5">
+                      
+                      {/* Nom du jour ou de la section */}
+                      <div className="flex items-center space-x-2 pt-1">
+                        <span className={`w-3 h-3 rounded-full shadow-sm ${
+                          isNonAffecteSec 
+                            ? 'bg-amber-500 animate-pulse' 
+                            : 'bg-gradient-to-br from-[#BF360C] to-[#FF6D00]'
+                        }`}></span>
+                        <h4 className={`text-base sm:text-lg font-heading font-black uppercase tracking-tight ${
+                          isNonAffecteSec ? 'text-amber-300' : 'text-white'
+                        }`}>
+                          {daySec.dayLabel}
+                        </h4>
+                        <span className="text-xs text-zinc-400 font-bold">
+                          ({daySec.groups.length} groupe{daySec.groups.length > 1 ? 's' : ''} • {daySec.totalStudents} élève{daySec.totalStudents > 1 ? 's' : ''})
+                        </span>
+                      </div>
 
-                    {/* Grille de cellules pour chaque groupe sous ce jour */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                      {daySec.groups.map((grp) => {
-                        const isSelected = filterGroupe === grp.name;
-                        return (
-                          <button
-                            key={grp.name}
-                            type="button"
-                            onClick={() => setFilterGroupe(isSelected ? 'all' : grp.name)}
-                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group shadow-sm ${
-                              isSelected
-                                ? 'bg-[#E65100]/25 border-[#FF6D00] text-white ring-2 ring-[#FF6D00] shadow-orange-950/40'
-                                : 'bg-[#101319] hover:bg-[#181d26] border-[#222834] hover:border-zinc-700 text-zinc-300'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <p 
-                                className={`font-heading font-black text-xs leading-snug line-clamp-2 ${
-                                  isSelected ? 'text-[#FF6D00]' : 'text-zinc-100 group-hover:text-white'
-                                }`} 
-                                title={grp.name}
-                              >
-                                {grp.name}
-                              </p>
-                            </div>
+                      {/* Grille de cellules pour chaque groupe sous ce jour */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {daySec.groups.map((grp) => {
+                          const isNonAffecteGrp = grp.name === 'Non affecté' || isNonAffecteSec;
+                          const isSelected = filterGroupe === grp.name || (isNonAffecteGrp && filterGroupe === 'non_affecte');
 
-                            <div className="flex items-center justify-between gap-1 pt-2 mt-2 border-t border-zinc-800/80 text-[10px]">
-                              <span className={`font-bold ${isSelected ? 'text-orange-200' : 'text-zinc-400'}`}>
-                                {grp.count} élève{grp.count > 1 ? 's' : ''}
-                              </span>
-                              {grp.dueCount > 0 && (
-                                <span 
-                                  className="px-1.5 py-0.2 rounded font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px]" 
-                                  title={`${grp.dueCount} élève(s) avec solde dû (-${grp.totalDue}€)`}
+                          return (
+                            <button
+                              key={grp.name}
+                              type="button"
+                              onClick={() => {
+                                if (isNonAffecteGrp) {
+                                  setFilterGroupe(isSelected ? 'all' : 'non_affecte');
+                                } else {
+                                  setFilterGroupe(isSelected ? 'all' : grp.name);
+                                }
+                              }}
+                              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group shadow-sm ${
+                                isSelected
+                                  ? isNonAffecteGrp
+                                    ? 'bg-amber-500/30 border-amber-400 text-white ring-2 ring-amber-400 shadow-amber-950/50'
+                                    : 'bg-[#E65100]/25 border-[#FF6D00] text-white ring-2 ring-[#FF6D00] shadow-orange-950/40'
+                                  : isNonAffecteGrp
+                                    ? 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/40 hover:border-amber-400 text-amber-200'
+                                    : 'bg-[#101319] hover:bg-[#181d26] border-[#222834] hover:border-zinc-700 text-zinc-300'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <p 
+                                  className={`font-heading font-black text-xs leading-snug line-clamp-2 ${
+                                    isSelected 
+                                      ? 'text-white' 
+                                      : isNonAffecteGrp 
+                                        ? 'text-amber-300 group-hover:text-amber-200' 
+                                        : 'text-zinc-100 group-hover:text-white'
+                                  }`} 
+                                  title={grp.name}
                                 >
-                                  {grp.dueCount} dû
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                                  {isNonAffecteGrp ? '⚠️ Non affecté' : grp.name}
+                                </p>
+                              </div>
 
-                  </div>
-                ))}
+                              <div className="flex items-center justify-between gap-1 pt-2 mt-2 border-t border-zinc-800/80 text-[10px]">
+                                <span className={`font-bold ${
+                                  isSelected ? 'text-amber-100' : isNonAffecteGrp ? 'text-amber-300' : 'text-zinc-400'
+                                }`}>
+                                  {grp.count} élève{grp.count > 1 ? 's' : ''}
+                                </span>
+                                {grp.dueCount > 0 && (
+                                  <span 
+                                    className="px-1.5 py-0.2 rounded font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px]" 
+                                    title={`${grp.dueCount} élève(s) avec solde dû (-${grp.totalDue}€)`}
+                                  >
+                                    {grp.dueCount} dû
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Si un filtre groupe est actif, récapitulatif */}
