@@ -11,6 +11,9 @@ import { InfosClubTab } from './components/InfosClubTab';
 import { EnseignantsTab } from './components/EnseignantsTab';
 import { LicenciesTab } from './components/LicenciesTab';
 import { ReglementsTab } from './components/ReglementsTab';
+import { TutosInfosTab } from './components/TutosInfosTab';
+import { TrocTab } from './components/TrocTab';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { AdherentModal } from './components/AdherentModal';
 import { AppsScriptModal } from './components/AppsScriptModal';
 import { NewMemberModal } from './components/NewMemberModal';
@@ -40,7 +43,7 @@ import {
   loadClubInfoFromLocal,
   saveLocalComposition
 } from './services/googleSheets';
-import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite } from './types/tennis';
+import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc, cleanRanking, isValidTennisRanking } from './utils/ranking';
@@ -76,8 +79,8 @@ const sanitizeLoadedTarifs = (info: ClubInfo): ClubInfo => {
 };
 
 export default function App() {
-  // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Licenciés', 'Enseignants', 'Adhérents', 'Règlements'
-  const [activeTab, setActiveTab] = useState<'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements'>('rencontres');
+  // Navigation avec les onglets : 'Infos Club', 'Rencontres', 'Tutos', 'Troc', 'Licenciés', 'Enseignants', 'Adhérents', 'Règlements'
+  const [activeTab, setActiveTab] = useState<ActiveTab>('rencontres');
 
   // Profils d'accès (admin, bureau, prof, capitaine, adherent)
   const [userRole, setUserRole] = useState<UserRole>(() => {
@@ -576,8 +579,8 @@ export default function App() {
         isStale={staleness.isStale}
       />
 
-      {/* 2. CONTENU PRINCIPAL */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-28 sm:pt-32 pb-16">
+      {/* 2. CONTENU PRINCIPAL (espacement adapté au header 1 ligne sur mobile + barre du bas) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-20 md:pt-32 pb-8 md:pb-16">
         
         {/* BANNIÈRE D'ERREUR EXPLICITE SI LA CONNEXION ÉCHOUE (AUCUNE DONNÉE FICTIVE) */}
         {fileLoadError && (
@@ -745,6 +748,26 @@ export default function App() {
           <ReglementsTab userRole={userRole} />
         )}
 
+        {/* Onglet 'Tutos & Infos' */}
+        {activeTab === 'tutos' && (
+          <TutosInfosTab
+            clubInfo={clubInfo}
+            onNavigateToRencontres={() => setActiveTab('rencontres')}
+            onNavigateToInfos={() => setActiveTab('infos')}
+          />
+        )}
+
+        {/* Onglet 'Troc & Occasions' (Chargement en direct sans localStorage) */}
+        {activeTab === 'troc' && (
+          <TrocTab
+            gasUrl={gasUrl}
+            selectedSpreadsheetId={selectedSpreadsheetId}
+            googleUser={googleUser}
+            userRole={userRole}
+            onOpenScriptModal={() => setIsScriptModalOpen(true)}
+          />
+        )}
+
       </main>
 
       {/* 3. MODALES */}
@@ -898,8 +921,8 @@ export default function App() {
         onAddMatch={handleAddMatch}
       />
 
-      {/* 4. FOOTER */}
-      <footer className="border-t border-[#1e232d] bg-[#090b0e] py-6 px-4 text-center text-xs text-zinc-500">
+      {/* 4. FOOTER (dégagement en bas sur mobile pour ne pas être masqué par MobileBottomNav) */}
+      <footer className="border-t border-[#1e232d] bg-[#090b0e] pt-6 pb-24 md:pb-6 px-4 text-center text-xs text-zinc-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
             <span className="font-heading font-black text-white text-sm">Muzillac Tennis Club (TCM)</span>
@@ -953,6 +976,17 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* 5. BARRE DE NAVIGATION FIXE EN BAS SUR MOBILE */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        userRole={userRole}
+        totalAdherents={adherents.length}
+        totalLicencies={licenciesActive.length}
+        onRefresh={() => handleLoadFromRealFile(false)}
+        isRefreshing={isLoadingFile}
+      />
 
     </div>
   );

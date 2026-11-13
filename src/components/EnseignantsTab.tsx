@@ -389,11 +389,13 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
-                  type="text"
+                  type="search"
+                  inputMode="search"
+                  enterKeyHint="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Rechercher un élève par nom, prénom, licence ou téléphone..."
-                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#0e1116] border border-zinc-800 text-xs sm:text-sm text-white placeholder-zinc-500 focus:border-[#FF6D00] outline-none"
+                  className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-[#0e1116] border border-zinc-800 text-base sm:text-sm text-white placeholder-zinc-500 focus:border-[#FF6D00] outline-none"
                 />
               </div>
 
@@ -401,7 +403,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
               <div className="flex items-center gap-1.5 flex-wrap text-xs">
                 <button
                   onClick={() => { setFilterGroupe('all'); setFilterSolde('all'); }}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                     filterGroupe === 'all' && filterSolde === 'all'
                       ? 'bg-orange-600 text-white'
                       : 'bg-[#181d26] text-zinc-400 hover:text-white border border-zinc-800'
@@ -413,7 +415,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 {stats.nonAffectesCount > 0 && (
                   <button
                     onClick={() => { setFilterGroupe('non_affecte'); setFilterSolde('all'); }}
-                    className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                    className={`min-h-[44px] px-3 py-2 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                       filterGroupe === 'non_affecte' || filterGroupe === 'Non affecté'
                         ? 'bg-amber-600 text-white shadow-md'
                         : 'bg-amber-500/15 text-amber-300 hover:text-white border border-amber-500/30'
@@ -425,7 +427,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
 
                 <button
                   onClick={() => setFilterSolde('due')}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                     filterSolde === 'due'
                       ? 'bg-rose-600 text-white'
                       : 'bg-[#181d26] text-rose-400 hover:text-rose-300 border border-rose-500/30'
@@ -435,7 +437,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 </button>
                 <button
                   onClick={() => setFilterSolde('uptodate')}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl font-bold transition cursor-pointer whitespace-nowrap ${
                     filterSolde === 'uptodate'
                       ? 'bg-emerald-600 text-white'
                       : 'bg-[#181d26] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30'
@@ -703,7 +705,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                         {isDue && (
                           <button
                             onClick={() => setRelanceAdherent(eleve)}
-                            className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                            className="min-h-[44px] px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
                             title="Ouvrir la relance de paiement (SMS & Email)"
                           >
                             <Send className="w-3.5 h-3.5" />
@@ -715,7 +717,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                         {!isDue && (
                           <button
                             onClick={() => setAttestationAdherent(eleve)}
-                            className="px-2.5 py-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                            className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                             title="Générer l'attestation de cotisation pour CE / Pass'Sport"
                           >
                             <FileText className="w-3.5 h-3.5" />

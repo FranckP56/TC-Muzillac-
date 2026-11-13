@@ -486,20 +486,22 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
-              type="text"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Rechercher par titre, division, format, simples..."
-              className="w-full bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+              className="w-full min-h-[44px] bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-base sm:text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-2 shrink-0">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
             {/* Filtre Catégorie */}
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Toutes catégories</option>
               <option value="seniors">Seniors</option>
@@ -511,7 +513,7 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
             <select
               value={filterSexe}
               onChange={(e) => setFilterSexe(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Tous sexes</option>
               <option value="H">Messieurs</option>
@@ -522,7 +524,7 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
             <select
               value={filterLevel}
               onChange={(e) => setFilterLevel(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Tous niveaux</option>
               <option value="Régional">Régional & PR</option>

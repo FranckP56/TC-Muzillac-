@@ -1,4 +1,4 @@
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
@@ -16,6 +16,7 @@ export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
+export const TROC_SHEET_TITLE = 'Troc_Annonces';
 
 export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
@@ -1346,5 +1347,335 @@ export async function getSpreadsheetTabs(spreadsheetId: string, accessToken: str
   } catch (err) {
     console.warn("Erreur récupération onglets:", err);
     return [];
+  }
+}
+
+/**
+ * =========================================================================
+ * MODULE TROC & OCCASIONS (Chargement en direct, ZÉRO cache localStorage)
+ * =========================================================================
+ */
+
+function parseTrocRowsOrObjects(raw: any): TrocAnnonce[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
+  // Cas 1 : tableau d'objets JSON (renvoyé par Code.gs getTrocAnnonces)
+  if (!Array.isArray(raw[0]) && typeof raw[0] === 'object') {
+    return raw
+      .filter((item: any) => item && item.titre && String(item.statut || '').toLowerCase() !== 'supprimé')
+      .map((item: any, idx: number) => ({
+        id: String(item.id || `troc-${idx}`).trim(),
+        datePublication: normalizeDateString(item.datePublication || '') || String(item.datePublication || '').trim(),
+        titre: String(item.titre || '').trim(),
+        categorie: String(item.categorie || 'Raquettes').trim(),
+        taillePointure: String(item.taillePointure || '').trim(),
+        etat: String(item.etat || 'Bon état').trim(),
+        photoUrl: String(item.photoUrl || '').trim() || undefined,
+        prix: typeof item.prix === 'number' ? item.prix : (parseFloat(String(item.prix || '0').replace('€', '').replace(',', '.')) || 0),
+        contactNom: String(item.contactNom || '').trim(),
+        contactTel: formatFrenchPhoneNumber(item.contactTel || '') || undefined,
+        contactEmail: String(item.contactEmail || '').trim() || undefined,
+        statut: String(item.statut || 'Disponible').trim(),
+      }));
+  }
+
+  // Cas 2 : tableau 2D de lignes Google Sheets (en-têtes en ligne 0)
+  if (Array.isArray(raw[0])) {
+    const list: TrocAnnonce[] = [];
+    for (let i = 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!Array.isArray(row) || row.length === 0) continue;
+      const titre = String(row[2] || '').trim();
+      if (!titre) continue;
+      const statut = String(row[11] || 'Disponible').trim();
+      if (statut.toLowerCase() === 'supprimé' || statut.toLowerCase() === 'supprime') continue;
+
+      const rawPrix = String(row[7] || '0').replace('€', '').replace(',', '.').trim();
+      list.push({
+        id: String(row[0] || `troc-${i}`).trim(),
+        datePublication: normalizeDateString(row[1] || '') || String(row[1] || '').trim(),
+        titre,
+        categorie: String(row[3] || 'Raquettes').trim(),
+        taillePointure: String(row[4] || '').trim(),
+        etat: String(row[5] || 'Bon état').trim(),
+        photoUrl: String(row[6] || '').trim() || undefined,
+        prix: parseFloat(rawPrix) || 0,
+        contactNom: String(row[8] || '').trim(),
+        contactTel: formatFrenchPhoneNumber(row[9] || '') || undefined,
+        contactEmail: String(row[10] || '').trim() || undefined,
+        statut,
+      });
+    }
+    return list.reverse();
+  }
+
+  return [];
+}
+
+/**
+ * Lit les annonces de Troc EN DIRECT depuis l'onglet Troc_Annonces (aucun localStorage).
+ */
+export async function fetchTrocAnnoncesLive(
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL,
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<{
+  success: boolean;
+  annonces: TrocAnnonce[];
+  error?: string;
+  scriptUpdateNeeded?: boolean;
+}> {
+  // 1. Si l'utilisateur est authentifié via Google Sheets API v4 directe
+  if (spreadsheetId && accessToken) {
+    try {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(TROC_SHEET_TITLE)}?valueRenderOption=UNFORMATTED_VALUE`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const rows = json.values || [];
+        return { success: true, annonces: parseTrocRowsOrObjects(rows) };
+      }
+    } catch (e) {
+      console.warn("Erreur lecture directe Troc_Annonces via Sheets API:", e);
+    }
+  }
+
+  // 2. Appel en direct vers le Web App Google Apps Script avec cache-buster
+  const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const liveUrl = `${urlToUse}?action=getTroc&_t=${Date.now()}`;
+
+  let response: Response | null = null;
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(liveUrl)}`;
+    response = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
+  } catch (e) {
+    console.warn("[Troc] Proxy indisponible, bascule directe:", e);
+  }
+
+  if (!response || !response.ok) {
+    try {
+      response = await fetch(liveUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+    } catch (directErr: any) {
+      return {
+        success: false,
+        annonces: [],
+        error: `Connexion impossible au Google Sheet Troc_Annonces (${directErr?.message || 'réseau indisponible'}).`,
+      };
+    }
+  }
+
+  if (!response || !response.ok) {
+    return {
+      success: false,
+      annonces: [],
+      error: "Impossible de joindre l'API Apps Script pour lire Troc_Annonces.",
+    };
+  }
+
+  try {
+    const json = await response.json();
+    if (json && json.success === false) {
+      const errMsg = String(json.error || '');
+      const isUnknownAction = errMsg.toLowerCase().includes('action inconnue') || errMsg.toLowerCase().includes('getTroc'.toLowerCase());
+      return {
+        success: false,
+        annonces: [],
+        scriptUpdateNeeded: isUnknownAction,
+        error: isUnknownAction
+          ? "L'action 'getTroc' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
+          : errMsg || "Erreur Apps Script lors de la lecture de Troc_Annonces.",
+      };
+    }
+
+    const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.troc) ? json.troc : []);
+    return {
+      success: true,
+      annonces: parseTrocRowsOrObjects(rawList),
+    };
+  } catch (parseErr: any) {
+    return {
+      success: false,
+      annonces: [],
+      error: `Réponse invalide de Google Sheets (${parseErr?.message || 'JSON invalide'}).`,
+    };
+  }
+}
+
+/**
+ * Enregistre une nouvelle annonce dans l'onglet Google Sheet 'Troc_Annonces'.
+ */
+export async function saveTrocAnnonceToSheet(
+  annonce: Omit<TrocAnnonce, 'id' | 'datePublication' | 'statut'> & { id?: string; datePublication?: string; statut?: string },
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL,
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  const id = annonce.id || `troc-${Date.now()}`;
+  const datePublication = annonce.datePublication || new Date().toLocaleDateString('fr-FR');
+  const statut = annonce.statut || 'Disponible';
+  const cleanPhone = formatFrenchPhoneNumber(annonce.contactTel || '');
+
+  const cleanAnnonce: TrocAnnonce = {
+    id,
+    datePublication,
+    titre: annonce.titre.trim(),
+    categorie: annonce.categorie,
+    taillePointure: annonce.taillePointure.trim(),
+    etat: annonce.etat,
+    photoUrl: annonce.photoUrl?.trim() || '',
+    prix: Number(annonce.prix) || 0,
+    contactNom: annonce.contactNom.trim(),
+    contactTel: cleanPhone,
+    contactEmail: annonce.contactEmail?.trim() || '',
+    statut,
+  };
+
+  // 1. Appel Apps Script doPost
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const payload = {
+    action: 'saveTrocAnnonce',
+    annonce: cleanAnnonce,
+  };
+
+  let appsScriptOk = false;
+  let appsScriptError: string | undefined;
+
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    if (pRes.ok) {
+      const pJson = await pRes.json().catch(() => ({ success: true }));
+      if (pJson && pJson.success === false) {
+        appsScriptError = pJson.error || "Le script Google Sheets doit être mis à jour pour accepter 'saveTrocAnnonce'.";
+      } else {
+        appsScriptOk = true;
+      }
+    }
+  } catch {
+    // Fallback direct
+  }
+
+  // 2. Complément via Google Sheets API v4 directe si authentifié
+  if (spreadsheetId && accessToken) {
+    try {
+      const rowValues = [[
+        cleanAnnonce.id,
+        cleanAnnonce.datePublication,
+        cleanAnnonce.titre,
+        cleanAnnonce.categorie,
+        cleanAnnonce.taillePointure,
+        cleanAnnonce.etat,
+        cleanAnnonce.photoUrl || '',
+        cleanAnnonce.prix,
+        cleanAnnonce.contactNom,
+        cleanAnnonce.contactTel || '',
+        cleanAnnonce.contactEmail || '',
+        cleanAnnonce.statut,
+      ]];
+      const apiRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(TROC_SHEET_TITLE)}:append?valueInputOption=USER_ENTERED`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: rowValues }),
+        }
+      );
+      if (apiRes.ok) {
+        return { success: true, id };
+      }
+    } catch (e) {
+      console.warn("Erreur append Troc_Annonces via Sheets API:", e);
+    }
+  }
+
+  if (appsScriptOk) {
+    return { success: true, id };
+  }
+
+  // Tentative directe sans proxy
+  if (!appsScriptError) {
+    try {
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors',
+      });
+      return { success: true, id };
+    } catch (netErr: any) {
+      return {
+        success: false,
+        error: `Impossible d'enregistrer l'annonce (${netErr?.message || 'erreur réseau'}).`,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    error: appsScriptError,
+  };
+}
+
+/**
+ * Met à jour le statut d'une annonce ('Disponible', 'Vendu', 'Supprimé') dans 'Troc_Annonces'.
+ */
+export async function updateTrocStatutInSheet(
+  id: string,
+  statut: 'Disponible' | 'Vendu' | 'Supprimé',
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<{ success: boolean; error?: string }> {
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const payload = {
+    action: 'updateTrocStatut',
+    id,
+    statut,
+  };
+
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    if (pRes.ok) {
+      const pJson = await pRes.json().catch(() => ({ success: true }));
+      if (pJson && pJson.success === false) {
+        return { success: false, error: pJson.error || 'Erreur de mise à jour.' };
+      }
+      return { success: true };
+    }
+  } catch {
+    // Fallback
+  }
+
+  try {
+    await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      mode: 'no-cors',
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erreur réseau.' };
   }
 }

@@ -70,6 +70,7 @@ export default defineConfig(() => {
                 cacheTime = Date.now();
               }
 
+              res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
               res.setHeader('Content-Type', 'application/json');
               res.end(data);
             } catch (err: any) {

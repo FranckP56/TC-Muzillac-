@@ -20,9 +20,11 @@ import {
   X,
   Scale,
   KeyRound,
-  Lock
+  Lock,
+  BookOpen,
+  ShoppingBag
 } from 'lucide-react';
-import { UserRole } from '../types/tennis';
+import { ActiveTab, UserRole } from '../types/tennis';
 import { UnlockRoleModal } from './UnlockRoleModal';
 import { 
   isRoleUnlocked, 
@@ -35,8 +37,8 @@ import {
 } from '../services/accessControl';
 
 interface HeaderProps {
-  activeTab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements';
-  setActiveTab: (tab: 'infos' | 'adherents' | 'rencontres' | 'licencies' | 'enseignants' | 'reglements') => void;
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
   userRole: UserRole;
   setUserRole: (role: UserRole) => void;
   onOpenScriptModal: () => void;
@@ -206,7 +208,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 bg-[#12151b]/95 backdrop-blur-md border-b border-[#252b37] shadow-lg shadow-black/40">
+    <header className="fixed top-0 left-0 right-0 z-40 pt-safe bg-[#12151b]/95 backdrop-blur-md border-b border-[#252b37] shadow-lg shadow-black/40">
       <div className="max-w-7xl mx-auto px-3 sm:px-6">
         
         {/* Ligne 1 : Logo, Titre Club, Badge Ten'Up & Sélecteur de rôle épuré */}
@@ -245,7 +247,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={() => onRefreshFromFile()}
                 disabled={isRefreshing}
-                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 ${
+                className={`min-h-[40px] flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50 whitespace-nowrap ${
                   isStale 
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300' 
                     : 'bg-zinc-800/80 hover:bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
@@ -267,7 +269,7 @@ export const Header: React.FC<HeaderProps> = ({
             {userRole === 'admin' && (
               <button
                 onClick={() => setIsAdminSettingsOpen(true)}
-                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/30 text-orange-300 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer"
+                className="min-h-[40px] flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/30 text-orange-300 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer whitespace-nowrap"
                 title={`Modifier la saison active (${saison})`}
               >
                 <Settings className="w-3.5 h-3.5 text-[#FF6D00]" />
@@ -278,7 +280,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                className={`flex items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer ${currentRoleConfig.badgeColor}`}
+                className={`min-h-[40px] flex items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-sm cursor-pointer whitespace-nowrap ${currentRoleConfig.badgeColor}`}
                 title="Changer de rôle (Admin, Bureau, Prof, Capitaine, Adhérent)"
               >
                 <span className="shrink-0">{currentRoleConfig.icon}</span>
@@ -319,41 +321,67 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Ligne 2 : Onglets de navigation superposés (icône au-dessus du titre) sans ascenseur horizontal */}
-        <div className="border-t border-[#1e2430] py-1.5">
-          <nav className="w-full grid grid-flow-col auto-cols-fr gap-1 sm:gap-2">
+        {/* Ligne 2 : Onglets de navigation desktop/tablette (masqués sur mobile au profit de la barre fixe du bas) */}
+        <div className="hidden md:block border-t border-[#1e2430] py-1.5">
+          <nav className="w-full grid grid-flow-col auto-cols-fr gap-1 lg:gap-1.5">
             
             {/* 1. Infos Club (Tous) */}
             <button
               onClick={() => setActiveTab('infos')}
-              className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
                 activeTab === 'infos'
                   ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
               }`}
             >
               <Info className="w-4 h-4 shrink-0 mb-0.5" />
-              <span className="text-[10px] sm:text-xs leading-tight tracking-tight truncate">Infos Club</span>
+              <span className="text-[11px] leading-tight tracking-tight truncate">Infos Club</span>
             </button>
 
             {/* 2. Rencontres (Tous) */}
             <button
               onClick={() => setActiveTab('rencontres')}
-              className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
                 activeTab === 'rencontres'
                   ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
               }`}
             >
               <Trophy className="w-4 h-4 shrink-0 mb-0.5" />
-              <span className="text-[10px] sm:text-xs leading-tight tracking-tight truncate">Rencontres</span>
+              <span className="text-[11px] leading-tight tracking-tight truncate">Rencontres</span>
             </button>
 
-            {/* 3. Licenciés (Club Muzillac) - Masqué pour les adhérents */}
+            {/* 3. Tutos & Infos (Tous) */}
+            <button
+              onClick={() => setActiveTab('tutos')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'tutos'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 shrink-0 mb-0.5 text-emerald-400" />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Tutos & Infos</span>
+            </button>
+
+            {/* 4. Troc & Occasions (Tous) */}
+            <button
+              onClick={() => setActiveTab('troc')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'troc'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4 shrink-0 mb-0.5 text-sky-400" />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Troc</span>
+            </button>
+
+            {/* 5. Licenciés (Club Muzillac) - Masqué pour les adhérents */}
             {canSeeLicencies && (
               <button
                 onClick={() => setActiveTab('licencies')}
-                className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer relative ${
+                className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer relative ${
                   activeTab === 'licencies'
                     ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -362,7 +390,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="relative flex items-center justify-center">
                   <ShieldCheck className="w-4 h-4 shrink-0 mb-0.5 text-emerald-400" />
                   {typeof totalLicencies === 'number' && (
-                    <span className={`hidden sm:inline-block absolute -top-1 -right-4 text-[9px] px-1 py-0.2 rounded-full font-black ${
+                    <span className={`hidden lg:inline-block absolute -top-1 -right-4 text-[9px] px-1 py-0.2 rounded-full font-black ${
                       activeTab === 'licencies' 
                         ? 'bg-black/40 text-white' 
                         : 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
@@ -371,35 +399,30 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="flex items-center space-x-0.5 leading-tight">
-                  <span className="text-[10px] sm:text-xs tracking-tight truncate">Licenciés</span>
-                  {typeof totalLicencies === 'number' && (
-                    <span className="sm:hidden text-[9px] font-black opacity-80">({totalLicencies})</span>
-                  )}
-                </div>
+                <span className="text-[11px] leading-tight tracking-tight truncate">Licenciés</span>
               </button>
             )}
 
-            {/* 4. Enseignants (Profs & Bureau) */}
+            {/* 6. Enseignants (Profs & Bureau) */}
             {canSeeEnseignants && (
               <button
                 onClick={() => setActiveTab('enseignants')}
-                className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
                   activeTab === 'enseignants'
                     ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
                 }`}
               >
                 <GraduationCap className="w-4 h-4 shrink-0 mb-0.5 text-purple-400" />
-                <span className="text-[10px] sm:text-xs leading-tight tracking-tight truncate">Enseignants</span>
+                <span className="text-[11px] leading-tight tracking-tight truncate">Enseignants</span>
               </button>
             )}
 
-            {/* 5. Adhérents (Bureau uniquement) */}
+            {/* 7. Adhérents (Bureau uniquement) */}
             {canSeeAdherents && (
               <button
                 onClick={() => setActiveTab('adherents')}
-                className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 relative cursor-pointer ${
+                className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 relative cursor-pointer ${
                   activeTab === 'adherents'
                     ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -407,7 +430,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <div className="relative flex items-center justify-center">
                   <Users className="w-4 h-4 shrink-0 mb-0.5" />
-                  <span className={`hidden sm:inline-block absolute -top-1 -right-4 text-[9px] px-1 py-0.2 rounded-full font-black ${
+                  <span className={`hidden lg:inline-block absolute -top-1 -right-4 text-[9px] px-1 py-0.2 rounded-full font-black ${
                     activeTab === 'adherents' 
                       ? 'bg-black/40 text-white' 
                       : 'bg-zinc-800 text-zinc-300'
@@ -415,24 +438,21 @@ export const Header: React.FC<HeaderProps> = ({
                     {totalAdherents}
                   </span>
                 </div>
-                <div className="flex items-center space-x-0.5 leading-tight">
-                  <span className="text-[10px] sm:text-xs tracking-tight truncate">Adhérents</span>
-                  <span className="sm:hidden text-[9px] font-black opacity-80">({totalAdherents})</span>
-                </div>
+                <span className="text-[11px] leading-tight tracking-tight truncate">Adhérents</span>
               </button>
             )}
 
-            {/* 6. Règlements & Formats des Championnats (Tous) */}
+            {/* 8. Règlements & Formats des Championnats (Tous) */}
             <button
               onClick={() => setActiveTab('reglements')}
-              className={`flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 sm:px-2 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
                 activeTab === 'reglements'
                   ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
               }`}
             >
               <Scale className="w-4 h-4 shrink-0 mb-0.5 text-amber-400" />
-              <span className="text-[10px] sm:text-xs leading-tight tracking-tight truncate">Règlements</span>
+              <span className="text-[11px] leading-tight tracking-tight truncate">Règlements</span>
             </button>
 
           </nav>

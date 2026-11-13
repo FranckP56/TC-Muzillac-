@@ -5,7 +5,7 @@
  * Description : Script pour servir la Web App et synchroniser les données
  *               des onglets du Google Sheet ('Adhérents', 'Rencontres',
  *               'Compositions_Equipes', 'Bureau_Profs', 'Installations',
- *               'Cotisations_Tarifs', 'Club_Info').
+ *               'Cotisations_Tarifs', 'Club_Info', 'Troc_Annonces').
  * =========================================================================
  */
 
@@ -16,6 +16,7 @@ const SHEET_BUREAU = 'Bureau_Profs';
 const SHEET_INSTALLATIONS = 'Installations';
 const SHEET_TARIFS = 'Cotisations_Tarifs';
 const SHEET_CLUB_INFO = 'Club_Info';
+const SHEET_TROC = 'Troc_Annonces';
 
 /**
  * Normalisation des numéros de téléphone au format officiel français (10 chiffres, 0 initial)
@@ -55,6 +56,10 @@ function doPost(e) {
       result = saveFrozenComposition(payload);
     } else if (action === 'saveClubInfo') {
       result = saveClubInfo(payload);
+    } else if (action === 'saveTrocAnnonce') {
+      result = saveTrocAnnonce(payload);
+    } else if (action === 'updateTrocStatut' || action === 'deleteTrocAnnonce') {
+      result = updateTrocStatut(payload);
     } else {
       result = { success: false, error: 'Action inconnue : ' + action };
     }
@@ -84,6 +89,8 @@ function doGet(e) {
         result = { success: true, data: getSavedCompositions() };
       } else if (action === 'getClubInfo' || action === 'clubInfo') {
         result = { success: true, data: getClubInfo() };
+      } else if (action === 'getTroc' || action === 'troc') {
+        result = { success: true, data: getTrocAnnonces() };
       } else if (action === 'getAll' || action === 'all') {
         result = { 
           success: true, 
@@ -93,7 +100,8 @@ function doGet(e) {
           clubInfo: getClubInfo(),
           bureau: getBureauData(),
           installations: getInstallationsData(),
-          tarifs: getTarifsData()
+          tarifs: getTarifsData(),
+          troc: getTrocAnnonces()
         };
       } else {
         result = { success: false, error: "Action inconnue : " + action };
@@ -727,4 +735,139 @@ function saveFrozenComposition(payload) {
   sheet.getRange(1, 1, keptRows.length, keptRows[0].length).setValues(keptRows);
 
   return { success: true, rowsSaved: players.length };
+}
+
+/**
+ * =========================================================================
+ * MODULE TROC & OCCASIONS (Onglet 'Troc_Annonces')
+ * =========================================================================
+ */
+
+function ensureTrocSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_TROC);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_TROC);
+    sheet.setTabColor('#E65100');
+    sheet.appendRow([
+      "ID",
+      "Date Publication",
+      "Titre",
+      "Catégorie",
+      "Taille / Pointure",
+      "État",
+      "Photo",
+      "Prix (€)",
+      "Contact Nom",
+      "Téléphone",
+      "Email",
+      "Statut"
+    ]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getTrocAnnonces() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_TROC);
+  if (!sheet) return [];
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return [];
+
+  const list = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const id = String(row[0] || ('troc-' + i)).trim();
+    const titre = String(row[2] || '').trim();
+    if (!titre) continue;
+
+    let dateStr = '';
+    if (row[1] instanceof Date) {
+      const d = ("0" + row[1].getDate()).slice(-2);
+      const m = ("0" + (row[1].getMonth() + 1)).slice(-2);
+      dateStr = d + "/" + m + "/" + row[1].getFullYear();
+    } else {
+      dateStr = String(row[1] || '').trim();
+    }
+
+    const rawPrix = String(row[7] || '0').replace('€', '').replace(',', '.').trim();
+    const prix = parseFloat(rawPrix) || 0;
+    const statut = String(row[11] || 'Disponible').trim();
+    if (statut.toLowerCase() === 'supprimé' || statut.toLowerCase() === 'supprime') continue;
+
+    list.push({
+      id: id,
+      datePublication: dateStr,
+      titre: titre,
+      categorie: String(row[3] || 'Raquettes').trim(),
+      taillePointure: String(row[4] || '').trim(),
+      etat: String(row[5] || 'Bon état').trim(),
+      photoUrl: String(row[6] || '').trim(),
+      prix: prix,
+      contactNom: String(row[8] || '').trim(),
+      contactTel: formatPhoneNumber(row[9] || ''),
+      contactEmail: String(row[10] || '').trim(),
+      statut: statut
+    });
+  }
+
+  // Les plus récentes en premier
+  return list.reverse();
+}
+
+function saveTrocAnnonce(payload) {
+  const sheet = ensureTrocSheet();
+  const a = payload.annonce || payload || {};
+
+  if (!a.titre || !String(a.titre).trim()) {
+    return { success: false, error: "Le titre de l'annonce est obligatoire." };
+  }
+
+  const nowDate = Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy");
+  const id = a.id || ('troc-' + Date.now());
+  const rawPrix = String(a.prix !== undefined ? a.prix : '0').replace('€', '').replace(',', '.').trim();
+  const prixNum = parseFloat(rawPrix) || 0;
+
+  sheet.appendRow([
+    safeCellValue(id),
+    safeCellValue(a.datePublication || nowDate),
+    safeCellValue(String(a.titre).trim()),
+    safeCellValue(String(a.categorie || 'Raquettes').trim()),
+    safeCellValue(String(a.taillePointure || '').trim()),
+    safeCellValue(String(a.etat || 'Bon état').trim()),
+    safeCellValue(a.photoUrl || ''),
+    prixNum,
+    safeCellValue(String(a.contactNom || '').trim()),
+    safeCellValue(formatPhoneNumber(a.contactTel || '')),
+    safeCellValue(String(a.contactEmail || '').trim()),
+    safeCellValue(a.statut || 'Disponible')
+  ]);
+
+  return { success: true, id: id };
+}
+
+function updateTrocStatut(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_TROC);
+  if (!sheet) return { success: false, error: "Onglet Troc_Annonces introuvable." };
+
+  const targetId = String(payload.id || payload.annonceId || '').trim();
+  const newStatut = String(payload.statut || (payload.action === 'deleteTrocAnnonce' ? 'Supprimé' : 'Vendu')).trim();
+  if (!targetId) return { success: false, error: "Identifiant d'annonce manquant." };
+
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0] || '').trim() === targetId) {
+      if (newStatut.toLowerCase() === 'supprimé' || newStatut.toLowerCase() === 'supprime') {
+        sheet.deleteRow(i + 1);
+      } else {
+        sheet.getRange(i + 1, 12).setValue(newStatut);
+      }
+      return { success: true, id: targetId, statut: newStatut };
+    }
+  }
+
+  return { success: false, error: "Annonce introuvable." };
 }

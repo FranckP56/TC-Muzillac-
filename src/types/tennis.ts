@@ -245,3 +245,42 @@ export interface ColumnMapping {
   compteTenUp: string;
   ville: string;
 }
+
+export type ActiveTab =
+  | 'infos'
+  | 'adherents'
+  | 'rencontres'
+  | 'licencies'
+  | 'enseignants'
+  | 'reglements'
+  | 'tutos'
+  | 'troc';
+
+export type TrocCategorie =
+  | 'Raquettes'
+  | 'Chaussures'
+  | 'Tenues'
+  | 'Sacs & Accessoires'
+  | 'Balles & Cordages';
+
+export type TrocEtat =
+  | 'Neuf'
+  | 'Très bon état'
+  | 'Bon état'
+  | 'État correct';
+
+export interface TrocAnnonce {
+  id: string;
+  datePublication: string;
+  titre: string;
+  categorie: TrocCategorie | string;
+  taillePointure: string;
+  etat: TrocEtat | string;
+  photoUrl?: string;
+  prix: number;
+  contactNom: string;
+  contactTel?: string;
+  contactEmail?: string;
+  statut: 'Disponible' | 'Vendu' | string;
+}
+

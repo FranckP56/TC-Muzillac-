@@ -181,7 +181,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             {isBureauMember && onOpenEditClubModal && (
               <button
                 onClick={onOpenEditClubModal}
-                className="inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-xs font-bold transition cursor-pointer shadow-sm"
+                className="min-h-[44px] inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 text-xs font-bold transition cursor-pointer shadow-sm whitespace-nowrap"
               >
                 <Edit3 className="w-3.5 h-3.5 text-[#FF6D00]" />
                 <span>Modifier les données du club</span>
@@ -192,7 +192,7 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
               <button
                 onClick={handleDirectPush}
                 disabled={isPushingDirect}
-                className="inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 hover:text-orange-300 border border-orange-500/40 text-xs font-bold transition cursor-pointer shadow-sm"
+                className="min-h-[44px] inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 hover:text-orange-300 border border-orange-500/40 text-xs font-bold transition cursor-pointer shadow-sm whitespace-nowrap"
                 title="Pousser immédiatement les informations actuelles vers Google Sheets"
               >
                 <Upload className={`w-3.5 h-3.5 ${isPushingDirect ? 'animate-bounce' : ''}`} />

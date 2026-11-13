@@ -496,11 +496,13 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
-              type="text"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Rechercher par adversaire, ville, capitaine, équipe, date (JJ/MM/AAAA)..."
-              className="w-full bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-9 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+              className="w-full min-h-[44px] bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-10 py-2.5 text-base sm:text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
             />
             {searchQuery && (
               <button 
@@ -548,7 +550,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
         </div>
 
         {/* Ligne 2 : Filtres demandés : Championnat, Sexe, Catégorie d'âge, Équipe */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-800/80">
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-zinc-800/80">
           
           {/* 1. Championnat */}
           <div>
@@ -556,7 +558,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <select
               value={filterChampionnat}
               onChange={(e) => handleSetFilterChampionnat(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer truncate"
+              className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer truncate"
             >
               <option value="all">Tous championnats</option>
               {uniqueChampionnats.map((c) => (
@@ -571,7 +573,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <select
               value={filterSexe}
               onChange={(e) => handleSetFilterSexe(e.target.value as any)}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Tous (Hommes & Femmes)</option>
               <option value="H">Hommes (Messieurs)</option>
@@ -585,7 +587,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <select
               value={filterCategorieAge}
               onChange={(e) => handleSetFilterCategorieAge(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Toutes catégories</option>
               {uniqueCategoriesAge.map((cat) => (
@@ -600,7 +602,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             <select
               value={filterTeam}
               onChange={(e) => handleSetFilterTeam(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
+              className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
             >
               <option value="all">Toutes les équipes</option>
               {uniqueTeams.map((t) => (

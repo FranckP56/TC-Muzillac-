@@ -220,10 +220,10 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         {/* Séparateur vertical */}
         <div className="hidden md:block h-9 w-px bg-zinc-800" />
 
-        {/* Partie Pyramide FFT : 4 bulles alignées sur la même ligne */}
+        {/* Partie Pyramide FFT : 2x2 sur mobile, 4 en ligne sur tablette/desktop */}
         <div className="space-y-1 w-full md:w-auto">
           <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Pyramide FFT</span>
-          <div className="grid grid-cols-4 gap-1.5 sm:flex sm:items-center sm:space-x-2 font-mono text-[11px] sm:text-xs font-bold text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:flex sm:items-center sm:space-x-2 font-mono text-xs font-bold text-center">
             <span className="px-1.5 sm:px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap">
               {stats.series.deuxieme} en 2e
             </span>
@@ -248,11 +248,13 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         <div className="relative w-full lg:w-72 shrink-0">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
-            type="text"
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rechercher par nom, classement, licence..."
-            className="w-full h-10 bg-[#1b202c] border border-[#2c3547] rounded-xl pl-9 pr-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition-colors"
+            className="w-full min-h-[44px] bg-[#1b202c] border border-[#2c3547] rounded-xl pl-9 pr-3 text-base sm:text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition-colors"
           />
         </div>
 
@@ -260,7 +262,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto">
           
           {/* Choix Hommes / Femmes (grille 3 colonnes alignée en mobile) */}
-          <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center h-10 bg-[#1b202c] rounded-xl p-1 border border-[#2c3547] shrink-0">
+          <div className="w-full sm:w-auto grid grid-cols-3 sm:flex items-center min-h-[44px] bg-[#1b202c] rounded-xl p-1 border border-[#2c3547] shrink-0">
             <button
               onClick={() => handleSetFilterSex('all')}
               className={`h-full px-3 rounded-lg font-bold transition cursor-pointer text-xs flex items-center justify-center ${

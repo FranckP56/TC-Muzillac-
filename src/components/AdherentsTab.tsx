@@ -359,16 +359,19 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
-              type="text"
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Rechercher par nom, licence, groupe, classement (ex: 15/1, Laurent, Je1)..."
-              className="w-full pl-10 pr-8 py-2 rounded-xl bg-[#0e1116] border border-zinc-800 text-xs sm:text-sm text-white placeholder-zinc-500 focus:border-[#FF6D00] outline-none"
+              className="w-full min-h-[44px] pl-10 pr-9 py-2.5 rounded-xl bg-[#0e1116] border border-zinc-800 text-base sm:text-sm text-white placeholder-zinc-500 focus:border-[#FF6D00] outline-none"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white cursor-pointer"
+                aria-label="Effacer la recherche"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center absolute right-1.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -376,13 +379,13 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
           </div>
 
           {/* Tri */}
-          <div className="flex items-center space-x-2 bg-[#0e1116] px-3 py-1.5 rounded-xl border border-zinc-800 shrink-0">
+          <div className="flex items-center space-x-2 bg-[#0e1116] min-h-[44px] px-3 py-1.5 rounded-xl border border-zinc-800 shrink-0">
             <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-xs text-zinc-400 hidden sm:inline">Tri :</span>
             <select
               value={sortBy}
               onChange={(e) => handleSetSortBy(e.target.value as any)}
-              className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
+              className="bg-transparent text-base sm:text-xs text-white font-semibold focus:outline-none cursor-pointer flex-1"
             >
               <option value="ranking_desc" className="bg-[#141820] text-white">Classement FFT (Décroissant)</option>
               <option value="name_asc" className="bg-[#141820] text-white">Nom (A - Z)</option>
@@ -623,36 +626,36 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                 </div>
 
                 {/* Ligne 3 : Actions rapides & Coordonnées directes */}
-                <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400">
-                  <div className="flex items-center space-x-1.5 flex-wrap">
+                <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400 gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {adh.telephonePortable && (
                       <a
                         href={`tel:${adh.telephonePortable}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-black/40 hover:bg-emerald-500/20 hover:text-emerald-400 border border-white/10 transition"
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-emerald-500/20 hover:text-emerald-400 border border-white/10 transition"
                         title={`Appeler ${adh.nomPrenom}`}
                       >
-                        <Phone className="w-3.5 h-3.5" />
+                        <Phone className="w-4 h-4" />
                       </a>
                     )}
                     {adh.telephonePortable && (
                       <a
                         href={`sms:${adh.telephonePortable}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-black/40 hover:bg-sky-500/20 hover:text-sky-400 border border-white/10 transition"
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-sky-500/20 hover:text-sky-400 border border-white/10 transition"
                         title={`SMS à ${adh.nomPrenom}`}
                       >
-                        <MessageSquare className="w-3.5 h-3.5" />
+                        <MessageSquare className="w-4 h-4" />
                       </a>
                     )}
                     {adh.email && (
                       <a
                         href={`mailto:${adh.email}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 rounded-lg bg-black/40 hover:bg-orange-500/20 hover:text-orange-400 border border-white/10 transition"
+                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-orange-500/20 hover:text-orange-400 border border-white/10 transition"
                         title={`Email à ${adh.nomPrenom}`}
                       >
-                        <Mail className="w-3.5 h-3.5" />
+                        <Mail className="w-4 h-4" />
                       </a>
                     )}
 
@@ -664,7 +667,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
                           e.stopPropagation();
                           setSelectedRelanceAdherent(adh);
                         }}
-                        className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer ml-1"
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer ml-1 whitespace-nowrap"
                         title="Ouvrir la relance de paiement (SMS & Email)"
                       >
                         <Send className="w-3.5 h-3.5" />
