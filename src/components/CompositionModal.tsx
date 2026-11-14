@@ -284,6 +284,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   const [playerSearchQuery, setPlayerSearchQuery] = useState('');
   const activeSlotRef = useRef<HTMLDivElement>(null);
+  const modalBodyRef = useRef<HTMLDivElement>(null);
 
   // Défilement automatique fluide vers le tiroir de sélection de joueur lorsqu'un slot est cliqué
   useEffect(() => {
@@ -390,13 +391,55 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return cleaned;
   }, [defaultMatchOrder]);
 
+  const computeRotationHours = useCallback((order: string[], startHour: string, courtsCount: number): Record<string, string> => {
+    const courts = Math.max(1, courtsCount || 1);
+    const map: Record<string, string> = {};
+    order.forEach((tok, idx) => {
+      const rotIdx = Math.floor(idx / courts);
+      map[tok] = addMinutesToTime(startHour || '14:00', rotIdx * 90);
+    });
+    return map;
+  }, []);
+
+  const normalizeRotationHours = useCallback((
+    saved: Record<string, string> | undefined,
+    order: string[],
+    startHour: string,
+    courtsCount: number
+  ): Record<string, string> => {
+    const defaults = computeRotationHours(order, startHour, courtsCount);
+    if (!saved) return defaults;
+    const merged: Record<string, string> = { ...defaults };
+    order.forEach(tok => {
+      if (saved[tok] && /^\d{1,2}:\d{2}$/.test(saved[tok].trim())) {
+        merged[tok] = saved[tok].trim();
+      }
+    });
+    return merged;
+  }, [computeRotationHours]);
+
   const [matchOrder, setMatchOrder] = useState<string[]>(() =>
     normalizeMatchOrder(rencontre?.composition?.ordreMatchs)
   );
 
+  const [rotationHours, setRotationHours] = useState<Record<string, string>>(() =>
+    normalizeRotationHours(
+      rencontre?.composition?.heuresRotations,
+      normalizeMatchOrder(rencontre?.composition?.ordreMatchs),
+      rencontre?.composition?.heureDebut || '14:00',
+      rencontre?.composition?.nombreCourts || 2
+    )
+  );
+
   useEffect(() => {
-    setMatchOrder(normalizeMatchOrder(rencontre?.composition?.ordreMatchs));
-  }, [normalizeMatchOrder, rencontre?.id]);
+    const nextOrder = normalizeMatchOrder(rencontre?.composition?.ordreMatchs);
+    const nextHour = rencontre?.composition?.heureDebut || '14:00';
+    const nextCourts = rencontre?.composition?.nombreCourts || 2;
+    setMatchOrder(nextOrder);
+    setRotationHours(
+      normalizeRotationHours(rencontre?.composition?.heuresRotations, nextOrder, nextHour, nextCourts)
+    );
+  }, [normalizeMatchOrder, normalizeRotationHours, rencontre?.id]);
 
   // États des 3 étapes de validation du capitaine : 1. Date/Heure/Lieu -> 2. Ordre -> 3. Joueurs
   const step1Done = Boolean(composition.logistiqueValidee || composition.valideParCapitaine);
@@ -414,10 +457,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     const temp = updated[indexA];
     updated[indexA] = updated[indexB];
     updated[indexB] = temp;
+    const updatedRotations = computeRotationHours(updated, matchHourInput, matchCourtsInput);
     setMatchOrder(updated);
+    setRotationHours(updatedRotations);
     setComposition(prev => ({
       ...prev,
       ordreMatchs: updated,
+      heuresRotations: updatedRotations,
       ordreValide: false,
       valideParCapitaine: false,
     }));
@@ -431,10 +477,25 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }
   };
 
-  const getMatchTimeSlot = (index: number) => {
+  const getMatchTimeSlot = (index: number, token?: string) => {
+    if (token && rotationHours[token]) {
+      return rotationHours[token];
+    }
     const courts = Math.max(1, matchCourtsInput);
     const rotationIndex = Math.floor(index / courts);
     return addMinutesToTime(matchHourInput || '14:00', rotationIndex * 90);
+  };
+
+  const handleUpdateMatchRotationTime = (token: string, newTime: string) => {
+    if (!newTime) return;
+    const nextRot = { ...rotationHours, [token]: newTime };
+    setRotationHours(nextRot);
+    setComposition(prev => ({
+      ...prev,
+      heuresRotations: nextRot,
+      ordreValide: false,
+      valideParCapitaine: false,
+    }));
   };
 
   // Calcul du planning des créneaux et des rotations par court
@@ -794,6 +855,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       lieuRencontre: effectiveVenue,
       nombreCourts: matchCourtsInput,
       formatReduit,
+      ordreMatchs: matchOrder,
+      heuresRotations: rotationHours,
       logistiqueValidee: true,
     };
     setComposition(updated);
@@ -803,10 +866,11 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setTimeout(() => setValidationSuccess(null), 3000);
   };
 
-  // ÉTAPE 2 : Validation de l'ordre des rencontres
+  // ÉTAPE 2 : Validation de l'ordre des rencontres et des heures de rotations
   const handleValidateStep2Order = () => {
     if (!step1Done) {
       setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
@@ -818,13 +882,14 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       nombreCourts: matchCourtsInput,
       formatReduit,
       ordreMatchs: matchOrder,
+      heuresRotations: rotationHours,
       logistiqueValidee: true,
       ordreValide: true,
     };
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
-    setValidationSuccess('Étape 2 validée : Ordre des rencontres enregistré.');
+    setValidationSuccess('Étape 2 validée : Ordre et heures de rotations enregistrés.');
     setTimeout(() => setValidationSuccess(null), 3000);
   };
 
@@ -832,22 +897,26 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const handleValidateStep3Players = () => {
     if (!step1Done) {
       setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (!step2Done) {
       setBlockedAlertMessage("Veuillez d'abord valider l'ordre des rencontres (Étape 2).");
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if (hasIneligiblePlayer) {
       setBlockedAlertMessage(
         "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant de valider."
       );
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     if ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && doublesWeightCheck.errorMessage) {
       setBlockedAlertMessage(
         `Blocage Règle FFT (Poids des Doubles) :\n${doublesWeightCheck.errorMessage}`
       );
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
@@ -859,6 +928,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       nombreCourts: matchCourtsInput,
       formatReduit,
       ordreMatchs: matchOrder,
+      heuresRotations: rotationHours,
       logistiqueValidee: true,
       ordreValide: true,
       joueursValides: true,
@@ -875,26 +945,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setTimeout(() => setValidationSuccess(null), 3500);
   };
 
-  // Enregistrement global de la feuille de match
+  // Enregistrement global de la feuille de match (ouvre toujours la modale de confirmation)
   const handleValidateMatchSheet = () => {
-    if (!step1Done) {
-      setBlockedAlertMessage(
-        "Étape 1 requise : Veuillez d'abord valider la date, l'heure et le lieu avant d'enregistrer."
-      );
-      return;
-    }
-
-    if (selectedPlayerIds.length > 0 && !step2Done) {
-      setBlockedAlertMessage(
-        "Étape 2 requise : Veuillez valider l'ordre des rencontres avant d'enregistrer les joueurs."
-      );
-      return;
-    }
-
     if (hasIneligiblePlayer) {
       setBlockedAlertMessage(
         "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant d'enregistrer."
       );
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -902,18 +959,20 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       setBlockedAlertMessage(
         `Blocage Règle FFT (Poids des Doubles) :\n${doublesWeightCheck.errorMessage}`
       );
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
-    const effectiveVenue = matchVenueInput === 'autre' ? customVenueInput || 'Lieu personnalisé' : matchVenueInput;
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
 
     const updated: MatchComposition = {
       ...composition,
       valideParCapitaine: true,
       logistiqueValidee: true,
-      ordreValide: step2Done || selectedPlayerIds.length === 0,
+      ordreValide: true,
       joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
       ordreMatchs: matchOrder,
+      heuresRotations: rotationHours,
       dateValidation: new Date().toLocaleDateString('fr-FR'),
       dateRencontreValidee: matchDateInput,
       heureDebut: matchHourInput,
@@ -925,18 +984,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       poidsDoublesValide: doublesWeightCheck.isValid,
     };
 
-    // Si connecté à Google Sheets, afficher la boîte de dialogue de confirmation explicite
-    if (selectedSpreadsheetId) {
-      setComposition(updated);
-      setIsConfirmGsheetOpen(true);
-      return;
-    }
-
-    // Sinon validation locale
+    setBlockedAlertMessage(null);
     setComposition(updated);
-    onSaveComposition(rencontre.id, updated);
-    setValidationSuccess('Feuille de match enregistrée avec succès !');
-    setTimeout(() => setValidationSuccess(null), 3500);
+    setIsConfirmGsheetOpen(true);
   };
 
   // Exécution de l'enregistrement après confirmation explicite
@@ -944,22 +994,16 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     if (!rencontre) return;
     setIsSavingToSheet(true);
     try {
-      let token: string | null = null;
-      try {
-        token = await getAccessToken();
-      } catch {
-        token = null;
-      }
-
-      const effectiveVenue = matchVenueInput === 'autre' ? customVenueInput || 'Lieu personnalisé' : matchVenueInput;
+      const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
 
       const updated: MatchComposition = {
         ...composition,
         valideParCapitaine: true,
         logistiqueValidee: true,
-        ordreValide: step2Done || selectedPlayerIds.length === 0,
+        ordreValide: true,
         joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
         ordreMatchs: matchOrder,
+        heuresRotations: rotationHours,
         dateValidation: new Date().toLocaleDateString('fr-FR'),
         dateRencontreValidee: matchDateInput,
         heureDebut: matchHourInput,
@@ -971,46 +1015,56 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         poidsDoublesValide: doublesWeightCheck.isValid,
       };
 
-      const result = await saveCompositionToSheet(
-        selectedSpreadsheetId,
-        rencontre,
-        updated,
-        adherentsById,
-        token
-      );
+      if (selectedSpreadsheetId) {
+        let token: string | null = null;
+        try {
+          token = await getAccessToken();
+        } catch {
+          token = null;
+        }
+        const result = await saveCompositionToSheet(
+          selectedSpreadsheetId,
+          rencontre,
+          updated,
+          adherentsById,
+          token
+        );
+        setSheetSaveSuccess(`Feuille de match enregistrée (${result.rowsSaved} poste(s) enregistré(s)) !`);
+      } else {
+        setSheetSaveSuccess('Feuille de match enregistrée avec succès !');
+      }
 
       setComposition(updated);
       onSaveComposition(rencontre.id, updated);
       setIsConfirmGsheetOpen(false);
-      setSheetSaveSuccess(`Feuille de match enregistrée (${result.rowsSaved} poste(s) enregistré(s)) !`);
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       setTimeout(() => setSheetSaveSuccess(null), 4500);
     } catch (err: any) {
-      console.warn('Erreur enregistrement Google Sheets:', err);
-      setBlockedAlertMessage(`Erreur d'enregistrement Google Sheets : ${err.message || 'accès réseau indisponible'}`);
+      console.warn('Erreur enregistrement feuille de match:', err);
+      setBlockedAlertMessage(`Erreur d'enregistrement : ${err.message || 'accès réseau indisponible'}`);
       setIsConfirmGsheetOpen(false);
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsSavingToSheet(false);
     }
   };
 
-  // Regroupement des matchs selon les rotations et le nombre de courts
+  // Regroupement des matchs selon les rotations enregistrées et l'ordre défini
   const getRotationsFromMatchOrder = () => {
-    const courts = Math.max(1, matchCourtsInput);
-    const groups: { time: string; items: string[] }[] = [];
+    const groupsMap = new Map<string, string[]>();
     matchOrder.forEach((token, idx) => {
-      const rotIdx = Math.floor(idx / courts);
-      const time = addMinutesToTime(matchHourInput || '14:00', rotIdx * 90);
-      if (!groups[rotIdx]) {
-        groups[rotIdx] = { time, items: [] };
+      const time = getMatchTimeSlot(idx, token);
+      if (!groupsMap.has(time)) {
+        groupsMap.set(time, []);
       }
-      groups[rotIdx].items.push(token);
+      groupsMap.get(time)!.push(token);
     });
-    return groups;
+    return Array.from(groupsMap.entries()).map(([time, items]) => ({ time, items }));
   };
 
-  // Bulle 1 : SMS pour les joueurs de l'équipe (trame officielle sans icône, avec COMPOSITION & ORDRE)
-  const handleCopyPlayersSms = () => {
-    const teamNum = (rencontre.numeroEquipe || '').replace(/^équipe\s*/i, '').trim() || rencontre.numeroEquipe || '';
+  // Génération du texte SMS pour les joueurs de l'équipe (trame officielle sans icône, avec COMPOSITION & ORDRE)
+  const buildPlayersSmsText = () => {
+    const teamNum = (rencontre.numeroEquipe || '').replace(/^(?:équipe\s*|tcm\s*)/i, '').trim() || rencontre.numeroEquipe || '';
     const headerNum = teamNum ? ` - ${teamNum}` : '';
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput || 'Lieu personnalisé') : matchVenueInput;
     const capName = rencontre.prenomCapitaine
@@ -1071,14 +1125,12 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       });
     });
 
-    navigator.clipboard.writeText(lines.join('\n'));
-    setCopiedPlayersSms(true);
-    setTimeout(() => setCopiedPlayersSms(false), 2000);
+    return lines.join('\n');
   };
 
-  // Bulle 2 : SMS pour l'équipe adversaire (uniquement les heures et les numéros des joueurs)
-  const handleCopyOpponentSms = () => {
-    const teamNum = (rencontre.numeroEquipe || '').replace(/^équipe\s*/i, '').trim() || rencontre.numeroEquipe || '';
+  // Génération du texte SMS pour l'équipe adversaire (uniquement les heures et les numéros des joueurs)
+  const buildOpponentSmsText = () => {
+    const teamNum = (rencontre.numeroEquipe || '').replace(/^(?:équipe\s*|tcm\s*)/i, '').trim() || rencontre.numeroEquipe || '';
     const headerNum = teamNum ? ` - ${teamNum}` : '';
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput || 'Lieu personnalisé') : matchVenueInput;
 
@@ -1106,10 +1158,14 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       });
     });
 
-    navigator.clipboard.writeText(lines.join('\n'));
-    setCopiedOpponentSms(true);
-    setTimeout(() => setCopiedOpponentSms(false), 2000);
+    return lines.join('\n');
   };
+
+  const playersSmsText = buildPlayersSmsText();
+  const opponentSmsText = buildOpponentSmsText();
+  const opponentSmsPhone = (rencontre.portableCapitaineAdverse || rencontre.portableCorrespondantAdverse || '').replace(/\s+/g, '');
+  const playersSmsHref = `sms:?body=${encodeURIComponent(playersSmsText)}`;
+  const opponentSmsHref = `sms:${opponentSmsPhone}?body=${encodeURIComponent(opponentSmsText)}`;
 
   const getScheduleSlotFor = (slotKey: SlotKey) => {
     if (slotKey.startsWith('simple')) {
@@ -1387,7 +1443,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             </div>
 
             {/* ==================== CORPS MODALE AVEC DÉFILEMENT VERTICAL STRICT ==================== */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-6 space-y-4 sm:space-y-6 touch-pan-y">
+            <div ref={modalBodyRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-6 space-y-4 sm:space-y-6 touch-pan-y">
 
               {/* ==================== BULLE DE RAPPEL DU RÈGLEMENT FFT ==================== */}
               {(hasIneligiblePlayer || !rankingOrderCheck.isValid || (compFormat.doubleWeightStrict && !!doublesWeightCheck.errorMessage) || !!scheduleCheck.warning) && (
@@ -1619,8 +1675,17 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                       }
                       onChange={(e) => {
                         if (e.target.value !== 'autre') {
-                          setMatchHourInput(e.target.value);
-                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                          const newHour = e.target.value;
+                          const nextRot = computeRotationHours(matchOrder, newHour, matchCourtsInput);
+                          setMatchHourInput(newHour);
+                          setRotationHours(nextRot);
+                          setComposition(prev => ({
+                            ...prev,
+                            heureDebut: newHour,
+                            heuresRotations: nextRot,
+                            logistiqueValidee: false,
+                            valideParCapitaine: false,
+                          }));
                         }
                       }}
                       className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
@@ -1637,8 +1702,17 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                           type="time"
                           value={matchHourInput}
                           onChange={(e) => {
-                            setMatchHourInput(e.target.value);
-                            setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                            const newHour = e.target.value;
+                            const nextRot = computeRotationHours(matchOrder, newHour, matchCourtsInput);
+                            setMatchHourInput(newHour);
+                            setRotationHours(nextRot);
+                            setComposition(prev => ({
+                              ...prev,
+                              heureDebut: newHour,
+                              heuresRotations: nextRot,
+                              logistiqueValidee: false,
+                              valideParCapitaine: false,
+                            }));
                           }}
                           className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
                         />
@@ -1665,8 +1739,16 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                         key={cnt}
                         type="button"
                         onClick={() => {
+                          const nextRot = computeRotationHours(matchOrder, matchHourInput, cnt);
                           setMatchCourtsInput(cnt);
-                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                          setRotationHours(nextRot);
+                          setComposition(prev => ({
+                            ...prev,
+                            nombreCourts: cnt,
+                            heuresRotations: nextRot,
+                            logistiqueValidee: false,
+                            valideParCapitaine: false,
+                          }));
                         }}
                         className={`flex-1 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                           matchCourtsInput === cnt
@@ -2015,7 +2097,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             {/* Liste ordonnée unifiée (Simples & Doubles en ordre numérique par défaut tant que le capitaine n'a pas validé) */}
             <div className="space-y-2.5">
               {matchOrder.map((token, matchIndex) => {
-                const timeSlot = getMatchTimeSlot(matchIndex);
+                const timeSlot = getMatchTimeSlot(matchIndex, token);
 
                 if (token.startsWith('S')) {
                   const playerNum = parseInt(token.slice(1), 10);
@@ -2032,8 +2114,18 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                             Match {matchIndex + 1}
                           </span>
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-xs font-bold">
-                            <Clock className="w-3 h-3 text-orange-400" />
-                            <span>{timeSlot}</span>
+                            <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                            {canEdit && step1Done ? (
+                              <input
+                                type="time"
+                                value={timeSlot}
+                                onChange={(e) => handleUpdateMatchRotationTime(token, e.target.value)}
+                                className="bg-transparent text-orange-300 font-mono text-xs font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
+                                title="Heure de rotation de ce match"
+                              />
+                            ) : (
+                              <span>{timeSlot}</span>
+                            )}
                           </span>
 
                           <div className="flex items-center space-x-1.5">
@@ -2121,8 +2213,18 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                           Match {matchIndex + 1}
                         </span>
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
-                          <Clock className="w-3 h-3 text-purple-400" />
-                          <span>{timeSlot}</span>
+                          <Clock className="w-3 h-3 text-purple-400 shrink-0" />
+                          {canEdit && step1Done ? (
+                            <input
+                              type="time"
+                              value={timeSlot}
+                              onChange={(e) => handleUpdateMatchRotationTime(token, e.target.value)}
+                              className="bg-transparent text-purple-300 font-mono text-xs font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
+                              title="Heure de rotation de ce double"
+                            />
+                          ) : (
+                            <span>{timeSlot}</span>
+                          )}
                         </span>
                         <span className="font-heading font-black text-white text-xs sm:text-sm">
                           {compFormat.numDoubles >= 2 ? `Double N°${dNum}` : 'Double'}
@@ -2378,23 +2480,33 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         <div className="shrink-0 p-3 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
           
           <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-            <button
-              type="button"
-              onClick={handleCopyPlayersSms}
+            <a
+              href={playersSmsHref}
+              onClick={() => {
+                navigator.clipboard?.writeText(playersSmsText).catch(() => {});
+                setCopiedPlayersSms(true);
+                setTimeout(() => setCopiedPlayersSms(false), 2000);
+              }}
               className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-[#1a1f29] hover:bg-[#252c3a] border border-[#2c3444] text-zinc-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+              title="Ouvrir l'application SMS avec la feuille de match complète pour les joueurs"
             >
-              {copiedPlayersSms ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <Copy className="w-4 h-4 text-orange-400 shrink-0" />}
-              <span>{copiedPlayersSms ? 'Copié !' : 'SMS pour les joueurs'}</span>
-            </button>
+              {copiedPlayersSms ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <MessageSquare className="w-4 h-4 text-orange-400 shrink-0" />}
+              <span>{copiedPlayersSms ? 'SMS ouvert !' : 'SMS pour les joueurs'}</span>
+            </a>
 
-            <button
-              type="button"
-              onClick={handleCopyOpponentSms}
+            <a
+              href={opponentSmsHref}
+              onClick={() => {
+                navigator.clipboard?.writeText(opponentSmsText).catch(() => {});
+                setCopiedOpponentSms(true);
+                setTimeout(() => setCopiedOpponentSms(false), 2000);
+              }}
               className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-[#1a1f29] hover:bg-[#252c3a] border border-[#2c3444] text-zinc-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+              title="Ouvrir l'application SMS avec l'ordre et les horaires pour l'équipe adversaire"
             >
               {copiedOpponentSms ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <MessageSquare className="w-4 h-4 text-sky-400 shrink-0" />}
-              <span>{copiedOpponentSms ? 'Copié !' : "SMS pour l'équipe adversaire"}</span>
-            </button>
+              <span>{copiedOpponentSms ? 'SMS ouvert !' : "SMS pour l'équipe adversaire"}</span>
+            </a>
           </div>
 
           <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
@@ -2410,36 +2522,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>Mode consultation adhérent</span>
               </div>
-            ) : selectedSpreadsheetId ? (
-              <button
-                onClick={handleValidateMatchSheet}
-                disabled={hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
-                className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-heading font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg ${
-                  hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
-                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
-                    : 'bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 hover:brightness-110 active:scale-95 text-white shadow-emerald-950/60'
-                }`}
-              >
-                {hasIneligiblePlayer ? (
-                  <>
-                    <Lock className="w-4 h-4" />
-                    <span>Validation bloquée (FFT)</span>
-                  </>
-                ) : (compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid ? (
-                  <>
-                    <Lock className="w-4 h-4" />
-                    <span>Inverser les doubles (FFT)</span>
-                  </>
-                ) : (
-                  <>
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Enregistrer</span>
-                  </>
-                )}
-              </button>
             ) : (
               <div className="flex items-center gap-2">
-                {onOpenGoogleSyncModal && (
+                {!selectedSpreadsheetId && onOpenGoogleSyncModal && (
                   <button
                     onClick={onOpenGoogleSyncModal}
                     className="px-3.5 py-2.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
@@ -2451,12 +2536,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                 )}
 
                 <button
+                  type="button"
                   onClick={handleValidateMatchSheet}
                   disabled={hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
                   className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-heading font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg ${
                     hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
                       ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
-                      : 'bg-gradient-to-r from-[#BF360C] via-[#E65100] to-[#FF6D00] hover:brightness-110 active:scale-95 text-white shadow-orange-950/60'
+                      : 'bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 hover:brightness-110 active:scale-95 text-white shadow-emerald-950/60'
                   }`}
                 >
                   {hasIneligiblePlayer ? (
@@ -2471,7 +2557,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                     </>
                   ) : (
                     <>
-                      <ShieldCheck className="w-4 h-4" />
+                      <FileSpreadsheet className="w-4 h-4" />
                       <span>Enregistrer</span>
                     </>
                   )}
@@ -2486,19 +2572,17 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     </AnimatePresence>
   </div>
 
-      {/* Modale de Confirmation Explicite pour l'Enregistrement dans Données_appli */}
-      {selectedSpreadsheetId && (
-        <ConfirmSaveCompositionModal
-          isOpen={isConfirmGsheetOpen}
-          onClose={() => setIsConfirmGsheetOpen(false)}
-          onConfirm={handleConfirmSaveToGsheet}
-          rencontre={rencontre}
-          composition={composition}
-          adherentsById={adherentsById}
-          spreadsheetName={spreadsheetName}
-          isSaving={isSavingToSheet}
-        />
-      )}
+      {/* Modale de Confirmation Explicite pour l'Enregistrement */}
+      <ConfirmSaveCompositionModal
+        isOpen={isConfirmGsheetOpen}
+        onClose={() => setIsConfirmGsheetOpen(false)}
+        onConfirm={handleConfirmSaveToGsheet}
+        rencontre={rencontre}
+        composition={composition}
+        adherentsById={adherentsById}
+        spreadsheetName={spreadsheetName}
+        isSaving={isSavingToSheet}
+      />
     </div>
   );
 

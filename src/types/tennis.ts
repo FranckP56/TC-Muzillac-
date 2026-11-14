@@ -88,8 +88,9 @@ export interface MatchComposition {
   poidsDouble1?: number;
   poidsDouble2?: number;
   poidsDoublesValide?: boolean;
-  // Ordre des parties, étapes de validation et circulation
+  // Ordre des parties, heures de rotations, étapes de validation et circulation
   ordreMatchs?: string[]; // ex: ['S1', 'S3', 'S2', 'D1']
+  heuresRotations?: Record<string, string>; // ex: { S1: '14:00', S3: '14:00', S2: '15:30', D1: '15:30' }
   logistiqueValidee?: boolean; // Étape 1 : Date, heure, courts et lieu validés
   ordreValide?: boolean; // Étape 2 : Ordre des rencontres validé
   joueursValides?: boolean; // Étape 3 : Joueurs validés

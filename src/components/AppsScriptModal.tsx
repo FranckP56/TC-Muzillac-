@@ -102,33 +102,56 @@ function getSheetRawValues(sheetName) {
 function handleSaveComposition(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Compositions_Equipes');
+  var expectedHeaders = [
+    "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
+    "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence", "Classement Gelé au Match",
+    "Date Naissance", "Âge Sportif", "Type Licence", "Heure Début", "Lieu Rencontre", "Nombre Courts",
+    "Date Enregistrement", "Validé par Capitaine", "Ordre des Matchs", "Heures Rotations"
+  ];
   if (!sheet) {
     sheet = ss.insertSheet('Compositions_Equipes');
-    sheet.appendRow([
-      "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
-      "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence", "Classement Gelé au Match",
-      "Date Naissance", "Âge Sportif", "Type Licence", "Heure Début", "Lieu Rencontre", "Nombre Courts",
-      "Date Enregistrement", "Validé par Capitaine"
-    ]);
+    sheet.appendRow(expectedHeaders);
   }
 
   var matchId = payload.rencontreId;
   var rows = sheet.getDataRange().getValues();
   var keepRows = [];
+  var headerRow = [];
   if (rows.length > 0) {
-    keepRows.push(rows[0]);
+    headerRow = rows[0].slice();
+    while (headerRow.length > 0 && String(headerRow[headerRow.length - 1] || '').trim() === '') {
+      headerRow.pop();
+    }
+    while (headerRow.length < expectedHeaders.length) {
+      headerRow.push(expectedHeaders[headerRow.length]);
+    }
+    headerRow[20] = expectedHeaders[20];
+    headerRow[21] = expectedHeaders[21];
+    keepRows.push(headerRow);
     for (var i = 1; i < rows.length; i++) {
       if (String(rows[i][0] || '').trim() !== String(matchId || '').trim()) {
-        keepRows.push(rows[i]);
+        var r = rows[i].slice(0, headerRow.length);
+        while (r.length < headerRow.length) r.push('');
+        keepRows.push(r);
       }
     }
+  } else {
+    headerRow = expectedHeaders.slice();
+    keepRows.push(headerRow);
   }
 
   var slots = payload.slots || [];
   var nowStr = payload.dateValidation || new Date().toISOString();
-  for (var j = 0; j < slots.length; j++) {
-    var s = slots[j];
-    keepRows.push([
+  var ordreJson = JSON.stringify(payload.ordreMatchs || (payload.composition && payload.composition.ordreMatchs) || []);
+  var rotationsJson = JSON.stringify(payload.heuresRotations || (payload.composition && payload.composition.heuresRotations) || {});
+
+  function padRow(rowArr) {
+    while (rowArr.length < headerRow.length) rowArr.push('');
+    return rowArr.slice(0, headerRow.length);
+  }
+
+  if (slots.length === 0) {
+    keepRows.push(padRow([
       matchId,
       payload.dateRencontre || '',
       payload.numeroEquipe || '',
@@ -137,24 +160,54 @@ function handleSaveComposition(payload) {
       payload.sexeHomologation || '',
       payload.clubAccueilNom || '',
       payload.clubVisiteurNom || '',
-      s.poste || '',
-      s.nomPrenom || '',
-      s.licence || '',
-      s.classementGele || 'NC',
-      s.dateNaissance || '',
-      s.ageSportif || '',
-      s.typeLicence || '',
+      'Logistique & Ordre',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
       payload.heureDebut || '09:00',
       payload.lieuRencontre || 'Clos des Moines (Muzillac)',
       payload.nombreCourts || 2,
       nowStr,
-      payload.valideParCapitaine ? 'OUI' : 'NON'
-    ]);
+      payload.valideParCapitaine ? 'OUI' : 'NON',
+      ordreJson,
+      rotationsJson
+    ]));
+  } else {
+    for (var j = 0; j < slots.length; j++) {
+      var s = slots[j];
+      keepRows.push(padRow([
+        matchId,
+        payload.dateRencontre || '',
+        payload.numeroEquipe || '',
+        payload.libelleHomologation || '',
+        payload.categorieAgeHomologation || '',
+        payload.sexeHomologation || '',
+        payload.clubAccueilNom || '',
+        payload.clubVisiteurNom || '',
+        s.poste || '',
+        s.nomPrenom || '',
+        s.licence || '',
+        s.classementGele || 'NC',
+        s.dateNaissance || '',
+        s.ageSportif || '',
+        s.typeLicence || '',
+        payload.heureDebut || '09:00',
+        payload.lieuRencontre || 'Clos des Moines (Muzillac)',
+        payload.nombreCourts || 2,
+        nowStr,
+        payload.valideParCapitaine ? 'OUI' : 'NON',
+        ordreJson,
+        rotationsJson
+      ]));
+    }
   }
 
   sheet.clearContents();
-  sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
-  return createJsonResponse({ success: true, rowsSaved: slots.length });
+  sheet.getRange(1, 1, keepRows.length, headerRow.length).setValues(keepRows);
+  return createJsonResponse({ success: true, rowsSaved: slots.length || 1 });
 }
 
 function safeCellValue(val) {

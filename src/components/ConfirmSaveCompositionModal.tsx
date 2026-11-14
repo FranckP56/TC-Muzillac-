@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   Lock, 
@@ -50,8 +51,11 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
     { label: 'Double 2 (Joueur 2)', id: composition.double2Player2Id },
   ].filter(s => Boolean(s.id));
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+  const ordreList = composition.ordreMatchs || [];
+  const rotMap = composition.heuresRotations || {};
+
+  const modalNode = (
+    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
       <div 
         className="bg-[#12151b] border border-orange-500/40 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl shadow-orange-950/50 flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
@@ -134,18 +138,49 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
             </div>
           </div>
 
-          {/* Règle de persistance dans Compositions_Equipes et visibilité adhérents */}
-          <div className="p-4 rounded-2xl bg-orange-950/20 border border-orange-500/30 flex items-start space-x-3">
-            <ShieldCheck className="w-5 h-5 text-[#FF6D00] shrink-0 mt-0.5" />
-            <div className="text-xs text-zinc-300 space-y-1">
-              <p className="font-bold text-white text-sm">
-                Enregistrement &amp; Visibilité Adhérents
-              </p>
-              <p className="text-zinc-300">
-                Cette composition sera enregistrée dans l'onglet <strong className="text-orange-300 font-mono">Compositions_Equipes</strong> et directement visible par tous les adhérents dès leur connexion. Elle reste <strong>modifiable à tout moment</strong> par le capitaine ou le bureau, et extraite à chaque démarrage.
-              </p>
-            </div>
-          </div>
+          {/* Ordre et Heures de rotations regroupés par créneau */}
+          {ordreList.length > 0 && (() => {
+            const hasMultipleDoubles = ordreList.includes('D2');
+            const groups = new Map<string, string[]>();
+            ordreList.forEach((tok) => {
+              const rawTime = rotMap[tok] || composition.heureDebut || '14:00';
+              const displayTime = rawTime.replace(':', 'h');
+              const label = tok.startsWith('S')
+                ? `N°${tok.slice(1)}`
+                : tok === 'D1'
+                  ? (hasMultipleDoubles ? 'Double 1' : 'Double')
+                  : 'Double 2';
+              if (!groups.has(displayTime)) groups.set(displayTime, []);
+              groups.get(displayTime)!.push(label);
+            });
+
+            const formatJoin = (items: string[]) => {
+              if (items.length <= 1) return items[0] || '';
+              if (items.length === 2) return `${items[0]} et ${items[1]}`;
+              return `${items.slice(0, -1).join(', ')} et ${items[items.length - 1]}`;
+            };
+
+            return (
+              <div className="p-3.5 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-2">
+                <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Créneaux &amp; Ordre des matchs</span>
+                </h4>
+                <div className="space-y-1.5">
+                  {Array.from(groups.entries()).map(([time, labels]) => (
+                    <div
+                      key={time}
+                      className="px-3 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-bold text-zinc-200 flex items-center gap-2.5"
+                    >
+                      <span className="text-orange-400 font-mono font-black shrink-0">{time}</span>
+                      <span className="text-zinc-600">•</span>
+                      <span className="text-white">{formatJoin(labels)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Liste des Joueurs et Classements Gelés */}
           <div>
@@ -230,4 +265,6 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
 };

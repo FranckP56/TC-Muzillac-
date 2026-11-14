@@ -207,6 +207,7 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         lieuRencontre,
         nombreCourts,
         ordreMatchs: Array.isArray(v.ordreMatchs) ? v.ordreMatchs : undefined,
+        heuresRotations: v.heuresRotations && typeof v.heuresRotations === 'object' ? v.heuresRotations : undefined,
         logistiqueValidee: typeof v.logistiqueValidee === 'boolean' ? v.logistiqueValidee : undefined,
         ordreValide: typeof v.ordreValide === 'boolean' ? v.ordreValide : undefined,
         joueursValides: typeof v.joueursValides === 'boolean' ? v.joueursValides : undefined,
@@ -276,7 +277,27 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         valide = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
       }
 
-      if (!matchId || !poste || !nomPrenom) continue;
+      let ordreMatchs: string[] | undefined;
+      if (row[20]) {
+        try {
+          const rawOrd = String(row[20]).trim();
+          const parsedOrd = rawOrd.startsWith('[') ? JSON.parse(rawOrd) : rawOrd.split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (Array.isArray(parsedOrd) && parsedOrd.length > 0) ordreMatchs = parsedOrd;
+        } catch { /* ignore */ }
+      }
+
+      let heuresRotations: Record<string, string> | undefined;
+      if (row[21]) {
+        try {
+          const parsedRot = JSON.parse(String(row[21]).trim());
+          if (parsedRot && typeof parsedRot === 'object' && !Array.isArray(parsedRot)) {
+            heuresRotations = parsedRot;
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (!matchId) continue;
+      if (!poste && !nomPrenom && !ordreMatchs && !heuresRotations) continue;
 
       const normDateVal = normalizeDateString(dateVal);
 
@@ -290,6 +311,8 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
             heureDebut,
             lieuRencontre,
             nombreCourts,
+            ordreMatchs,
+            heuresRotations,
             frozenPlayers: [],
           },
           frozenSlots: [],
@@ -302,6 +325,17 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
             map.set(`date_${normalizeSheetMatchKey(normDateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
           }
         }
+      } else {
+        if (ordreMatchs && !entry.composition.ordreMatchs) {
+          entry.composition.ordreMatchs = ordreMatchs;
+        }
+        if (heuresRotations && !entry.composition.heuresRotations) {
+          entry.composition.heuresRotations = heuresRotations;
+        }
+      }
+
+      if (!nomPrenom || poste === 'Logistique & Ordre') {
+        continue;
       }
 
       const playerId = licence || nomPrenom;
@@ -372,6 +406,9 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         }
         if (Array.isArray(localComp.ordreMatchs) && localComp.ordreMatchs.length > 0) {
           existing.composition.ordreMatchs = localComp.ordreMatchs;
+        }
+        if (localComp.heuresRotations && Object.keys(localComp.heuresRotations).length > 0) {
+          existing.composition.heuresRotations = localComp.heuresRotations;
         }
         if (typeof localComp.logistiqueValidee === 'boolean') {
           existing.composition.logistiqueValidee = localComp.logistiqueValidee;
@@ -1009,10 +1046,13 @@ export async function saveCompositionViaAppsScript(
         dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
         valideParCapitaine: composition.valideParCapitaine ?? true,
         ordreMatchs: composition.ordreMatchs,
+        heuresRotations: composition.heuresRotations,
         logistiqueValidee: composition.logistiqueValidee,
         ordreValide: composition.ordreValide,
         joueursValides: composition.joueursValides,
       },
+      ordreMatchs: composition.ordreMatchs || [],
+      heuresRotations: composition.heuresRotations || {},
       frozenPlayers: slots,
     };
 
@@ -1173,6 +1213,8 @@ export async function saveCompositionToSheet(
 
       const rowsToAppend: any[][] = [];
       const nowStr = composition.dateValidation || new Date().toLocaleDateString('fr-FR');
+      const ordreJson = JSON.stringify(composition.ordreMatchs || []);
+      const rotationsJson = JSON.stringify(composition.heuresRotations || {});
 
       slotDefinitions.forEach(({ key, label }) => {
         const playerId = (composition as any)[key];
@@ -1199,9 +1241,38 @@ export async function saveCompositionToSheet(
             composition.nombreCourts || 2,
             nowStr,
             composition.valideParCapitaine ? 'OUI' : 'NON',
+            ordreJson,
+            rotationsJson,
           ]);
         }
       });
+
+      if (rowsToAppend.length === 0) {
+        rowsToAppend.push([
+          rencontre.id,
+          composition.dateRencontreValidee || rencontre.dateRencontre,
+          rencontre.numeroEquipe,
+          rencontre.libelleHomologation,
+          rencontre.categorieAgeHomologation,
+          rencontre.sexeHomologation,
+          rencontre.clubAccueilNom,
+          rencontre.clubVisiteurNom,
+          'Logistique & Ordre',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          composition.heureDebut || '09:00',
+          composition.lieuRencontre || 'Clos des Moines (Muzillac)',
+          composition.nombreCourts || 2,
+          nowStr,
+          composition.valideParCapitaine ? 'OUI' : 'NON',
+          ordreJson,
+          rotationsJson,
+        ]);
+      }
 
       if (rowsToAppend.length > 0) {
         await fetch(

@@ -461,6 +461,8 @@ export default function App() {
 
   // RÈGLE 3 : Sauvegarde de la composition d'une rencontre via requête HTTP POST JSON
   const handleSaveComposition = async (rencontreId: string, composition: MatchComposition) => {
+    saveLocalComposition(rencontreId, composition);
+
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
         return { ...r, composition };
