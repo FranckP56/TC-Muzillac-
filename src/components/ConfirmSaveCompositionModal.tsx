@@ -65,14 +65,14 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-heading font-black text-white text-lg sm:text-xl">
-                  Enregistrer dans Données_appli
+                  Enregistrer
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                   <ShieldCheck className="w-2.5 h-2.5" /> Modifiable à tout moment
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Feuille de calcul : <span className="font-semibold text-zinc-200">{spreadsheetName}</span> • Onglet : <code className="text-[#FF6D00] bg-black/40 px-1.5 py-0.5 rounded font-mono">Compositions_Equipes</code>
+                Feuille de match officielle • Onglet : <code className="text-[#FF6D00] bg-black/40 px-1.5 py-0.5 rounded font-mono">Compositions_Equipes</code>
               </p>
             </div>
           </div>
@@ -101,7 +101,10 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
                 </h4>
                 <p className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                  <span>Date validée : <strong className="text-zinc-200">{composition.dateRencontreValidee || rencontre.dateRencontre}</strong></span>
+                  <span>
+                    Date validée : <strong className="text-zinc-200">{composition.dateRencontreValidee || rencontre.dateRencontre}</strong> à{' '}
+                    <strong className="text-orange-300 font-mono">{composition.heureDebut || '14:00'}</strong>
+                  </span>
                 </p>
               </div>
               <div className="text-right sm:border-l sm:border-[#232934] sm:pl-4">
@@ -151,38 +154,44 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
               <span>Snapshot des {slots.length} joueur(s) retenus</span>
             </h4>
 
-            <div className="rounded-2xl border border-[#232934] bg-[#090b0e] overflow-hidden divide-y divide-[#1e2430]">
-              {slots.map((s, idx) => {
-                const player = adherentsById.get(s.id!);
-                return (
-                  <div key={idx} className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center space-x-3">
-                      <span className="w-6 h-6 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 font-extrabold flex items-center justify-center text-[11px]">
-                        {idx + 1}
-                      </span>
-                      <div>
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase">
-                          {s.label}
+            {slots.length > 0 ? (
+              <div className="rounded-2xl border border-[#232934] bg-[#090b0e] overflow-hidden divide-y divide-[#1e2430]">
+                {slots.map((s, idx) => {
+                  const player = adherentsById.get(s.id!);
+                  return (
+                    <div key={idx} className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center space-x-3">
+                        <span className="w-6 h-6 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 font-extrabold flex items-center justify-center text-[11px]">
+                          {idx + 1}
                         </span>
-                        <p className="font-heading font-black text-white text-sm">
-                          {player?.nomPrenom || 'Joueur inconnu'}
-                        </p>
-                        <p className="text-[11px] text-zinc-400">
-                          Licence : <span className="font-mono text-zinc-300">{player?.licence || 'N/A'}</span> • Catégorie : <span className="text-zinc-300">{player?.ageSportif || 'Senior'}</span>
-                        </p>
+                        <div>
+                          <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                            {s.label}
+                          </span>
+                          <p className="font-heading font-black text-white text-sm">
+                            {player?.nomPrenom || 'Joueur inconnu'}
+                          </p>
+                          <p className="text-[11px] text-zinc-400">
+                            Licence : <span className="font-mono text-zinc-300">{player?.licence || 'N/A'}</span> • Catégorie : <span className="text-zinc-300">{player?.ageSportif || 'Senior'}</span>
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center space-x-2">
-                      <div className="px-2.5 py-1 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-300 font-black text-xs flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3 h-3 text-[#FF6D00]" />
-                        <span>Classement : {player?.dernierClassTennis || 'NC'}</span>
+                      <div className="flex items-center space-x-2">
+                        <div className="px-2.5 py-1 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-300 font-black text-xs flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3 h-3 text-[#FF6D00]" />
+                          <span>Classement : {player?.dernierClassTennis || 'NC'}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl border border-[#232934] bg-[#090b0e] text-xs text-zinc-400 italic">
+                Aucun joueur encore assigné (enregistrement de la date, de l&apos;heure, du lieu et de l&apos;ordre des matchs uniquement).
+              </div>
+            )}
           </div>
 
         </div>
@@ -212,7 +221,7 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
             ) : (
               <>
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>Confirmer et Enregistrer dans Données_appli</span>
+                <span>Confirmer et Enregistrer</span>
               </>
             )}
           </button>

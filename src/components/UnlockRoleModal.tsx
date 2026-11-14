@@ -16,8 +16,7 @@ import {
 import { UserRole } from '../types/tennis';
 import { 
   ROLE_SECURITY_DEFINITIONS, 
-  verifyRolePin, 
-  getRolePins 
+  verifyRolePin
 } from '../services/accessControl';
 
 interface UnlockRoleModalProps {
@@ -49,8 +48,6 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
   if (!isOpen || !targetRole || targetRole === 'adherent') return null;
 
   const roleDef = ROLE_SECURITY_DEFINITIONS[targetRole];
-  const currentPins = getRolePins();
-  const defaultHint = currentPins[targetRole as Exclude<UserRole, 'adherent'>] || roleDef.defaultPin;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,11 +137,6 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
                 <Lock className="w-3.5 h-3.5 text-orange-400" />
                 <span>Code PIN d'autorisation</span>
               </label>
-              {targetRole === 'admin' && (
-                <span className="text-[10px] text-zinc-400 font-mono">
-                  (Défaut : <strong className="text-orange-400">{defaultHint}</strong>)
-                </span>
-              )}
             </div>
 
             <div className="relative">
@@ -178,31 +170,18 @@ export const UnlockRoleModal: React.FC<UnlockRoleModalProps> = ({
             )}
           </div>
 
-          {/* Raccourcis pavé numérique rapide (uniquement pour l'admin) */}
-          {targetRole === 'admin' && (
-            <div className="flex items-center justify-center gap-1.5 pt-1">
-              <button
-                type="button"
-                onClick={() => setPin(defaultHint)}
-                className="text-[11px] font-bold text-orange-400 hover:text-orange-300 hover:underline px-2 py-1 rounded cursor-pointer"
-              >
-                Remplir avec le code par défaut ({defaultHint})
-              </button>
-            </div>
-          )}
-
           {/* Boutons d'action */}
           <div className="grid grid-cols-2 gap-3 pt-3 border-t border-zinc-800">
             <button
               type="button"
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs transition cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs transition cursor-pointer"
             >
               Annuler
             </button>
             <button
               type="submit"
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white font-black text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-orange-950/40 cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white font-black text-xs transition flex items-center justify-center gap-1.5 shadow-lg shadow-orange-950/40 cursor-pointer"
             >
               <Unlock className="w-4 h-4" />
               <span>Déverrouiller</span>

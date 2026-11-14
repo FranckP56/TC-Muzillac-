@@ -182,8 +182,14 @@ export function parseAdherentsCsv(rawCsv: string): Adherent[] {
   const idxCours = headers.indexOf('cours');
   const idxAbonnements = headers.indexOf('abonnements');
   const idxVille = headers.indexOf('ville');
+  const idxCp = headers.indexOf('cp');
+  const idxAdresse = headers.indexOf('adresse');
   const idxTenUp = headers.indexOf('compte ten\'up');
   const idxClub = headers.indexOf('nom du club');
+  const idxFidelite = headers.indexOf('fidélité club de la dernière licence active');
+  const idxTicketsRestants = headers.indexOf('nbre de tickets restant');
+  const idxBadge = headers.indexOf('badge');
+  const idxNbResa = headers.indexOf('nombre de réservation sur l\'année en cours');
   const idxCommentaire = headers.indexOf('commentaire');
   const idxAgeSportif = headers.indexOf('age sportif');
 
@@ -238,8 +244,16 @@ export function parseAdherentsCsv(rawCsv: string): Adherent[] {
     const groupe = rawGroupe.split('(')[0].trim() || rawGroupe;
 
     const tenUp = cols[idxTenUp >= 0 ? idxTenUp : 65] || 'Non créé';
-    const ville = cols[idxVille >= 0 ? idxVille : 13] || 'MUZILLAC';
+    const adr1 = (cols[idxAdresse >= 0 ? idxAdresse : 10] || '').trim();
+    const adr2 = (cols[11] || '').trim();
+    const adresse = [adr1, adr2 && adr2 !== adr1 ? adr2 : ''].filter(Boolean).join(', ');
+    const codePostal = (cols[idxCp >= 0 ? idxCp : 12] || '').trim();
+    const ville = (cols[idxVille >= 0 ? idxVille : 13] || '').trim();
     const club = cols[idxClub >= 0 ? idxClub : 27] || 'MUZILLAC TENNIS CLUB';
+    const fideliteClub = (cols[idxFidelite >= 0 ? idxFidelite : 28] || '').trim();
+    const ticketsRestants = (cols[idxTicketsRestants >= 0 ? idxTicketsRestants : 45] || '').trim();
+    const badge = (cols[idxBadge >= 0 ? idxBadge : 58] || '').trim();
+    const nbReservationsAnnee = (cols[idxNbResa >= 0 ? idxNbResa : 60] || '').trim();
     const commentaire = cols[idxCommentaire >= 0 ? idxCommentaire : 62] || '';
     const ageSportif = cols[idxAgeSportif >= 0 ? idxAgeSportif : 39] || '';
 
@@ -259,8 +273,14 @@ export function parseAdherentsCsv(rawCsv: string): Adherent[] {
       ageSportif,
       groupeEnseignement: groupe,
       compteTenUp: tenUp,
+      adresse,
+      codePostal,
       ville,
       clubRattachement: club,
+      fideliteClub,
+      ticketsRestants,
+      badge,
+      nbReservationsAnnee,
       commentaire,
     });
   }

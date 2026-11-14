@@ -37,11 +37,13 @@ function getAdherentAge(adh: Adherent): number {
 
 export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   adherents,
+  userRole = 'adherent',
   clubInfo,
   onSaveClubInfo,
   onSelectAdherent,
   saison = '2027',
 }) => {
+  const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAttestationAdherent, setSelectedAttestationAdherent] = useState<Adherent | null>(null);
 
@@ -402,19 +404,21 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                       <span>N° {adh.licence}</span>
                     </span>
 
-                    {/* Bouton Attestation */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedAttestationAdherent(adh);
-                      }}
-                      className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-500/35 transition flex items-center gap-1 cursor-pointer shadow-sm shrink-0"
-                      title={`Générer l'attestation officielle de paiement et licence pour ${adh.nomPrenom}`}
-                    >
-                      <FileText className="w-3 h-3 text-emerald-400" />
-                      <span>Attestation</span>
-                    </button>
+                    {/* Bouton Attestation (Réservé exclusivement aux membres du Bureau / Admin) */}
+                    {canIssueAttestation && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAttestationAdherent(adh);
+                        }}
+                        className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-500/35 transition flex items-center gap-1 cursor-pointer shadow-sm shrink-0"
+                        title={`Générer l'attestation PDF officielle pour ${adh.nomPrenom}`}
+                      >
+                        <FileText className="w-3 h-3 text-emerald-400" />
+                        <span>Attestation</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -449,11 +453,12 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
         )}
       </div>
 
-      {/* Modale d'attestation de cotisation et licence */}
-      {selectedAttestationAdherent && (
+      {/* Modale d'attestation de cotisation et licence (Admin / Bureau uniquement) */}
+      {canIssueAttestation && selectedAttestationAdherent && (
         <AttestationModal
           adherent={selectedAttestationAdherent}
           clubInfo={clubInfo || INITIAL_CLUB_INFO}
+          userRole={userRole}
           onClose={() => setSelectedAttestationAdherent(null)}
           onSaveClubInfo={onSaveClubInfo}
         />

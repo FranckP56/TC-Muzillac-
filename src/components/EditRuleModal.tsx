@@ -198,7 +198,7 @@ export const EditRuleModal: React.FC<EditRuleModalProps> = ({
                 />
                 <div>
                   <span className="font-bold text-white block">
-                    Règle stricte du poids des doubles FFT (Poids D1 ≥ Poids D2)
+                    Règle stricte du poids des doubles FFT (Poids D1 ≤ Poids D2)
                   </span>
                   <span className="text-[10px] text-zinc-400 block">
                     Exigée en Régionale, Pré-Régionale et D1 Messieurs pour éviter toute inversion stratégique.

@@ -206,6 +206,10 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         heureDebut,
         lieuRencontre,
         nombreCourts,
+        ordreMatchs: Array.isArray(v.ordreMatchs) ? v.ordreMatchs : undefined,
+        logistiqueValidee: typeof v.logistiqueValidee === 'boolean' ? v.logistiqueValidee : undefined,
+        ordreValide: typeof v.ordreValide === 'boolean' ? v.ordreValide : undefined,
+        joueursValides: typeof v.joueursValides === 'boolean' ? v.joueursValides : undefined,
         frozenPlayers: frozenSlots,
       };
 
@@ -351,6 +355,9 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         map.set(k, { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
         map.set(normalizeSheetMatchKey(k), { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
       } else {
+        if (localComp.dateRencontreValidee) {
+          existing.composition.dateRencontreValidee = localComp.dateRencontreValidee;
+        }
         if (localComp.heureDebut) {
           existing.composition.heureDebut = localComp.heureDebut;
         }
@@ -359,6 +366,21 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         }
         if (localComp.nombreCourts) {
           existing.composition.nombreCourts = localComp.nombreCourts;
+        }
+        if (typeof localComp.formatReduit === 'boolean') {
+          existing.composition.formatReduit = localComp.formatReduit;
+        }
+        if (Array.isArray(localComp.ordreMatchs) && localComp.ordreMatchs.length > 0) {
+          existing.composition.ordreMatchs = localComp.ordreMatchs;
+        }
+        if (typeof localComp.logistiqueValidee === 'boolean') {
+          existing.composition.logistiqueValidee = localComp.logistiqueValidee;
+        }
+        if (typeof localComp.ordreValide === 'boolean') {
+          existing.composition.ordreValide = localComp.ordreValide;
+        }
+        if (typeof localComp.joueursValides === 'boolean') {
+          existing.composition.joueursValides = localComp.joueursValides;
         }
         if (localComp.valideParCapitaine) {
           existing.composition.valideParCapitaine = true;
@@ -986,6 +1008,10 @@ export async function saveCompositionViaAppsScript(
         nombreCourts: composition.nombreCourts || 2,
         dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
         valideParCapitaine: composition.valideParCapitaine ?? true,
+        ordreMatchs: composition.ordreMatchs,
+        logistiqueValidee: composition.logistiqueValidee,
+        ordreValide: composition.ordreValide,
+        joueursValides: composition.joueursValides,
       },
       frozenPlayers: slots,
     };

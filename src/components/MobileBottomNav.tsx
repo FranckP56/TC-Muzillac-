@@ -51,32 +51,18 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   const allTabs: { id: ActiveTab; label: string; subtitle: string; visible: boolean; icon: React.ReactNode; badge?: number }[] = [
     {
-      id: 'rencontres',
-      label: 'Rencontres',
-      subtitle: 'Calendrier, compositions & sondages',
-      visible: true,
-      icon: <Trophy className="w-5 h-5 text-orange-400" />,
-    },
-    {
-      id: 'tutos',
-      label: 'Tutos & Infos',
-      subtitle: "Ten'Up, réservation, paiements, équipes",
-      visible: true,
-      icon: <BookOpen className="w-5 h-5 text-emerald-400" />,
-    },
-    {
-      id: 'troc',
-      label: 'Troc & Occasions',
-      subtitle: 'Petites annonces matériel en direct',
-      visible: true,
-      icon: <ShoppingBag className="w-5 h-5 text-sky-400" />,
-    },
-    {
       id: 'infos',
       label: 'Infos Club',
       subtitle: 'Bureau, terrains, tarifs & contacts',
       visible: true,
       icon: <Info className="w-5 h-5 text-zinc-300" />,
+    },
+    {
+      id: 'rencontres',
+      label: 'Rencontres',
+      subtitle: 'Calendrier, compositions & sondages',
+      visible: true,
+      icon: <Trophy className="w-5 h-5 text-orange-400" />,
     },
     {
       id: 'licencies',
@@ -107,6 +93,20 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       subtitle: 'Formats championnats & ordre matchs',
       visible: true,
       icon: <Scale className="w-5 h-5 text-amber-400" />,
+    },
+    {
+      id: 'tutos',
+      label: 'Tutos & Infos',
+      subtitle: "Ten'Up, réservation, paiements, équipes",
+      visible: true,
+      icon: <BookOpen className="w-5 h-5 text-emerald-400" />,
+    },
+    {
+      id: 'troc',
+      label: 'Troc & Occasions',
+      subtitle: 'Petites annonces matériel en direct',
+      visible: true,
+      icon: <ShoppingBag className="w-5 h-5 text-sky-400" />,
     },
   ];
 
@@ -192,14 +192,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             className="w-full bg-[#141820] border-t border-zinc-700 rounded-t-3xl p-4 pb-safe max-h-[85vh] overflow-y-auto space-y-3"
           >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div>
-                <h2 className="font-heading font-black text-white text-base">
-                  Navigation TCM
-                </h2>
-                <p className="text-xs text-zinc-400">
-                  Accès rapide à toutes les rubriques autorisées
-                </p>
-              </div>
+              <h2 className="font-heading font-black text-white text-base">
+                Navigation TCM
+              </h2>
               <button
                 type="button"
                 onClick={() => setIsDrawerOpen(false)}

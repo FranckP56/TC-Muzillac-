@@ -1,29 +1,44 @@
 import React, { useState } from 'react';
 import { 
   X, 
-  Printer, 
-  Copy, 
   Check, 
   Settings2, 
   Upload, 
   Building, 
   Save, 
   FileText,
-  CreditCard,
   Download,
   Loader2,
-  Mail,
-  MessageSquare,
-  Share2,
+  Send,
   UserCheck,
-  RotateCcw
+  RotateCcw,
+  Plus,
+  Trash2,
+  Lock
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { Adherent, ClubInfo } from '../types/tennis';
+import { Adherent, ClubInfo, UserRole } from '../types/tennis';
 import { extractBirthYear } from '../utils/fftEligibility';
 
 const LOCAL_SIGNATAIRE_KEY = 'tcm_attestation_local_signataire_v2';
+
+const PAYMENT_MODES = [
+  'Carte bancaire (HelloAsso)',
+  'Chèque',
+  'Virement bancaire',
+  "Pass'Sport",
+  'Chèques vacances ANCV',
+  'Espèces',
+] as const;
+
+interface ReglementItem {
+  id: string;
+  mode: string;
+  customMode?: string;
+  montant?: string;
+  precision?: string;
+}
 
 /**
  * Compresse automatiquement une image téléversée pour qu'elle tienne dans la limite
@@ -78,6 +93,7 @@ async function compressImageFile(file: File, maxWidth = 350, maxHeight = 350, qu
 interface AttestationModalProps {
   adherent: Adherent;
   clubInfo: ClubInfo;
+  userRole?: UserRole;
   onClose: () => void;
   onSaveClubInfo?: (info: ClubInfo) => Promise<void> | void;
 }
@@ -85,10 +101,11 @@ interface AttestationModalProps {
 export const AttestationModal: React.FC<AttestationModalProps> = ({
   adherent,
   clubInfo,
+  userRole = 'adherent',
   onClose,
   onSaveClubInfo,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
   const [isEditingClubInfo, setIsEditingClubInfo] = useState(false);
   const [editSection, setEditSection] = useState<'club' | 'signataire'>('club');
   const [isSaving, setIsSaving] = useState(false);
@@ -189,13 +206,14 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     return isMinor ? '23' : '33';
   });
 
-  // Modalités de règlement (rendues facultatives par un interrupteur)
+  // Modalités de règlement (facultatives, avec possibilité de préciser plusieurs modes)
   const [showModalitesPaiement, setShowModalitesPaiement] = useState<boolean>(false);
   const [datePaiement, setDatePaiement] = useState<string>(() => {
     return new Date().toLocaleDateString('fr-FR');
   });
-  const [modeReglement, setModeReglement] = useState<string>('Virement bancaire');
-  const [customModeReglement, setCustomModeReglement] = useState<string>('');
+  const [reglements, setReglements] = useState<ReglementItem[]>([
+    { id: 'reg-1', mode: 'Carte bancaire (HelloAsso)', montant: '', precision: '' },
+  ]);
 
   // Adhérent / Adresse et Représentant légal
   const defaultAdresseAdherent = [
@@ -221,19 +239,42 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     year: 'numeric'
   });
 
-  // Partage par Email
-  const handleShareEmail = () => {
-    const subject = encodeURIComponent(`Attestation de paiement de cotisation - ${adherent.nomPrenom} - Tennis Club de Muzillac`);
-    const body = encodeURIComponent(fullText);
-    const mailTo = adherent.email || '';
-    window.open(`mailto:${mailTo}?subject=${subject}&body=${body}`, '_blank');
+  // Gestion des différents modes de règlement
+  const getReglementLabel = (item: ReglementItem): string => {
+    if (item.mode === 'autre') {
+      return (item.customMode || '').trim() || 'Autre mode';
+    }
+    return item.mode;
   };
 
-  // Partage par WhatsApp
-  const handleShareWhatsApp = () => {
-    const text = encodeURIComponent(fullText);
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+  const handleToggleQuickMode = (modeName: string) => {
+    setReglements((prev) => {
+      const exists = prev.some((r) => r.mode === modeName);
+      if (exists) {
+        if (prev.length === 1) return prev;
+        return prev.filter((r) => r.mode !== modeName);
+      }
+      return [...prev, { id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, mode: modeName, montant: '', precision: '' }];
+    });
   };
+
+  const handleAddReglementLine = () => {
+    setReglements((prev) => [
+      ...prev,
+      { id: `reg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, mode: 'Chèque', montant: '', precision: '' },
+    ]);
+  };
+
+  const handleUpdateReglement = (id: string, patch: Partial<ReglementItem>) => {
+    setReglements((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const handleRemoveReglement = (id: string) => {
+    setReglements((prev) => (prev.length > 1 ? prev.filter((r) => r.id !== id) : prev));
+  };
+
+  const totalReglementsSaisis = reglements.reduce((acc, r) => acc + (parseFloat(r.montant || '') || 0), 0);
+  const hasAnyReglementMontant = reglements.some((r) => (r.montant || '').trim() !== '');
 
   // Définition du signataire effectif pour le document
   const effectiveSignataireNom = localSignataire.nom || editClub.signataireNom || editClub.president || 'Raphaël EVAIN';
@@ -312,88 +353,184 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     setTimeout(() => setSignataireSaveSuccess(false), 2000);
   };
 
-  // Génération directe d'un fichier PDF A4 imprimable à télécharger
-  const handleGeneratePdf = async () => {
+  // Construction du fichier PDF A4 officiel (non modifiable)
+  const buildPdfFile = async (): Promise<{ pdf: jsPDF; fileName: string; file: File } | null> => {
     const element = document.getElementById('attestation-printable-card');
-    if (!element) return;
+    if (!element) return null;
 
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      backgroundColor: '#ffffff',
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 900,
+      windowHeight: 2400,
+      onclone: (clonedDoc, clonedElement) => {
+        // Préserver les balises <style> éventuelles avant de masquer le reste du DOM cloné
+        const inlineStyles = Array.from(clonedDoc.body.querySelectorAll('style'));
+        inlineStyles.forEach((styleEl) => {
+          clonedDoc.head.appendChild(styleEl);
+        });
+
+        // Masquer la modale, le backdrop et tous les conteneurs overflow/fixed
+        Array.from(clonedDoc.body.children).forEach((child) => {
+          (child as HTMLElement).style.display = 'none';
+        });
+
+        clonedDoc.documentElement.style.margin = '0';
+        clonedDoc.documentElement.style.padding = '0';
+        clonedDoc.documentElement.style.overflow = 'visible';
+        clonedDoc.documentElement.style.height = 'auto';
+        clonedDoc.documentElement.style.background = '#ffffff';
+
+        clonedDoc.body.style.margin = '0';
+        clonedDoc.body.style.padding = '0';
+        clonedDoc.body.style.overflow = 'visible';
+        clonedDoc.body.style.height = 'auto';
+        clonedDoc.body.style.width = '900px';
+        clonedDoc.body.style.background = '#ffffff';
+
+        // Placer la carte imprimable seule directement dans body à (0, 0) sans aucune contrainte d'ascenseur
+        clonedDoc.body.appendChild(clonedElement);
+        clonedElement.style.display = 'block';
+        clonedElement.style.position = 'static';
+        clonedElement.style.width = '760px';
+        clonedElement.style.maxWidth = '760px';
+        clonedElement.style.minHeight = '0';
+        clonedElement.style.height = 'auto';
+        clonedElement.style.margin = '0';
+        clonedElement.style.padding = '40px';
+        clonedElement.style.border = 'none';
+        clonedElement.style.boxShadow = 'none';
+        clonedElement.style.transform = 'none';
+        clonedElement.style.overflow = 'visible';
+        clonedElement.style.backgroundColor = '#ffffff';
+        clonedElement.style.color = '#000000';
+
+        // Nettoyer les filtres/mixBlendMode CSS sur les images pour un rendu PDF fidèle
+        const imgs = clonedElement.querySelectorAll('img');
+        imgs.forEach((img) => {
+          img.style.mixBlendMode = 'normal';
+          img.style.filter = 'none';
+        });
+      },
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginX = 4;
+    const marginY = 4;
+    const ratio = Math.min((pageWidth - marginX * 2) / canvas.width, (pageHeight - marginY * 2) / canvas.height);
+    const renderWidth = canvas.width * ratio;
+    const renderHeight = canvas.height * ratio;
+    const offsetX = (pageWidth - renderWidth) / 2;
+
+    pdf.addImage(imgData, 'PNG', offsetX, marginY, renderWidth, renderHeight);
+    const safeName = (adherent.nomPrenom || 'Adherent').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `Attestation_Paiement_TCM_${safeName}.pdf`;
+    const blob = pdf.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+
+    return { pdf, fileName, file };
+  };
+
+  // Téléchargement direct du fichier PDF A4 non modifiable
+  const handleGeneratePdf = async () => {
     setIsGeneratingPdf(true);
     setPdfSuccessMessage(null);
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      const safeName = (adherent.nomPrenom || 'Adherent').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const fileName = `Attestation_Paiement_TCM_${safeName}.pdf`;
-      pdf.save(fileName);
-
-      setPdfSuccessMessage(`✓ Document "${fileName}" enregistré dans le dossier "Téléchargements" (Downloads) de votre ordinateur !`);
+      const built = await buildPdfFile();
+      if (!built) return;
+      built.pdf.save(built.fileName);
+      setPdfSuccessMessage(`✓ Fichier PDF "${built.fileName}" téléchargé (format non modifiable).`);
     } catch (err) {
-      console.warn("Erreur génération PDF, bascule sur impression navigateur :", err);
-      window.print();
+      console.warn('Erreur génération PDF :', err);
+      setPdfSuccessMessage('Impossible de générer le PDF pour le moment. Veuillez réessayer.');
     } finally {
       setIsGeneratingPdf(false);
     }
   };
 
-  // Texte intégral conforme au modèle pour copie dans le presse-papier et envoi email/WhatsApp
-  const effectiveModeStr = modeReglement === 'autre' ? (customModeReglement || 'Autre mode') : modeReglement;
-  const accordHabilite = effectiveSignataireFormule === 'Je soussignée' ? 'habilitée' : 'habilité';
-  const fullText = `[Logo du club]
-${editClub.nom || 'Tennis Club de Muzillac'}
-Association loi 1901 à but non lucratif
-Siège social : ${editClub.adresse || 'Complexe du Clos des Moines, Rue du Stade'}
-Code postal et Ville : ${editClub.codePostal || '56190'} ${editClub.ville || 'Muzillac'}
-Numéro RNA (Répertoire National des Associations) : ${editClub.rna || 'W563001859'}
-Numéro SIRET : ${editClub.siret || '439 123 456 00012'}
-Numéro d'affiliation FFT : ${editClub.codeClub || '52 56 0212'}
-Contact : ${editClub.telephone || '02 97 41 67 80'} | ${editClub.email || 'tennisclubmuzillac@gmail.com'}
+  // Envoi exclusif via fichier PDF (Partage système avec pièce jointe PDF, ou téléchargement PDF + mail d'accompagnement)
+  const handleSendPdf = async () => {
+    setIsGeneratingPdf(true);
+    setPdfSuccessMessage(null);
+    try {
+      const built = await buildPdfFile();
+      if (!built) return;
 
-ATTESTATION DE PAIEMENT DE COTISATION SPORTIVE
-Saison sportive 2026 / 2027
+      const { pdf, fileName, file } = built;
 
-${effectiveSignataireFormule}, ${effectiveSignataireNom}, agissant en qualité de ${effectiveSignataireFonction} de l’association ${editClub.nom || 'Tennis Club de Muzillac'}, dûment ${accordHabilite} à délivrer la présente attestation, certifie que :
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] }) &&
+        typeof navigator.share === 'function'
+      ) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Attestation de paiement - ${adherent.nomPrenom}`,
+            text: `Attestation officielle de paiement de cotisation sportive (${editClub.nom || 'Tennis Club de Muzillac'}).`,
+          });
+          setPdfSuccessMessage(`✓ Attestation PDF "${fileName}" prête pour l'envoi.`);
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            return;
+          }
+          // Poursuite vers le téléchargement PDF + messagerie si le partage natif échoue
+        }
+      }
 
-Mme / M. : ${adherent.nomPrenom}
-Né(e) le : ${adherent.dateNaissance || 'Non renseignée'}
-Demeurant au : ${adresseAdherent}
-${(isMinor || representantLegal) ? `(Si l'attestation concerne un enfant mineur :)\nReprésentant légal : ${representantLegal || 'Non renseigné'}\n` : ''}
-a bien réglé l'intégralité de sa cotisation annuelle pour la pratique du tennis au sein de notre structure pour la période du 01/09/2026 au 31/08/2027.
-
-Détail des sommes acquittées :
-${formulaType === 'cours' 
-  ? `• Cours collectifs / École de tennis (cotisation club & accès courts compris) : ${partClub} €` 
-  : `• Cotisation club / Accès aux courts : ${partClub} €`}
-• Licence Fédération Française de Tennis (FFT) n° ${adherent.licence || 'Licence Club FFT'} : ${nLicence} €
-• Total perçu : ${totalPercu} € TTC (Association non assujettie à la TVA selon l’article 261-7-1° du Code Général des Impôts)
-
-${showModalitesPaiement ? `Modalités de règlement :
-• Date d’encaissement : ${datePaiement}
-• Mode de règlement : ${effectiveModeStr}
-
-` : ''}La présente attestation est délivrée à la demande de l'intéressé(e) pour servir et valoir ce que de droit, notamment auprès de son employeur, de son Comité Social et Économique (CSE) ou de sa complémentaire santé. Elle ne constitue pas un reçu fiscal ouvrant droit à une réduction d'impôt au titre des dons (article 200 du CGI).
-
-Fait à ${editClub.ville || 'Muzillac'}, le ${dateJourStr}.
-
-${effectiveSignataireNom}
-${effectiveSignataireFonction}
-[Signature et cachet officiel de l'association]`;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(fullText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+      // Secours fiable : téléchargement immédiat du PDF + ouverture de la messagerie avec un mot d'accompagnement (sans texte modifiable de l'attestation)
+      pdf.save(fileName);
+      const subject = encodeURIComponent(`Attestation de paiement de cotisation (PDF) - ${adherent.nomPrenom} - ${editClub.nom || 'Tennis Club de Muzillac'}`);
+      const coverBody = encodeURIComponent(
+        `Bonjour ${adherent.nomPrenom},\n\nVeuillez trouver ci-joint votre attestation officielle de paiement de cotisation sportive pour la saison 2026 / 2027 au format PDF.\n\nBien sportivement,\n${effectiveSignataireNom}\n${effectiveSignataireFonction}\n${editClub.nom || 'Tennis Club de Muzillac'}`
+      );
+      const mailTo = adherent.email || '';
+      window.location.href = `mailto:${mailTo}?subject=${subject}&body=${coverBody}`;
+      setPdfSuccessMessage(`✓ PDF "${fileName}" téléchargé : joignez ce fichier à l'e-mail qui vient de s'ouvrir.`);
+    } catch (err) {
+      console.warn('Erreur envoi PDF :', err);
+      setPdfSuccessMessage('Impossible de préparer le fichier PDF pour l’envoi.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
+
+  const accordHabilite = effectiveSignataireFormule === 'Je soussignée' ? 'habilitée' : 'habilité';
+
+  if (!canIssueAttestation) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div className="w-full max-w-md bg-[#141820] border border-rose-500/40 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 mx-auto flex items-center justify-center">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h2 className="font-heading font-black text-white text-lg">
+            Accès réservé aux membres du Bureau
+          </h2>
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            La délivrance et l'envoi des attestations officielles de paiement de cotisation (au format PDF) sont strictement réservés au Président, au Secrétaire, au Trésorier et à l'Administrateur du club.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full min-h-[44px] py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto">
@@ -459,44 +596,53 @@ ${effectiveSignataireFonction}
               <h2 className="font-heading font-black text-white text-sm sm:text-base truncate">
                 Attestation Officielle • {adherent.nomPrenom}
               </h2>
+              <p className="text-[11px] text-zinc-400 truncate">
+                Délivrée par un membre du Bureau • Format PDF non modifiable uniquement
+              </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0 flex-wrap">
             <button
+              type="button"
               onClick={() => setIsEditingClubInfo(!isEditingClubInfo)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer ${
+              className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer whitespace-nowrap ${
                 isEditingClubInfo 
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' 
                   : 'bg-[#1e2430] hover:bg-zinc-700 text-zinc-300 border-zinc-700'
               }`}
-              title="Personnaliser les données officielles (Club_Info) ou le signataire"
+              title="Paramètres du club et choix du signataire (Président, Secrétaire, Trésorier)"
             >
               <Settings2 className="w-3.5 h-3.5 text-orange-400" />
-              <span className="hidden sm:inline">Paramètres Attestation</span>
+              <span className="hidden sm:inline">Paramètres</span>
             </button>
 
             <button
-              onClick={handleShareEmail}
-              className="px-3 py-1.5 rounded-xl bg-sky-800/80 hover:bg-sky-700 text-sky-200 hover:text-white transition flex items-center gap-1.5 text-xs font-bold cursor-pointer"
-              title="Partager l'attestation par Email"
+              type="button"
+              disabled={isGeneratingPdf}
+              onClick={handleGeneratePdf}
+              className="min-h-[40px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-600 transition flex items-center gap-1.5 text-xs font-bold cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              title="Télécharger l'attestation officielle en PDF"
             >
-              <Mail className="w-3.5 h-3.5 text-sky-400" />
-              <span className="hidden sm:inline">Email</span>
+              {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" /> : <Download className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>Télécharger PDF</span>
             </button>
 
             <button
-              onClick={handleShareWhatsApp}
-              className="px-3 py-1.5 rounded-xl bg-emerald-800/80 hover:bg-emerald-700 text-emerald-200 hover:text-white transition flex items-center gap-1.5 text-xs font-bold cursor-pointer"
-              title="Partager l'attestation sur WhatsApp"
+              type="button"
+              disabled={isGeneratingPdf}
+              onClick={handleSendPdf}
+              className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white transition flex items-center gap-1.5 text-xs font-black cursor-pointer disabled:opacity-50 shadow-md shadow-orange-950/40 whitespace-nowrap"
+              title="Envoyer l'attestation exclusivement en fichier PDF"
             >
-              <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">WhatsApp</span>
+              {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              <span>Envoyer le PDF</span>
             </button>
 
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition cursor-pointer"
+              className="min-w-[40px] min-h-[40px] p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition flex items-center justify-center cursor-pointer"
               title="Fermer la modale"
             >
               <X className="w-4 h-4" />
@@ -696,12 +842,67 @@ ${effectiveSignataireFonction}
               </div>
             )}
 
-            {/* SECTION 2 : SIGNATAIRE LOCAL (SPÉCIFIQUE À CE POSTE / APPAREIL) */}
+            {/* SECTION 2 : SIGNATAIRE LOCAL (PRÉSIDENT / SECRÉTAIRE / TRÉSORIER) */}
             {editSection === 'signataire' && (
               <div className="space-y-3">
                 <div className="p-2.5 bg-purple-500/10 border border-purple-500/25 rounded-xl text-[11px] text-purple-200 leading-snug">
-                  ✍️ <strong>Profil local personnalisé :</strong> Par défaut, le document est émis au nom du Président (<strong>Raphaël EVAIN</strong>). Si vous êtes <strong>Secrétaire</strong> ou <strong>Trésorier(e)</strong>, vous pouvez renseigner ci-dessous votre propre nom, qualité et signature : ils seront enregistrés <strong>uniquement sur votre appareil</strong> sans modifier le Google Sheet du club.
+                  ✍️ <strong>Signataire habilité du club :</strong> Sélectionnez votre fonction au sein du Bureau (Président, Secrétaire, Trésorier) et ajoutez votre signature. Ce profil reste enregistré <strong>uniquement sur votre appareil</strong>.
                 </div>
+
+                {(editClub.president || editClub.secretaire || editClub.tresorier) && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-[11px] text-zinc-400 font-semibold">Sélection rapide (Bureau) :</span>
+                    {editClub.president && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocalSignataire((prev) => ({
+                            ...prev,
+                            nom: editClub.president,
+                            fonction: 'Président du TCM',
+                            civilite: 'Je soussigné',
+                            isCustom: true,
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/35 text-orange-200 font-bold transition cursor-pointer whitespace-nowrap"
+                      >
+                        Président ({editClub.president})
+                      </button>
+                    )}
+                    {editClub.secretaire && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocalSignataire((prev) => ({
+                            ...prev,
+                            nom: editClub.secretaire,
+                            fonction: 'Secrétaire du TCM',
+                            isCustom: true,
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-200 font-bold transition cursor-pointer whitespace-nowrap"
+                      >
+                        Secrétaire ({editClub.secretaire})
+                      </button>
+                    )}
+                    {editClub.tresorier && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLocalSignataire((prev) => ({
+                            ...prev,
+                            nom: editClub.tresorier,
+                            fonction: 'Trésorier du TCM',
+                            isCustom: true,
+                          }))
+                        }
+                        className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-200 font-bold transition cursor-pointer whitespace-nowrap"
+                      >
+                        Trésorier ({editClub.tresorier})
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div>
@@ -883,7 +1084,20 @@ ${effectiveSignataireFonction}
               <span className="text-zinc-400">€</span>
             </div>
 
-            {/* Option pour rendre les modalités de règlement facultatives */}
+            {(isMinor || representantLegal) && (
+              <div className="flex items-center gap-1.5 bg-[#171c26] px-2.5 py-1 rounded-xl border border-zinc-800">
+                <span className="text-zinc-400 font-medium">Parent / Représentant :</span>
+                <input
+                  type="text"
+                  value={representantLegal}
+                  onChange={(e) => setRepresentantLegal(e.target.value)}
+                  placeholder="Nom du parent..."
+                  className="bg-black/60 border border-zinc-700 rounded px-2 py-0.5 text-white w-36"
+                />
+              </div>
+            )}
+
+            {/* Option pour afficher et détailler les modalités / modes de règlement */}
             <div className="flex items-center gap-2 ml-auto">
               <label className="flex items-center gap-1.5 cursor-pointer text-zinc-300 font-semibold text-[11px] select-none">
                 <input
@@ -892,62 +1106,129 @@ ${effectiveSignataireFonction}
                   onChange={(e) => setShowModalitesPaiement(e.target.checked)}
                   className="rounded accent-orange-500"
                 />
-                <span>Afficher les modalités de règlement</span>
+                <span>Préciser les modalités de règlement</span>
               </label>
             </div>
           </div>
 
-          {/* Ligne 3 (conditionnelle) : Détails d'encaissement si la section modalités de règlement est cochée */}
+          {/* Ligne 3 (conditionnelle) : Date d'encaissement et détail des différents modes de règlement */}
           {showModalitesPaiement && (
-            <div className="flex items-center gap-3 flex-wrap pt-1.5 border-t border-zinc-800/80 text-[11px] text-zinc-400">
-              <div className="flex items-center gap-1.5">
-                <span>Règlement :</span>
-                <select
-                  value={modeReglement}
-                  onChange={(e) => setModeReglement(e.target.value)}
-                  className="bg-[#171c26] border border-zinc-700 rounded px-2 py-0.5 text-white focus:outline-none cursor-pointer"
-                >
-                  <option value="Virement bancaire">Virement bancaire</option>
-                  <option value="Chèque">Chèque</option>
-                  <option value="Carte bancaire (HelloAsso)">Carte bancaire (HelloAsso)</option>
-                  <option value="Pass'Sport">Pass'Sport</option>
-                  <option value="Chèques vacances ANCV">Chèques vacances ANCV</option>
-                  <option value="Espèces">Espèces</option>
-                  <option value="autre">Autre...</option>
-                </select>
-                {modeReglement === 'autre' && (
-                  <input
-                    type="text"
-                    value={customModeReglement}
-                    onChange={(e) => setCustomModeReglement(e.target.value)}
-                    placeholder="Préciser..."
-                    className="bg-[#171c26] border border-orange-500/60 rounded px-2 py-0.5 text-white w-28"
-                  />
-                )}
-              </div>
+            <div className="space-y-2.5 pt-2 border-t border-zinc-800/80 text-[11px] text-zinc-300">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-zinc-400 font-semibold">Modes utilisés :</span>
+                  {PAYMENT_MODES.map((modeLabel) => {
+                    const isActive = reglements.some((r) => r.mode === modeLabel);
+                    return (
+                      <button
+                        key={modeLabel}
+                        type="button"
+                        onClick={() => handleToggleQuickMode(modeLabel)}
+                        className={`px-2 py-1 rounded-lg font-bold border transition cursor-pointer whitespace-nowrap ${
+                          isActive
+                            ? 'bg-orange-500/20 text-orange-300 border-orange-500/50'
+                            : 'bg-[#171c26] text-zinc-400 border-zinc-700 hover:text-white'
+                        }`}
+                      >
+                        {modeLabel}
+                      </button>
+                    );
+                  })}
+                </div>
 
-              <div className="flex items-center gap-1.5">
-                <span>Date d'encaissement :</span>
-                <input
-                  type="text"
-                  value={datePaiement}
-                  onChange={(e) => setDatePaiement(e.target.value)}
-                  className="bg-[#171c26] border border-zinc-700 rounded px-2 py-0.5 text-white w-24 text-center font-mono"
-                />
-              </div>
-
-              {(isMinor || representantLegal) && (
                 <div className="flex items-center gap-1.5">
-                  <span>Parent / Représentant :</span>
+                  <span className="text-zinc-400">Date d'encaissement :</span>
                   <input
                     type="text"
-                    value={representantLegal}
-                    onChange={(e) => setRepresentantLegal(e.target.value)}
-                    placeholder="Nom du parent..."
-                    className="bg-[#171c26] border border-zinc-700 rounded px-2 py-0.5 text-white w-36"
+                    value={datePaiement}
+                    onChange={(e) => setDatePaiement(e.target.value)}
+                    className="bg-[#171c26] border border-zinc-700 rounded-lg px-2 py-1 text-white w-24 text-center font-mono"
                   />
                 </div>
-              )}
+              </div>
+
+              <div className="space-y-1.5">
+                {reglements.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-[#171c26] p-2 rounded-xl border border-zinc-800"
+                  >
+                    <select
+                      value={item.mode}
+                      onChange={(e) => handleUpdateReglement(item.id, { mode: e.target.value })}
+                      className="bg-[#0e1218] border border-zinc-700 rounded-lg px-2 py-1 text-white focus:outline-none cursor-pointer"
+                    >
+                      {PAYMENT_MODES.map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                      <option value="autre">Autre...</option>
+                    </select>
+
+                    {item.mode === 'autre' && (
+                      <input
+                        type="text"
+                        value={item.customMode || ''}
+                        onChange={(e) => handleUpdateReglement(item.id, { customMode: e.target.value })}
+                        placeholder="Préciser le mode..."
+                        className="bg-[#0e1218] border border-orange-500/60 rounded-lg px-2 py-1 text-white w-36"
+                      />
+                    )}
+
+                    <input
+                      type="text"
+                      value={item.precision || ''}
+                      onChange={(e) => handleUpdateReglement(item.id, { precision: e.target.value })}
+                      placeholder="Précision (ex: en 3 fois, n° chèque...)"
+                      className="flex-1 min-w-[140px] bg-[#0e1218] border border-zinc-700 rounded-lg px-2 py-1 text-white placeholder-zinc-500"
+                    />
+
+                    <div className="flex items-center gap-1 bg-[#0e1218] border border-zinc-700 rounded-lg px-2 py-1">
+                      <input
+                        type="number"
+                        value={item.montant || ''}
+                        onChange={(e) => handleUpdateReglement(item.id, { montant: e.target.value })}
+                        placeholder="Montant"
+                        className="w-16 bg-transparent text-white font-mono text-right focus:outline-none"
+                      />
+                      <span className="text-zinc-400">€</span>
+                    </div>
+
+                    {reglements.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveReglement(item.id)}
+                        className="p-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 transition cursor-pointer"
+                        title="Supprimer ce mode de règlement"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddReglementLine}
+                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-orange-400" />
+                  <span>Ajouter un autre règlement</span>
+                </button>
+
+                {hasAnyReglementMontant && (
+                  <span
+                    className={`font-mono font-bold ${
+                      Math.round(totalReglementsSaisis) === Math.round(nMain)
+                        ? 'text-emerald-400'
+                        : 'text-amber-300'
+                    }`}
+                  >
+                    Somme ventilée : {totalReglementsSaisis.toFixed(0)} € / {totalPercu} €
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -959,7 +1240,7 @@ ${effectiveSignataireFonction}
           
           <div 
             id="attestation-printable-card"
-            className="w-full max-w-2xl bg-white text-black p-8 sm:p-12 space-y-6 border border-zinc-300 shadow-xl print:shadow-none print:border-none print:p-0 print:rounded-none font-sans"
+            className="w-full max-w-2xl bg-white text-black p-8 sm:p-12 space-y-6 border border-[#d4d4d8] shadow-xl print:shadow-none print:border-none print:p-0 print:rounded-none font-sans"
           >
             
             {/* 1. EN-TÊTE DU CLUB SANS BULLE NI COULEUR PÂLE */}
@@ -1042,7 +1323,7 @@ ${effectiveSignataireFonction}
                   <span className="text-black font-medium">{adresseAdherent}</span>
                 </p>
                 {(isMinor || representantLegal) && (
-                  <p className="pt-1 border-t border-black">
+                  <p className="pt-1.5">
                     <span className="text-black italic block text-[11px]">(L'attestation concerne un enfant mineur :)</span>
                     <span className="font-semibold text-black">Représentant légal :</span>{' '}
                     <strong className="text-black">{representantLegal || 'Parent payeur'}</strong>
@@ -1059,27 +1340,27 @@ ${effectiveSignataireFonction}
                 <p className="font-bold text-black uppercase tracking-wide text-xs">
                   Détail des sommes acquittées :
                 </p>
-                <div className="bg-white p-3.5 rounded-none border border-black space-y-1.5 text-xs">
+                <div className="bg-white p-3.5 rounded-none border border-black space-y-2 text-xs">
                   {formulaType === 'cours' ? (
-                    <div className="flex justify-between items-center py-0.5 border-b border-black">
+                    <div className="flex justify-between items-center py-0.5 gap-3">
                       <span>• Cours collectifs / École de tennis (cotisation club & accès courts compris) :</span>
-                      <strong className="font-mono text-black">{partClub} €</strong>
+                      <strong className="font-mono text-black shrink-0">{partClub} €</strong>
                     </div>
                   ) : (
-                    <div className="flex justify-between items-center py-0.5 border-b border-black">
+                    <div className="flex justify-between items-center py-0.5 gap-3">
                       <span>• Cotisation club / Accès aux courts :</span>
-                      <strong className="font-mono text-black">{partClub} €</strong>
+                      <strong className="font-mono text-black shrink-0">{partClub} €</strong>
                     </div>
                   )}
 
-                  <div className="flex justify-between items-center py-0.5 border-b border-black">
+                  <div className="flex justify-between items-center py-0.5 gap-3">
                     <span>• Licence Fédération Française de Tennis (FFT) n° <span className="font-mono">{adherent.licence || 'Club'}</span> :</span>
-                    <strong className="font-mono text-black">{licenceFft} €</strong>
+                    <strong className="font-mono text-black shrink-0">{licenceFft} €</strong>
                   </div>
 
-                  <div className="flex justify-between items-center pt-1.5 text-sm font-black text-black">
+                  <div className="flex justify-between items-center pt-2 text-sm font-black text-black">
                     <span className="uppercase">• Total perçu :</span>
-                    <strong className="font-mono text-black text-base">{totalPercu} € TTC</strong>
+                    <strong className="font-mono text-black text-base shrink-0">{totalPercu} € TTC</strong>
                   </div>
                   <p className="text-[10px] text-black italic pt-1">
                     (Association non assujettie à la TVA selon l’article 261-7-1° du Code Général des Impôts)
@@ -1095,7 +1376,27 @@ ${effectiveSignataireFonction}
                   </p>
                   <div className="bg-white p-3 rounded-none border border-black space-y-1 text-xs">
                     <p>• Date d’encaissement : <strong>{datePaiement}</strong></p>
-                    <p>• Mode de règlement : <strong>{effectiveModeStr}</strong></p>
+                    {reglements.length === 1 && !reglements[0].montant && !reglements[0].precision ? (
+                      <p>• Mode de règlement : <strong>{getReglementLabel(reglements[0])}</strong></p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <p>• {reglements.length > 1 ? 'Modes de règlement :' : 'Mode de règlement :'}</p>
+                        <ul className="pl-4 space-y-0.5">
+                          {reglements.map((item) => {
+                            const label = getReglementLabel(item);
+                            const precisionStr = (item.precision || '').trim();
+                            const montantStr = (item.montant || '').trim();
+                            return (
+                              <li key={item.id}>
+                                - <strong>{label}</strong>
+                                {precisionStr ? ` (${precisionStr})` : ''}
+                                {montantStr ? ` : ${montantStr} €` : ''}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

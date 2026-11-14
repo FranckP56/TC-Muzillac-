@@ -46,7 +46,11 @@ export interface Adherent {
   adresse?: string;
   representantLegal?: string;
   clubRattachement?: string;
-  commentaire?: string;
+  fideliteClub?: string; // Colonne AC : Fidélité club de la dernière licence active
+  ticketsRestants?: string; // Colonne AT : Nbre de tickets restant
+  badge?: string; // Colonne BG : Badge d'accès
+  nbReservationsAnnee?: string; // Colonne BI : Nombre de réservation sur l'année en cours
+  commentaire?: string; // Colonne BK : Commentaire
 }
 
 export interface FrozenPlayerSlot {
@@ -84,7 +88,11 @@ export interface MatchComposition {
   poidsDouble1?: number;
   poidsDouble2?: number;
   poidsDoublesValide?: boolean;
-  // Ordre des parties et circulation
+  // Ordre des parties, étapes de validation et circulation
+  ordreMatchs?: string[]; // ex: ['S1', 'S3', 'S2', 'D1']
+  logistiqueValidee?: boolean; // Étape 1 : Date, heure, courts et lieu validés
+  ordreValide?: boolean; // Étape 2 : Ordre des rencontres validé
+  joueursValides?: boolean; // Étape 3 : Joueurs validés
   ordrePartiesOption?: 'desaccord_officiel' | 'visiteur_propose';
   deroulementASuivre?: boolean;
   surfacesDifferentes?: boolean;

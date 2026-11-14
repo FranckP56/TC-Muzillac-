@@ -18,7 +18,7 @@ export const DEFAULT_CHAMPIONSHIP_RULES: ChampionshipRule[] = [
     minPlayers: 4,
     maxPlayers: 6,
     orderOfPlay: 'Simples 4 et 2 en simultané, puis Simples 3 et 1, puis Doubles 1 et 2.',
-    notes: 'Règle des doubles FFT : Le cumul des classements du Double 1 doit être supérieur ou égal au Double 2 (Poids D1 ≥ Poids D2).',
+    notes: 'Règle des doubles FFT : Le cumul des poids de double du Double 1 doit être inférieur ou égal au Double 2 (Poids D1 ≤ Poids D2).',
   },
   {
     id: 'seniors_preregionale',
@@ -37,7 +37,7 @@ export const DEFAULT_CHAMPIONSHIP_RULES: ChampionshipRule[] = [
     minPlayers: 4,
     maxPlayers: 6,
     orderOfPlay: 'Ordre officiel en cas de désaccord : 4-2, 3-1, doubles sur 2 courts (ou 4-2, Double 2, 3-1, Double 1 sur 1 court).',
-    notes: '2 doubles obligatoires. Règle du poids des doubles stricte (D1 ≥ D2). Proposition d\'ordre par le visiteur avant jeudi 20h.',
+    notes: '2 doubles obligatoires. Règle du poids des doubles stricte (Poids D1 ≤ Poids D2). Proposition d\'ordre par le visiteur avant jeudi 20h.',
   },
   {
     id: 'seniors_d1_m',
@@ -56,7 +56,7 @@ export const DEFAULT_CHAMPIONSHIP_RULES: ChampionshipRule[] = [
     minPlayers: 4,
     maxPlayers: 6,
     orderOfPlay: 'Ordre 4-3-2-1 puis doubles (sur 2 courts : Simples 4 et 3, puis 2 et 1, puis Doubles).',
-    notes: 'Nouveauté FFT 2027 : 2 doubles en D1 Messieurs ! Poids D1 ≥ D2 obligatoire.',
+    notes: 'Nouveauté FFT 2027 : 2 doubles en D1 Messieurs ! Poids D1 ≤ Poids D2 obligatoire.',
   },
   {
     id: 'seniors_d1_f',

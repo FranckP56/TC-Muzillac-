@@ -24,12 +24,13 @@ import {
   Sparkles,
   ShieldCheck
 } from 'lucide-react';
-import { Adherent, ClubInfo, Enseignant } from '../types/tennis';
+import { Adherent, ClubInfo, Enseignant, UserRole } from '../types/tennis';
 import { AttestationModal } from './AttestationModal';
 
 interface EnseignantsTabProps {
   adherents: Adherent[];
   clubInfo: ClubInfo;
+  userRole?: UserRole;
   onSelectAdherent?: (adh: Adherent) => void;
   onSaveClubInfo?: (info: ClubInfo) => Promise<void> | void;
 }
@@ -80,9 +81,11 @@ export function detectDayFromGroupe(groupeName: string): { dayKey: string; dayLa
 export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
   adherents,
   clubInfo,
+  userRole = 'prof',
   onSelectAdherent,
   onSaveClubInfo,
 }) => {
+  const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
   const [activeSubView, setActiveSubView] = useState<'eleves' | 'enseignants'>('eleves');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSolde, setFilterSolde] = useState<'all' | 'due' | 'uptodate' | 'credit'>('all');
@@ -93,9 +96,8 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
   const [copiedRelanceSms, setCopiedRelanceSms] = useState(false);
   const [copiedRelanceMail, setCopiedRelanceMail] = useState(false);
 
-  // Modale d'attestation de paiement & licence
+  // Modale d'attestation de paiement & licence (Admin / Bureau uniquement)
   const [attestationAdherent, setAttestationAdherent] = useState<Adherent | null>(null);
-  const [copiedAttestation, setCopiedAttestation] = useState(false);
 
   // Helper : Vérifie si un membre est inscrit aux cours de tennis (colonne BA)
   const isEleveEnCours = (a: Adherent): boolean => {
@@ -265,27 +267,6 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
     return `Bonjour ${adh.nomPrenom},\n\nSauf erreur de notre part, votre compte adhérent au Tennis Club de Muzillac présente un solde restant dû de ${montantAbs} € pour votre inscription / cours de tennis de la saison sportive 2026/2027.\n\nNous vous remercions de bien vouloir procéder à la régularisation de ce montant :\n- Par virement bancaire sur le compte du TCM\n- Par chèque à l'ordre du Tennis Club de Muzillac déposé au club-house\n- En espèces lors des permanences du mercredi ou samedi\n\nSi vous avez déjà effectué ce règlement récemment, merci de ne pas tenir compte de ce message.\n\nRestant à votre disposition,\nBien sportivement,\n\nL'équipe des Enseignants et le Bureau du Tennis Club de Muzillac\n${clubInfo.telephone} • ${clubInfo.email}\n${clubInfo.adresse}, ${clubInfo.codePostal} ${clubInfo.ville}`;
   };
 
-  // Générateur de l'attestation de paiement
-  const generateAttestationContent = (adh: Adherent) => {
-    const dateJour = new Date().toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric'
-    });
-
-    return {
-      clubNom: clubInfo.nom,
-      codeClub: clubInfo.codeClub,
-      dateJour,
-      adherentNom: adh.nomPrenom,
-      dateNaissance: adh.dateNaissance || 'Non renseignée',
-      licence: adh.licence || 'Licence Club FFT',
-      groupe: adh.groupeEnseignement || 'Cours collectifs / Adhésion',
-      saison: '2026 / 2027',
-      president: clubInfo.president,
-    };
-  };
-
   return (
     <div className="space-y-6">
       
@@ -309,7 +290,9 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 Gestion Pédagogique & Suivi des Élèves
               </h1>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Planning des cours, suivi du solde dû par élève, relances de paiement et attestations officielles.
+                {canIssueAttestation
+                  ? 'Planning des cours, suivi du solde dû par élève, relances de paiement et attestations officielles.'
+                  : 'Planning des cours, suivi du solde dû par élève et relances de paiement.'}
               </p>
             </div>
           </div>
@@ -713,12 +696,12 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                           </button>
                         )}
 
-                        {/* Attestation de paiement & Licence (si solde à jour >= 0) */}
-                        {!isDue && (
+                        {/* Attestation de paiement & Licence (si solde à jour >= 0 et profil Bureau / Admin uniquement) */}
+                        {canIssueAttestation && !isDue && (
                           <button
                             onClick={() => setAttestationAdherent(eleve)}
                             className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                            title="Générer l'attestation de cotisation pour CE / Pass'Sport"
+                            title="Générer l'attestation PDF officielle (Bureau / Admin uniquement)"
                           >
                             <FileText className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">Attestation</span>
@@ -782,19 +765,19 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 <div className="pt-3 border-t border-zinc-800 space-y-2 text-xs">
                   {ens.telephone && (
                     <a
-                      href={`tel:${ens.telephone}`}
-                      className="flex items-center gap-2 text-zinc-300 hover:text-white transition"
+                      href={`tel:${ens.telephone.replace(/\s+/g, '')}`}
+                      className="inline-flex items-center gap-2 text-zinc-300 hover:text-white transition whitespace-nowrap tabular-nums"
                     >
-                      <Phone className="w-3.5 h-3.5 text-[#FF6D00]" />
+                      <Phone className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
                       <span>{ens.telephone}</span>
                     </a>
                   )}
                   {ens.email && (
                     <a
                       href={`mailto:${ens.email}`}
-                      className="flex items-center gap-2 text-zinc-300 hover:text-white transition"
+                      className="flex items-center gap-2 text-zinc-300 hover:text-white transition whitespace-nowrap overflow-x-auto no-scrollbar max-w-full"
                     >
-                      <Mail className="w-3.5 h-3.5 text-[#FF6D00]" />
+                      <Mail className="w-3.5 h-3.5 text-[#FF6D00] shrink-0" />
                       <span>{ens.email}</span>
                     </a>
                   )}
@@ -921,11 +904,12 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
         </div>
       )}
 
-      {/* ==================== MODAL ATTESTATION DE PAIEMENT & LICENCE ==================== */}
-      {attestationAdherent && (
+      {/* ==================== MODAL ATTESTATION DE PAIEMENT & LICENCE (BUREAU / ADMIN UNIQUEMENT) ==================== */}
+      {canIssueAttestation && attestationAdherent && (
         <AttestationModal
           adherent={attestationAdherent}
           clubInfo={clubInfo}
+          userRole={userRole}
           onClose={() => setAttestationAdherent(null)}
           onSaveClubInfo={onSaveClubInfo}
         />

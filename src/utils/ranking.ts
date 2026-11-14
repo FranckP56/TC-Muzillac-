@@ -223,6 +223,57 @@ export function getRankingWeight(rank: string | undefined): number {
 }
 
 /**
+ * Barème officiel FFT des poids de double ("valeur en double").
+ * Échelle inversée : plus le classement est fort, plus le poids de double est PETIT
+ * (ex: 0 = 0, 15 = 6, 30 = 12, 30/1 = 13, ..., 30/5 = 17, 40 = 18, NC = 19).
+ */
+export function getDoubleRankingWeight(rank: string | undefined): number {
+  if (!rank) return 19;
+  const clean = cleanRanking(rank).replace(/\s+/g, '');
+
+  if (isRankingND(clean)) {
+    return 99;
+  }
+
+  if (clean === 'NC' || clean === 'NON CLASSÉ' || clean === 'NON CLASSE') {
+    return 19;
+  }
+
+  // Joueurs numérotés (1ère série)
+  if (clean.startsWith('N') && !clean.includes('NC')) {
+    return -5;
+  }
+
+  const doubleWeights: Record<string, number> = {
+    '-30': -4,
+    '-15': -3,
+    '-4/6': -2,
+    '-2/6': -1,
+    '0': 0,
+    '1/6': 1,
+    '2/6': 2,
+    '3/6': 3,
+    '4/6': 4,
+    '5/6': 5,
+    '15': 6,
+    '15/1': 7,
+    '15/2': 8,
+    '15/3': 9,
+    '15/4': 10,
+    '15/5': 11,
+    '30': 12,
+    '30/1': 13,
+    '30/2': 14,
+    '30/3': 15,
+    '30/4': 16,
+    '30/5': 17,
+    '40': 18,
+  };
+
+  return doubleWeights[clean] ?? 19;
+}
+
+/**
  * Trie la liste des adhérents par classement FFT décroissant (meilleurs classements en premier),
  * puis alphabétiquement par NOM Prénom.
  */

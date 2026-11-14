@@ -56,8 +56,14 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   const idxAgeSportif = findColIdx(rawHeaders, ['age sportif', 'echelon'], 39);
   const idxGroupe = findColIdx(rawHeaders, ['groupe enseignement', 'cours', 'groupe'], 54);
   const idxTenUp = findColIdx(rawHeaders, ["compte ten'up", 'tenup'], 65);
+  const idxAdresse1 = findColIdx(rawHeaders, ['adresse', 'adresse 1'], 10);
+  const idxCp = findColIdx(rawHeaders, ['cp', 'code postal'], 12);
   const idxVille = findColIdx(rawHeaders, ['ville', 'commune'], 13);
   const idxClub = findColIdx(rawHeaders, ['nom du club', 'club de rattachement', 'club'], 27);
+  const idxFidelite = findColIdx(rawHeaders, ['fidelite club de la derniere licence active', 'fidelite club', 'fidelite'], 28);
+  const idxTicketsRestants = findColIdx(rawHeaders, ['nbre de tickets restant', 'tickets restant', 'tickets restants'], 45);
+  const idxBadge = findColIdx(rawHeaders, ['badge'], 58);
+  const idxNbReservations = findColIdx(rawHeaders, ["nombre de reservation sur l'annee en cours", 'nombre de reservation', 'nb reservation'], 60);
   const idxCommentaire = findColIdx(rawHeaders, ['commentaire'], 62);
 
   // Parsing Solde
@@ -131,13 +137,19 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
   }
 
   const tenUp = String(cols[idxTenUp >= 0 ? idxTenUp : 65] || 'Non créé').trim();
-  const ville = String(cols[idxVille >= 0 ? idxVille : 13] || 'MUZILLAC').trim();
+  const ville = String(cols[idxVille >= 0 ? idxVille : 13] || '').trim();
   const rawClub = cols[idxClub >= 0 ? idxClub : 27];
   const club = rawClub ? String(rawClub).trim() : 'MUZILLAC TENNIS CLUB';
-  const commentaire = String(cols[idxCommentaire >= 0 ? idxCommentaire : 62] || '').trim();
+  const fideliteClub = String(cols[idxFidelite >= 0 ? idxFidelite : 28] ?? '').trim();
+  const ticketsRestants = String(cols[idxTicketsRestants >= 0 ? idxTicketsRestants : 45] ?? '').trim();
+  const badge = String(cols[idxBadge >= 0 ? idxBadge : 58] ?? '').trim();
+  const nbReservationsAnnee = String(cols[idxNbReservations >= 0 ? idxNbReservations : 60] ?? '').trim();
+  const commentaire = String(cols[idxCommentaire >= 0 ? idxCommentaire : 62] ?? '').trim();
   const ageSportif = String(cols[idxAgeSportif >= 0 ? idxAgeSportif : 39] || '').trim();
-  const adresse = String(cols[10] || cols[11] || '').trim();
-  const codePostal = String(cols[12] || '56190').trim();
+  const adr1 = String(cols[idxAdresse1 >= 0 ? idxAdresse1 : 10] || '').trim();
+  const adr2 = String(cols[11] || '').trim();
+  const adresse = [adr1, adr2 && adr2 !== adr1 ? adr2 : ''].filter(Boolean).join(', ');
+  const codePostal = String(cols[idxCp >= 0 ? idxCp : 12] || '').trim();
   const representantLegal = String(cols[8] || '').trim();
 
   return {
@@ -163,6 +175,10 @@ export function parseAdherentRow(cols: any[], rawHeaders: string[], rowIndex: nu
     adresse,
     representantLegal,
     clubRattachement: club,
+    fideliteClub,
+    ticketsRestants,
+    badge,
+    nbReservationsAnnee,
     commentaire,
   };
 }

@@ -32,8 +32,7 @@ import {
   updateRolePin, 
   resetRolePins, 
   isPinEnforcementActive, 
-  setPinEnforcementActive, 
-  DEFAULT_ROLE_PINS 
+  setPinEnforcementActive 
 } from '../services/accessControl';
 
 interface HeaderProps {
@@ -351,33 +350,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[11px] leading-tight tracking-tight truncate">Rencontres</span>
             </button>
 
-            {/* 3. Tutos & Infos (Tous) */}
-            <button
-              onClick={() => setActiveTab('tutos')}
-              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
-                activeTab === 'tutos'
-                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 shrink-0 mb-0.5 text-emerald-400" />
-              <span className="text-[11px] leading-tight tracking-tight truncate">Tutos & Infos</span>
-            </button>
-
-            {/* 4. Troc & Occasions (Tous) */}
-            <button
-              onClick={() => setActiveTab('troc')}
-              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
-                activeTab === 'troc'
-                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4 shrink-0 mb-0.5 text-sky-400" />
-              <span className="text-[11px] leading-tight tracking-tight truncate">Troc</span>
-            </button>
-
-            {/* 5. Licenciés (Club Muzillac) - Masqué pour les adhérents */}
+            {/* 3. Licenciés (Club Muzillac) - Masqué pour les adhérents */}
             {canSeeLicencies && (
               <button
                 onClick={() => setActiveTab('licencies')}
@@ -403,7 +376,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 6. Enseignants (Profs & Bureau) */}
+            {/* 4. Enseignants (Profs & Bureau) */}
             {canSeeEnseignants && (
               <button
                 onClick={() => setActiveTab('enseignants')}
@@ -418,7 +391,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 7. Adhérents (Bureau uniquement) */}
+            {/* 5. Adhérents (Bureau uniquement) */}
             {canSeeAdherents && (
               <button
                 onClick={() => setActiveTab('adherents')}
@@ -442,7 +415,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* 8. Règlements & Formats des Championnats (Tous) */}
+            {/* 6. Règlements & Formats des Championnats (Tous) */}
             <button
               onClick={() => setActiveTab('reglements')}
               className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
@@ -453,6 +426,32 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Scale className="w-4 h-4 shrink-0 mb-0.5 text-amber-400" />
               <span className="text-[11px] leading-tight tracking-tight truncate">Règlements</span>
+            </button>
+
+            {/* 7. Tutos & Infos (Tous) */}
+            <button
+              onClick={() => setActiveTab('tutos')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'tutos'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 shrink-0 mb-0.5 text-emerald-400" />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Tutos & Infos</span>
+            </button>
+
+            {/* 8. Troc & Occasions (Tous) */}
+            <button
+              onClick={() => setActiveTab('troc')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'troc'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4 shrink-0 mb-0.5 text-sky-400" />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Troc</span>
             </button>
 
           </nav>

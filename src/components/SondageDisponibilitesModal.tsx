@@ -408,15 +408,15 @@ export const SondageDisponibilitesModal: React.FC<SondageDisponibilitesModalProp
                             {adherent.dernierClassTennis}
                           </span>
                         </div>
-                        <p className="text-[11px] text-zinc-400 flex items-center gap-2 mt-0.5">
-                          <span>Licence {adherent.licence}</span>
+                        <p className="text-[11px] text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                          <span className="whitespace-nowrap">Licence {adherent.licence}</span>
                           <span>•</span>
-                          <span>{adherent.ageSportif ? `${adherent.ageSportif} ans` : 'Senior'}</span>
+                          <span className="whitespace-nowrap">{adherent.ageSportif ? `${adherent.ageSportif} ans` : 'Senior'}</span>
                           {adherent.telephonePortable && (
                             <>
                               <span>•</span>
-                              <a href={`tel:${adherent.telephonePortable}`} className="text-zinc-300 hover:text-white flex items-center gap-1 font-mono">
-                                <Phone className="w-3 h-3 text-emerald-400" />
+                              <a href={`tel:${adherent.telephonePortable.replace(/\s+/g, '')}`} className="text-zinc-300 hover:text-white inline-flex items-center gap-1 font-mono whitespace-nowrap shrink-0 tabular-nums">
+                                <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
                                 <span>{adherent.telephonePortable}</span>
                               </a>
                             </>

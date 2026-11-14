@@ -15,7 +15,12 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  AlertCircle
+  AlertCircle,
+  MapPin,
+  KeyRound,
+  Ticket,
+  CalendarCheck,
+  History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent } from '../types/tennis';
@@ -374,7 +379,7 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                     <span>Téléphone</span>
                   </span>
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-mono font-semibold text-white truncate text-xs">
+                    <span className="font-mono font-semibold text-white whitespace-nowrap text-xs">
                       {adherent.telephonePortable || 'Non renseigné'}
                     </span>
                     {adherent.telephonePortable && (
@@ -396,15 +401,15 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                     <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                     <span>Email</span>
                   </span>
-                  <div className="flex items-center gap-1.5 min-w-0 max-w-[65%]">
-                    <span className="font-semibold text-white truncate text-xs" title={adherent.email}>
+                  <div className="flex items-center gap-1.5 min-w-0 max-w-[68%] justify-end">
+                    <span className="font-semibold text-white whitespace-nowrap overflow-x-auto no-scrollbar text-xs" title={adherent.email}>
                       {adherent.email || 'Non renseigné'}
                     </span>
                     {adherent.email && (
                       <button
                         type="button"
                         onClick={() => copyToClipboard(adherent.email, 'email')}
-                        className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                        className="p-1.5 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
                         title="Copier l'email"
                       >
                         {copiedField === 'email' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -412,6 +417,39 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Adresse postale complète */}
+                {(() => {
+                  const fullAddress = [
+                    adherent.adresse,
+                    [adherent.codePostal, adherent.ville].filter(Boolean).join(' '),
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
+                  return (
+                    <div className={`flex items-start justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                      <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium pt-0.5">
+                        <MapPin className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span>Adresse</span>
+                      </span>
+                      <div className="flex items-start gap-1.5 min-w-0 justify-end text-right">
+                        <span className="font-semibold text-white text-xs leading-snug">
+                          {fullAddress || 'Non renseignée'}
+                        </span>
+                        {fullAddress && (
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(fullAddress, 'address')}
+                            className="p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition cursor-pointer shrink-0"
+                            title="Copier l'adresse postale"
+                          >
+                            {copiedField === 'address' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Numéro de Licence FFT & Statut sur une seule ligne */}
                 <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
@@ -422,12 +460,12 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                   <div className="flex items-center gap-1.5 min-w-0">
                     {adherent.licence ? (
                       <>
-                        <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 truncate text-xs">
+                        <span className="font-mono font-bold text-emerald-400 flex items-center gap-1 whitespace-nowrap text-xs">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           <span>{adherent.licence}</span>
                         </span>
                         {adherent.typeLicence && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0 whitespace-nowrap">
                             Type {adherent.typeLicence}
                           </span>
                         )}
@@ -454,7 +492,7 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                     <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                     <span>Naissance</span>
                   </span>
-                  <div className="flex items-center gap-1.5 text-right truncate">
+                  <div className="flex items-center gap-1.5 text-right whitespace-nowrap">
                     <span className="font-semibold text-white text-xs">{adherent.dateNaissance || 'Non renseignée'}</span>
                     {birthYear && (
                       <span className="text-[11px] text-orange-400 font-semibold shrink-0">
@@ -476,16 +514,73 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                 )}
 
                 {/* Compte Ten'Up sur une seule ligne */}
-                <div className="flex items-center justify-between gap-2 py-1.5">
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
                   <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
                     <Award className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                     <span>Compte Ten'Up</span>
                   </span>
-                  <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-xs">
+                  <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-xs whitespace-nowrap">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                    <span className="truncate">{adherent.compteTenUp || 'Actif'}</span>
+                    <span>{adherent.compteTenUp || 'Actif'}</span>
                   </span>
                 </div>
+
+                {/* Badge (colonne BG) */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <KeyRound className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Badge</span>
+                  </span>
+                  <span className="font-mono font-semibold text-white text-xs whitespace-nowrap">
+                    {adherent.badge || 'Non renseigné'}
+                  </span>
+                </div>
+
+                {/* Fidélité club (colonne AC) */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <History className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Fidélité club</span>
+                  </span>
+                  <span className="font-semibold text-white text-xs tabular-nums whitespace-nowrap">
+                    {adherent.fideliteClub || 'Non renseignée'}
+                  </span>
+                </div>
+
+                {/* Nbre de tickets restant (colonne AT) */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <Ticket className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Tickets restants</span>
+                  </span>
+                  <span className="font-mono font-semibold text-white text-xs tabular-nums whitespace-nowrap">
+                    {adherent.ticketsRestants && adherent.ticketsRestants !== '' ? adherent.ticketsRestants : 'Non renseigné'}
+                  </span>
+                </div>
+
+                {/* Nombre de réservations sur l'année en cours (colonne BI) */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 ${adherent.commentaire ? `border-b ${theme.infoRowBorder}` : ''}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <CalendarCheck className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Réservations (année)</span>
+                  </span>
+                  <span className="font-mono font-semibold text-white text-xs tabular-nums whitespace-nowrap">
+                    {adherent.nbReservationsAnnee && adherent.nbReservationsAnnee !== '' ? adherent.nbReservationsAnnee : 'Non renseigné'}
+                  </span>
+                </div>
+
+                {/* Commentaire (colonne BK) */}
+                {adherent.commentaire && (
+                  <div className="pt-1.5 space-y-1">
+                    <span className="text-zinc-400 flex items-center gap-2 font-medium">
+                      <MessageSquare className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                      <span>Commentaire</span>
+                    </span>
+                    <p className="text-zinc-200 text-xs leading-relaxed bg-black/30 rounded-xl px-3 py-2 border border-white/5">
+                      {adherent.commentaire}
+                    </p>
+                  </div>
+                )}
 
               </div>
 

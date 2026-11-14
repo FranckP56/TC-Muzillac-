@@ -1,5 +1,5 @@
 import { Rencontre, Adherent, MatchComposition } from '../types/tennis';
-import { getRankingWeight } from './ranking';
+import { getDoubleRankingWeight } from './ranking';
 import { getRequiredSex } from './fftEligibility';
 import { normalizeDateString } from './dateUtils';
 import { findRuleForRencontre } from './rulesManager';
@@ -320,7 +320,7 @@ export function getCompetitionFormat(
       maxPlayers: 6,
       pointsSystem: '4 simples (1 pt chacun) + 2 doubles (1 pt chacun) = 6 points en jeu',
       matchRules: 'Simples : 2 sets à 6 jeux avec avantage, 3e set classique.',
-      doubleRules: 'RÈGLE DES DOUBLES FFT : 2 doubles disputés. Le Double 1 doit impérativement avoir un cumul de classement supérieur ou égal au Double 2 (Poids D1 >= Poids D2) !',
+      doubleRules: 'RÈGLE DES DOUBLES FFT : 2 doubles disputés. Le poids du Double 1 (somme des poids de double des 2 joueurs) doit être inférieur ou égal au Double 2 (Poids D1 ≤ Poids D2).',
       expectedDay: 'Dimanche',
       orderOfPlay: 'Simples 4 et 2 en simultané, puis Simples 3 et 1, puis Doubles 1 et 2',
       doubleWeightStrict: true,
@@ -343,7 +343,7 @@ export function getCompetitionFormat(
       maxPlayers: 6,
       pointsSystem: '4 simples (1 pt chacun) + 2 doubles (1 pt chacun) = 6 points en jeu',
       matchRules: 'Simples : 2 sets à 6 jeux avec avantage, 3e set classique.',
-      doubleRules: 'RÈGLE DES DOUBLES FFT : 2 doubles disputés en Pré-Régionale. Le Double 1 doit impérativement avoir un cumul de classement supérieur ou égal au Double 2 (Poids D1 >= Poids D2) !',
+      doubleRules: 'RÈGLE DES DOUBLES FFT : 2 doubles disputés en Pré-Régionale. Le poids du Double 1 doit être inférieur ou égal au Double 2 (Poids D1 ≤ Poids D2).',
       expectedDay: 'Dimanche',
       orderOfPlay: 'Désaccord capitaines : 4-2, 3-1, doubles sur 2 courts OU 4-2, Double 2, 3-1, Double 1 sur 1 court',
       doubleWeightStrict: true,
@@ -389,7 +389,7 @@ export function getCompetitionFormat(
         maxPlayers: 6,
         pointsSystem: '4 simples (1 pt chacun) + 2 doubles (1 pt chacun) = 6 points en jeu',
         matchRules: 'Simples : Format officiel départemental au meilleur des 3 sets.',
-        doubleRules: 'NOUVEAUTÉ 2027 : 2 doubles disputés en D1 Messieurs ! Le Double 1 doit impérativement avoir un cumul de classement supérieur ou égal au Double 2 (Poids D1 >= Poids D2) !',
+        doubleRules: 'NOUVEAUTÉ 2027 : 2 doubles disputés en D1 Messieurs ! Le poids du Double 1 doit être inférieur ou égal au Double 2 (Poids D1 ≤ Poids D2).',
         expectedDay: 'Dimanche',
         orderOfPlay: 'Ordre 4-3-2-1 puis doubles (ou 4-3, 2-1 sur 2 courts)',
         doubleWeightStrict: true,
@@ -698,8 +698,8 @@ export interface DoublesWeightCheckResult {
 }
 
 /**
- * Vérifie la règle obligatoire FFT du poids des doubles en Championnat Régional
- * Le cumul des classements de la paire Double 1 doit être supérieur ou égal au Double 2
+ * Vérifie la règle obligatoire FFT du poids des doubles (échelle inversée : plus petit poids = meilleur classement).
+ * Le cumul des poids de double de la paire Double 1 doit être inférieur (ou égal avec meilleur joueur en D1) au Double 2.
  */
 export function checkRegionalDoublesWeight(
   composition: MatchComposition,
@@ -710,8 +710,13 @@ export function checkRegionalDoublesWeight(
   const d2p1 = composition.double2Player1Id ? adherentsById.get(composition.double2Player1Id) : null;
   const d2p2 = composition.double2Player2Id ? adherentsById.get(composition.double2Player2Id) : null;
 
-  const w1 = (d1p1 ? getRankingWeight(d1p1.dernierClassTennis) : 0) + (d1p2 ? getRankingWeight(d1p2.dernierClassTennis) : 0);
-  const w2 = (d2p1 ? getRankingWeight(d2p1.dernierClassTennis) : 0) + (d2p2 ? getRankingWeight(d2p2.dernierClassTennis) : 0);
+  const d1w1 = d1p1 ? getDoubleRankingWeight(d1p1.dernierClassTennis) : 0;
+  const d1w2 = d1p2 ? getDoubleRankingWeight(d1p2.dernierClassTennis) : 0;
+  const d2w1 = d2p1 ? getDoubleRankingWeight(d2p1.dernierClassTennis) : 0;
+  const d2w2 = d2p2 ? getDoubleRankingWeight(d2p2.dernierClassTennis) : 0;
+
+  const w1 = d1w1 + d1w2;
+  const w2 = d2w1 + d2w2;
 
   const isComplete = !!(d1p1 && d1p2 && d2p1 && d2p2);
 
@@ -729,12 +734,18 @@ export function checkRegionalDoublesWeight(
     };
   }
 
-  // Règle FFT stricte : Le Double 1 doit avoir un poids supérieur ou égal au Double 2
-  const isValid = w1 >= w2;
+  // Règle FFT stricte (poids de double inversé) :
+  // Plus le poids est petit, plus l'équipe est forte : Poids D1 <= Poids D2
+  // En cas d'égalité de poids, le joueur le mieux classé (plus petit poids individuel) doit être en D1.
+  const minD1 = Math.min(d1w1, d1w2);
+  const minD2 = Math.min(d2w1, d2w2);
+  const isValid = w1 < w2 || (w1 === w2 && minD1 <= minD2);
 
   let errorMessage: string | undefined;
-  if (!isValid) {
-    errorMessage = `Infraction Règle des Doubles Régionale FFT : La paire Double 2 (${d2p1?.nomPrenom} [${d2p1?.dernierClassTennis}] + ${d2p2?.nomPrenom} [${d2p2?.dernierClassTennis}] = ${w2} pts) est plus forte que la paire Double 1 (${d1p1?.nomPrenom} [${d1p1?.dernierClassTennis}] + ${d1p2?.nomPrenom} [${d1p2?.dernierClassTennis}] = ${w1} pts). La paire n°1 doit impérativement être la plus forte. Veuillez inverser les deux équipes de double.`;
+  if (w1 > w2) {
+    errorMessage = `Infraction Règle des Doubles FFT : Le poids du Double 1 (${d1p1?.nomPrenom} [${d1p1?.dernierClassTennis} = ${d1w1}] + ${d1p2?.nomPrenom} [${d1p2?.dernierClassTennis} = ${d1w2}] = ${w1}) doit être inférieur au poids du Double 2 (${d2p1?.nomPrenom} [${d2p1?.dernierClassTennis} = ${d2w1}] + ${d2p2?.nomPrenom} [${d2p2?.dernierClassTennis} = ${d2w2}] = ${w2}). Plus le poids de double est petit, plus la paire est forte.`;
+  } else if (w1 === w2 && minD1 > minD2) {
+    errorMessage = `Infraction Règle des Doubles FFT (égalité ${w1} = ${w2}) : Le joueur ayant le meilleur classement individuel (poids ${minD2}) doit impérativement être aligné en Double 1.`;
   }
 
   return {

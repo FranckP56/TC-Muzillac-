@@ -92,7 +92,7 @@ export default function App() {
     } catch (e) {
       console.warn(e);
     }
-    return 'admin';
+    return 'adherent';
   });
 
   // Saison sportive active (2027 par défaut, modifiable par l'Admin)
@@ -713,6 +713,7 @@ export default function App() {
           <EnseignantsTab
             adherents={adherents}
             clubInfo={clubInfo}
+            userRole={userRole}
             onSaveClubInfo={handleSaveClubInfo}
             onSelectAdherent={(adh) => {
               setSelectedAdherent(adh);
@@ -783,16 +784,21 @@ export default function App() {
             setModalAdherentList(null);
           }}
           onUpdateSolde={handleUpdateSolde}
-          onOpenAttestation={(adh) => setAttestationAdherent(adh)}
+          onOpenAttestation={
+            userRole === 'admin' || userRole === 'bureau'
+              ? (adh) => setAttestationAdherent(adh)
+              : undefined
+          }
           onOpenRelance={(adh) => setRelanceAdherent(adh)}
         />
       )}
 
-      {/* Modale d'attestation officielle de paiement (CSE / Pass'Sport / CAF) */}
-      {attestationAdherent && (
+      {/* Modale d'attestation officielle de paiement (Réservée aux membres du bureau : Président, Secrétaire, Trésorier, Admin) */}
+      {attestationAdherent && (userRole === 'admin' || userRole === 'bureau') && (
         <AttestationModal
           adherent={attestationAdherent}
           clubInfo={clubInfo}
+          userRole={userRole}
           onClose={() => setAttestationAdherent(null)}
           onSaveClubInfo={handleSaveClubInfo}
         />

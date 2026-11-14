@@ -239,7 +239,7 @@ export function computeMatchRotationSchedule(
         matchType: 'double',
         slotNumber: 1,
         matchLabel: 'Double n°1',
-        orderDescription: 'Double 1 (Poids D1 >= D2)',
+        orderDescription: 'Double 1 (Poids D1 ≤ D2)',
         playerName: d1.name,
         playerRank: d1.rank,
       });
@@ -447,7 +447,7 @@ export function computeMatchRotationSchedule(
           matchType: 'double',
           slotNumber: 1,
           matchLabel: 'Double n°1',
-          orderDescription: 'Double 1 (Poids D1 >= D2)',
+          orderDescription: 'Double 1 (Poids D1 ≤ D2)',
           playerName: d1.name,
           playerRank: d1.rank,
         });

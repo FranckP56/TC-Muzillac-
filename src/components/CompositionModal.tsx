@@ -38,7 +38,7 @@ import { formatJourneeLabel, formatMuzillacClubName } from './RencontresTab';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility, getRequiredSex } from '../utils/fftEligibility';
-import { getRankingMeta, getRankingWeight } from '../utils/ranking';
+import { getRankingMeta, getRankingWeight, getDoubleRankingWeight, cleanRanking } from '../utils/ranking';
 import { checkSinglesRankingOrder, getNextFftMonthlyRankingRelease } from '../utils/fftCalendar';
 import { 
   getCompetitionFormat, 
@@ -52,6 +52,7 @@ import {
 import { 
   computeMatchRotationSchedule, 
   getAdverseClubFullAddress, 
+  addMinutesToTime,
   MatchSchedulePlan 
 } from '../utils/matchScheduling';
 import { ConfirmSaveCompositionModal } from './ConfirmSaveCompositionModal';
@@ -272,7 +273,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setFormatReduit(!!rencontre.composition?.formatReduit);
     setActiveSlot(null);
     setBlockedAlertMessage(null);
-    setValidationSuccess(false);
+    setValidationSuccess(null);
   }, [rencontre?.id]);
 
   // Slot en cours de sélection
@@ -294,9 +295,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }
   }, [activeSlot]);
 
-  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedPlayersSms, setCopiedPlayersSms] = useState(false);
+  const [copiedOpponentSms, setCopiedOpponentSms] = useState(false);
   const [blockedAlertMessage, setBlockedAlertMessage] = useState<string | null>(null);
-  const [validationSuccess, setValidationSuccess] = useState(false);
+  const [validationSuccess, setValidationSuccess] = useState<string | null>(null);
 
   // État Google Sheets & Gel des classements
   const [isConfirmGsheetOpen, setIsConfirmGsheetOpen] = useState(false);
@@ -357,56 +359,82 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return map;
   }, [adherents, rencontre]);
 
-  // Rôle et permissions : seuls les capitaines et les membres du bureau peuvent modifier la feuille
-  const canEdit = userRole === 'capitaine' || userRole === 'bureau';
+  // Rôle et permissions : admin, capitaines et membres du bureau peuvent modifier la feuille
+  const canEdit = userRole === 'admin' || userRole === 'capitaine' || userRole === 'bureau';
 
   // Analyse du format de championnat officiel (Jeunes, Seniors+, Régional, Départemental)
   const compFormat: CompetitionFormatInfo = useMemo(() => {
     return getCompetitionFormat(rencontre, { formatReduit });
   }, [rencontre, formatReduit]);
 
-  // Numéros des joueurs de simple assignés à chaque match chronologique
-  // Ex: pour 4 simples, les matchs 1, 2, 3, 4 peuvent avoir comme joueurs [4, 2, 3, 1] ou [2, 3, 1, 4]
-  const defaultSinglesPlayerNumbers = useMemo(() => {
-    const n = compFormat.numSingles;
-    if (n === 4) return [4, 2, 3, 1];
-    if (n === 3) return [3, 2, 1];
-    if (n === 5) return [4, 3, 2, 1, 5];
-    const list: number[] = [];
-    for (let i = 1; i <= n; i++) list.push(i);
-    return list;
-  }, [compFormat.numSingles]);
+  // Ordre numérique par défaut tant que le capitaine n'a pas validé d'ordre : S1, S2, ..., Sn, D1, ...
+  const defaultMatchOrder = useMemo(() => {
+    const tokens: string[] = [];
+    for (let i = 1; i <= compFormat.numSingles; i++) tokens.push(`S${i}`);
+    for (let d = 1; d <= compFormat.numDoubles; d++) tokens.push(`D${d}`);
+    return tokens;
+  }, [compFormat.numSingles, compFormat.numDoubles]);
 
-  const [singlesPlayerNumbers, setSinglesPlayerNumbers] = useState<number[]>(defaultSinglesPlayerNumbers);
+  const normalizeMatchOrder = useCallback((saved?: string[]): string[] => {
+    if (!saved || saved.length === 0) return defaultMatchOrder;
+    const validSet = new Set(defaultMatchOrder);
+    const cleaned: string[] = [];
+    saved.forEach(tok => {
+      if (validSet.has(tok) && !cleaned.includes(tok)) {
+        cleaned.push(tok);
+      }
+    });
+    defaultMatchOrder.forEach(tok => {
+      if (!cleaned.includes(tok)) cleaned.push(tok);
+    });
+    return cleaned;
+  }, [defaultMatchOrder]);
+
+  const [matchOrder, setMatchOrder] = useState<string[]>(() =>
+    normalizeMatchOrder(rencontre?.composition?.ordreMatchs)
+  );
 
   useEffect(() => {
-    setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
-  }, [defaultSinglesPlayerNumbers, rencontre?.id]);
+    setMatchOrder(normalizeMatchOrder(rencontre?.composition?.ordreMatchs));
+  }, [normalizeMatchOrder, rencontre?.id]);
 
-  const swapSinglesPlayerNumbers = (indexA: number, indexB: number) => {
+  // États des 3 étapes de validation du capitaine : 1. Date/Heure/Lieu -> 2. Ordre -> 3. Joueurs
+  const step1Done = Boolean(composition.logistiqueValidee || composition.valideParCapitaine);
+  const step2Done = Boolean(composition.ordreValide || composition.valideParCapitaine);
+  const step3Done = Boolean(composition.joueursValides || composition.valideParCapitaine);
+
+  const moveMatchOrder = (indexA: number, indexB: number) => {
     if (
-      indexA < 0 || 
-      indexA >= singlesPlayerNumbers.length || 
-      indexB < 0 || 
-      indexB >= singlesPlayerNumbers.length
+      indexA < 0 ||
+      indexA >= matchOrder.length ||
+      indexB < 0 ||
+      indexB >= matchOrder.length
     ) return;
-    const newOrder = [...singlesPlayerNumbers];
-    const temp = newOrder[indexA];
-    newOrder[indexA] = newOrder[indexB];
-    newOrder[indexB] = temp;
-    setSinglesPlayerNumbers(newOrder);
+    const updated = [...matchOrder];
+    const temp = updated[indexA];
+    updated[indexA] = updated[indexB];
+    updated[indexB] = temp;
+    setMatchOrder(updated);
+    setComposition(prev => ({
+      ...prev,
+      ordreMatchs: updated,
+      ordreValide: false,
+      valideParCapitaine: false,
+    }));
+  };
+
+  const swapSingleTokenInOrder = (currentIndex: number, targetSingleNum: number) => {
+    const targetToken = `S${targetSingleNum}`;
+    const otherIndex = matchOrder.indexOf(targetToken);
+    if (otherIndex !== -1 && otherIndex !== currentIndex) {
+      moveMatchOrder(currentIndex, otherIndex);
+    }
   };
 
   const getMatchTimeSlot = (index: number) => {
     const courts = Math.max(1, matchCourtsInput);
     const rotationIndex = Math.floor(index / courts);
-    const [hStr, mStr] = (matchHourInput || '09:00').split(':');
-    const h = parseInt(hStr, 10) || 9;
-    const m = parseInt(mStr, 10) || 0;
-    const totalMinutes = h * 60 + m + rotationIndex * 90;
-    const newH = Math.floor(totalMinutes / 60) % 24;
-    const newM = totalMinutes % 60;
-    return `${String(newH).padStart(2, '0')}h${String(newM).padStart(2, '0')}`;
+    return addMinutesToTime(matchHourInput || '14:00', rotationIndex * 90);
   };
 
   // Calcul du planning des créneaux et des rotations par court
@@ -425,22 +453,19 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return validateMatchDateAndSchedule(matchDateInput, compFormat, rencontre.sexeHomologation);
   }, [matchDateInput, compFormat, rencontre.sexeHomologation]);
 
-  // Contrôle de la règle obligatoire FFT du poids des doubles en Régional (Double 1 >= Double 2)
+  // Calcul systématique des poids de double FFT (échelle inversée : plus petit = meilleur)
+  // Contrôle strict dès qu'il y a 2 doubles (Poids D1 <= Poids D2)
   const doublesWeightCheck: DoublesWeightCheckResult = useMemo(() => {
-    if (!compFormat.doubleWeightStrict) {
-      return { 
-        isValid: true, 
-        weightDouble1: 0, 
-        weightDouble2: 0, 
-        p1Rank: '-',
-        p2Rank: '-',
-        p3Rank: '-',
-        p4Rank: '-',
+    const rawCheck = checkRegionalDoublesWeight(composition, adherentsById);
+    const enforceStrict = compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict;
+    if (!enforceStrict) {
+      return {
+        ...rawCheck,
+        isValid: true,
         errorMessage: undefined,
-        isComplete: false 
       };
     }
-    return checkRegionalDoublesWeight(composition, adherentsById);
+    return rawCheck;
   }, [compFormat, composition, adherentsById]);
 
   // Inverser les paires Double 1 et Double 2 en 1 clic
@@ -451,6 +476,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       double1Player2Id: prev.double2Player2Id,
       double2Player1Id: prev.double1Player1Id,
       double2Player2Id: prev.double1Player2Id,
+      joueursValides: false,
       valideParCapitaine: false,
     }));
   };
@@ -710,6 +736,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(prev => ({
       ...prev,
       [slotKey]: adherent.id,
+      joueursValides: false,
       valideParCapitaine: false,
     }));
     setActiveSlot(null);
@@ -720,6 +747,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(prev => ({
       ...prev,
       [slotKey]: undefined,
+      joueursValides: false,
       valideParCapitaine: false,
     }));
   };
@@ -749,25 +777,130 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
           updated[key] = undefined;
         }
       }
+      updated.joueursValides = false;
+      updated.valideParCapitaine = false;
       return updated;
     });
     setBlockedAlertMessage(null);
   };
 
-  // Validation définitive de la feuille de match
-  const handleValidateMatchSheet = () => {
+  // ÉTAPE 1 : Validation Date, Heure, Courts et Lieu
+  const handleValidateStep1Logistics = () => {
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
+    const updated: MatchComposition = {
+      ...composition,
+      dateRencontreValidee: matchDateInput,
+      heureDebut: matchHourInput,
+      lieuRencontre: effectiveVenue,
+      nombreCourts: matchCourtsInput,
+      formatReduit,
+      logistiqueValidee: true,
+    };
+    setComposition(updated);
+    onSaveComposition(rencontre.id, updated);
+    setBlockedAlertMessage(null);
+    setValidationSuccess('Étape 1 validée : Date, heure et lieu enregistrés.');
+    setTimeout(() => setValidationSuccess(null), 3000);
+  };
+
+  // ÉTAPE 2 : Validation de l'ordre des rencontres
+  const handleValidateStep2Order = () => {
+    if (!step1Done) {
+      setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
+      return;
+    }
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
+    const updated: MatchComposition = {
+      ...composition,
+      dateRencontreValidee: matchDateInput,
+      heureDebut: matchHourInput,
+      lieuRencontre: effectiveVenue,
+      nombreCourts: matchCourtsInput,
+      formatReduit,
+      ordreMatchs: matchOrder,
+      logistiqueValidee: true,
+      ordreValide: true,
+    };
+    setComposition(updated);
+    onSaveComposition(rencontre.id, updated);
+    setBlockedAlertMessage(null);
+    setValidationSuccess('Étape 2 validée : Ordre des rencontres enregistré.');
+    setTimeout(() => setValidationSuccess(null), 3000);
+  };
+
+  // ÉTAPE 3 : Validation des joueurs
+  const handleValidateStep3Players = () => {
+    if (!step1Done) {
+      setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
+      return;
+    }
+    if (!step2Done) {
+      setBlockedAlertMessage("Veuillez d'abord valider l'ordre des rencontres (Étape 2).");
+      return;
+    }
     if (hasIneligiblePlayer) {
       setBlockedAlertMessage(
-        "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant de valider la composition officielle."
+        "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant de valider."
+      );
+      return;
+    }
+    if ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && doublesWeightCheck.errorMessage) {
+      setBlockedAlertMessage(
+        `Blocage Règle FFT (Poids des Doubles) :\n${doublesWeightCheck.errorMessage}`
+      );
+      return;
+    }
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
+    const updated: MatchComposition = {
+      ...composition,
+      dateRencontreValidee: matchDateInput,
+      heureDebut: matchHourInput,
+      lieuRencontre: effectiveVenue,
+      nombreCourts: matchCourtsInput,
+      formatReduit,
+      ordreMatchs: matchOrder,
+      logistiqueValidee: true,
+      ordreValide: true,
+      joueursValides: true,
+      valideParCapitaine: true,
+      dateValidation: new Date().toLocaleDateString('fr-FR'),
+      poidsDouble1: doublesWeightCheck.weightDouble1,
+      poidsDouble2: doublesWeightCheck.weightDouble2,
+      poidsDoublesValide: doublesWeightCheck.isValid,
+    };
+    setComposition(updated);
+    onSaveComposition(rencontre.id, updated);
+    setBlockedAlertMessage(null);
+    setValidationSuccess('Étape 3 validée : Composition des joueurs confirmée !');
+    setTimeout(() => setValidationSuccess(null), 3500);
+  };
+
+  // Enregistrement global de la feuille de match
+  const handleValidateMatchSheet = () => {
+    if (!step1Done) {
+      setBlockedAlertMessage(
+        "Étape 1 requise : Veuillez d'abord valider la date, l'heure et le lieu avant d'enregistrer."
       );
       return;
     }
 
-    // L'ordre des classements fait l'objet d'une alerte informative (recalcul mensuel FFT le 1er mardi du mois) sans bloquer la validation
-
-    if (compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage) {
+    if (selectedPlayerIds.length > 0 && !step2Done) {
       setBlockedAlertMessage(
-        `Blocage Règle Régionale FFT (Poids des Doubles) :\n${doublesWeightCheck.errorMessage}`
+        "Étape 2 requise : Veuillez valider l'ordre des rencontres avant d'enregistrer les joueurs."
+      );
+      return;
+    }
+
+    if (hasIneligiblePlayer) {
+      setBlockedAlertMessage(
+        "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant d'enregistrer."
+      );
+      return;
+    }
+
+    if ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && doublesWeightCheck.errorMessage) {
+      setBlockedAlertMessage(
+        `Blocage Règle FFT (Poids des Doubles) :\n${doublesWeightCheck.errorMessage}`
       );
       return;
     }
@@ -777,6 +910,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     const updated: MatchComposition = {
       ...composition,
       valideParCapitaine: true,
+      logistiqueValidee: true,
+      ordreValide: step2Done || selectedPlayerIds.length === 0,
+      joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
+      ordreMatchs: matchOrder,
       dateValidation: new Date().toLocaleDateString('fr-FR'),
       dateRencontreValidee: matchDateInput,
       heureDebut: matchHourInput,
@@ -798,16 +935,15 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     // Sinon validation locale
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
-    setValidationSuccess(true);
-    setTimeout(() => setValidationSuccess(false), 3500);
+    setValidationSuccess('Feuille de match enregistrée avec succès !');
+    setTimeout(() => setValidationSuccess(null), 3500);
   };
 
-  // Exécution de l'enregistrement dans Google Sheets Données_appli après confirmation explicite
+  // Exécution de l'enregistrement après confirmation explicite
   const handleConfirmSaveToGsheet = async () => {
     if (!rencontre) return;
     setIsSavingToSheet(true);
     try {
-      // 1. Récupération optionnelle du token OAuth (ne bloque pas si absent/expiré car la sauvegarde passe par Apps Script)
       let token: string | null = null;
       try {
         token = await getAccessToken();
@@ -820,6 +956,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       const updated: MatchComposition = {
         ...composition,
         valideParCapitaine: true,
+        logistiqueValidee: true,
+        ordreValide: step2Done || selectedPlayerIds.length === 0,
+        joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
+        ordreMatchs: matchOrder,
         dateValidation: new Date().toLocaleDateString('fr-FR'),
         dateRencontreValidee: matchDateInput,
         heureDebut: matchHourInput,
@@ -842,7 +982,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       setComposition(updated);
       onSaveComposition(rencontre.id, updated);
       setIsConfirmGsheetOpen(false);
-      setSheetSaveSuccess(`Composition enregistrée dans Données_appli (${result.rowsSaved} postes figés) !`);
+      setSheetSaveSuccess(`Feuille de match enregistrée (${result.rowsSaved} poste(s) enregistré(s)) !`);
       setTimeout(() => setSheetSaveSuccess(null), 4500);
     } catch (err: any) {
       console.warn('Erreur enregistrement Google Sheets:', err);
@@ -853,55 +993,122 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }
   };
 
-  // Copier le résumé pour envoi WhatsApp / SMS
-  const handleCopySummary = () => {
-    const p1 = composition.simple1Id ? adherentsById.get(composition.simple1Id)?.nomPrenom : 'Non désigné';
-    const p2 = composition.simple2Id ? adherentsById.get(composition.simple2Id)?.nomPrenom : 'Non désigné';
-    const p3 = composition.simple3Id ? adherentsById.get(composition.simple3Id)?.nomPrenom : 'Non désigné';
-    const p4 = composition.simple4Id ? adherentsById.get(composition.simple4Id)?.nomPrenom : 'Non désigné';
-    const p5 = composition.simple5Id ? adherentsById.get(composition.simple5Id)?.nomPrenom : 'Non désigné';
+  // Regroupement des matchs selon les rotations et le nombre de courts
+  const getRotationsFromMatchOrder = () => {
+    const courts = Math.max(1, matchCourtsInput);
+    const groups: { time: string; items: string[] }[] = [];
+    matchOrder.forEach((token, idx) => {
+      const rotIdx = Math.floor(idx / courts);
+      const time = addMinutesToTime(matchHourInput || '14:00', rotIdx * 90);
+      if (!groups[rotIdx]) {
+        groups[rotIdx] = { time, items: [] };
+      }
+      groups[rotIdx].items.push(token);
+    });
+    return groups;
+  };
 
-    const d1_1 = composition.double1Player1Id ? adherentsById.get(composition.double1Player1Id)?.nomPrenom : 'Non désigné';
-    const d1_2 = composition.double1Player2Id ? adherentsById.get(composition.double1Player2Id)?.nomPrenom : 'Non désigné';
+  // Bulle 1 : SMS pour les joueurs de l'équipe (trame officielle sans icône, avec COMPOSITION & ORDRE)
+  const handleCopyPlayersSms = () => {
+    const teamNum = (rencontre.numeroEquipe || '').replace(/^équipe\s*/i, '').trim() || rencontre.numeroEquipe || '';
+    const headerNum = teamNum ? ` - ${teamNum}` : '';
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput || 'Lieu personnalisé') : matchVenueInput;
+    const capName = rencontre.prenomCapitaine
+      ? `${rencontre.prenomCapitaine} ${rencontre.nomCapitaine}`.trim()
+      : (rencontre.nomCapitaine || 'Non désigné');
 
-    const d2_1 = composition.double2Player1Id ? adherentsById.get(composition.double2Player1Id)?.nomPrenom : 'Non désigné';
-    const d2_2 = composition.double2Player2Id ? adherentsById.get(composition.double2Player2Id)?.nomPrenom : 'Non désigné';
+    const lines: string[] = [
+      `FEUILLE DE MATCH TCM${headerNum}`,
+      `${rencontre.libelleHomologation || compFormat.categoryLabel}`,
+      `Date : ${scheduleCheck.dayName} ${matchDateInput} à ${matchHourInput}`,
+      `Lieu : ${effectiveVenue} (${matchCourtsInput} court(s))`,
+      `Rencontre : ${formatMuzillacClubName(rencontre.clubAccueilNom, rencontre.numeroEquipe)} vs ${formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}`,
+      `Capitaine : ${capName}`,
+      '',
+      'COMPOSITION & ORDRE',
+    ];
 
-    const effectiveVenue = matchVenueInput === 'autre' ? customVenueInput || 'Lieu personnalisé' : matchVenueInput;
+    const rotations = getRotationsFromMatchOrder();
+    rotations.forEach(({ time, items }) => {
+      lines.push(time);
+      items.forEach((token) => {
+        if (token.startsWith('S')) {
+          const num = parseInt(token.slice(1), 10);
+          const pId = (composition as any)[`simple${num}Id`] as string | undefined;
+          const p = pId ? adherentsById.get(pId) : undefined;
+          if (p) {
+            const rank = cleanRanking(p.dernierClassTennis) || 'NC';
+            const lic = (p.licence || '').trim();
+            lines.push(`N°${num} ${rank} ${p.nomPrenom}${lic ? ` ${lic}` : ''}`);
+          } else {
+            lines.push(`N°${num} À désigner`);
+          }
+        } else if (token.startsWith('D')) {
+          const dNum = parseInt(token.slice(1), 10);
+          const p1Id = dNum === 1 ? composition.double1Player1Id : composition.double2Player1Id;
+          const p2Id = dNum === 1 ? composition.double1Player2Id : composition.double2Player2Id;
+          const p1 = p1Id ? adherentsById.get(p1Id) : undefined;
+          const p2 = p2Id ? adherentsById.get(p2Id) : undefined;
+          const w1 = p1 ? getDoubleRankingWeight(p1.dernierClassTennis) : null;
+          const w2 = p2 ? getDoubleRankingWeight(p2.dernierClassTennis) : null;
+          const totalW = w1 !== null && w2 !== null ? w1 + w2 : null;
+          const doubleTitle = compFormat.numDoubles >= 2 ? `Double ${dNum}` : 'Double';
+          lines.push(totalW !== null ? `${doubleTitle} (${totalW})` : doubleTitle);
 
-    let text = `🎾 FEUILLE DE MATCH TCM - ${rencontre.numeroEquipe}
-🏆 ${rencontre.libelleHomologation} (${rencontre.categorieAgeHomologation} - ${rencontre.sexeHomologation})
-📅 Date : ${scheduleCheck.dayName} ${matchDateInput} à ${matchHourInput}
-📍 Lieu : ${effectiveVenue} (${matchCourtsInput} court(s))
-🆚 Rencontre : ${formatMuzillacClubName(rencontre.clubAccueilNom, rencontre.numeroEquipe)} vs ${formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}
-👤 Capitaine : ${rencontre.nomCapitaine}
-
-COMPOSITION OFFICIELLE (${compFormat.categoryLabel}) :
-• Simple 1 : ${p1}
-• Simple 2 : ${p2}`;
-
-    if (compFormat.numSingles >= 3) text += `\n• Simple 3 : ${p3}`;
-    if (compFormat.numSingles >= 4) text += `\n• Simple 4 : ${p4}`;
-    if (compFormat.numSingles >= 5) text += `\n• Simple 5 : ${p5}`;
-
-    text += `\n• Double 1 : ${d1_1} & ${d1_2}`;
-    if (compFormat.numDoubles >= 2) {
-      text += `\n• Double 2 : ${d2_1} & ${d2_2}`;
-    }
-
-    // Ajout des créneaux horaires prévisionnels par rotation
-    text += `\n\n⏰ CRÉNEAUX ET ORDRE DE PASSAGE (${matchCourtsInput} court${matchCourtsInput > 1 ? 's' : ''}) :`;
-    schedulePlan.rotations.forEach(rot => {
-      text += `\n• Rotation ${rot.rotationNumber} à ${rot.timeSlot} : ` +
-        rot.matches.map(m => `${m.matchLabel} (${m.playerName || '?'}) sur ${m.courtName}`).join(', ');
+          if (p1) {
+            const lic1 = (p1.licence || '').trim();
+            lines.push(`${w1} ${p1.nomPrenom}${lic1 ? ` ${lic1}` : ''}`);
+          } else {
+            lines.push('À désigner');
+          }
+          if (p2) {
+            const lic2 = (p2.licence || '').trim();
+            lines.push(`${w2} ${p2.nomPrenom}${lic2 ? ` ${lic2}` : ''}`);
+          } else {
+            lines.push('À désigner');
+          }
+        }
+      });
     });
 
-    text += `\n\n📌 Règle : ${compFormat.pointsSystem}
-Statut FFT : Conforme aux règlements 2027 ✅`;
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedPlayersSms(true);
+    setTimeout(() => setCopiedPlayersSms(false), 2000);
+  };
 
-    navigator.clipboard.writeText(text);
-    setCopiedSummary(true);
-    setTimeout(() => setCopiedSummary(false), 2000);
+  // Bulle 2 : SMS pour l'équipe adversaire (uniquement les heures et les numéros des joueurs)
+  const handleCopyOpponentSms = () => {
+    const teamNum = (rencontre.numeroEquipe || '').replace(/^équipe\s*/i, '').trim() || rencontre.numeroEquipe || '';
+    const headerNum = teamNum ? ` - ${teamNum}` : '';
+    const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput || 'Lieu personnalisé') : matchVenueInput;
+
+    const lines: string[] = [
+      `ORDRE DES MATCHS TCM${headerNum}`,
+      `${rencontre.libelleHomologation || compFormat.categoryLabel}`,
+      `Date : ${scheduleCheck.dayName} ${matchDateInput} à ${matchHourInput}`,
+      `Lieu : ${effectiveVenue} (${matchCourtsInput} court(s))`,
+      `Rencontre : ${formatMuzillacClubName(rencontre.clubAccueilNom, rencontre.numeroEquipe)} vs ${formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}`,
+      '',
+      'ORDRE DES RENCONTRES',
+    ];
+
+    const rotations = getRotationsFromMatchOrder();
+    rotations.forEach(({ time, items }) => {
+      lines.push(time);
+      items.forEach((token) => {
+        if (token.startsWith('S')) {
+          const num = parseInt(token.slice(1), 10);
+          lines.push(`N°${num}`);
+        } else if (token.startsWith('D')) {
+          const dNum = parseInt(token.slice(1), 10);
+          lines.push(compFormat.numDoubles >= 2 ? `Double ${dNum}` : 'Double');
+        }
+      });
+    });
+
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedOpponentSms(true);
+    setTimeout(() => setCopiedOpponentSms(false), 2000);
   };
 
   const getScheduleSlotFor = (slotKey: SlotKey) => {
@@ -960,7 +1167,9 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     {player.dernierClassTennis}
                   </span>
                   <p className="text-[9px] text-zinc-500 mt-0.5">
-                    {player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}
+                    {isDouble
+                      ? `Poids ${getDoubleRankingWeight(player.dernierClassTennis)}`
+                      : player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}
                   </p>
                 </div>
 
@@ -991,14 +1200,21 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
             )}
           </div>
         ) : canEdit ? (
-          <button
-            type="button"
-            onClick={() => setActiveSlot({ key: slotKey, label })}
-            className="w-full py-2 flex items-center justify-center gap-2 rounded-lg transition cursor-pointer hover:bg-orange-600/10"
-          >
-            <UserCheck className="w-4 h-4 text-[#FF6D00]" />
-            <span className="text-[#FF6D00] font-black text-xs">Assigner {label}</span>
-          </button>
+          step2Done ? (
+            <button
+              type="button"
+              onClick={() => setActiveSlot({ key: slotKey, label })}
+              className="w-full py-2 flex items-center justify-center gap-2 rounded-lg transition cursor-pointer hover:bg-orange-600/10"
+            >
+              <UserCheck className="w-4 h-4 text-[#FF6D00]" />
+              <span className="text-[#FF6D00] font-black text-xs">Assigner {label}</span>
+            </button>
+          ) : (
+            <div className="w-full py-2 flex items-center justify-center gap-1.5 text-zinc-500 text-[11px] italic opacity-75">
+              <Lock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <span>Validez d&apos;abord l&apos;ordre des rencontres (Étape 2)</span>
+            </div>
+          )
         ) : (
           <div className="w-full py-2 flex items-center justify-center gap-1.5 text-zinc-500 text-xs italic">
             <span>Poste non assigné</span>
@@ -1150,7 +1366,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     )}
                     <span className="text-[11px] sm:text-xs text-orange-400 font-bold flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
-                      {scheduleCheck.dayName} {matchDateInput}
+                      {scheduleCheck.dayName} {matchDateInput} à {matchHourInput || '14:00'}
                     </span>
                   </div>
 
@@ -1234,12 +1450,12 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     )}
 
                     {/* 3. Alerte Poids des Doubles */}
-                    {compFormat.doubleWeightStrict && doublesWeightCheck.errorMessage && (
+                    {(compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && doublesWeightCheck.errorMessage && (
                       <div className="p-2.5 rounded-xl bg-black/40 border border-purple-500/40 text-purple-200 flex items-start justify-between gap-2 flex-wrap">
                         <div className="space-y-1">
                           <p className="font-black text-purple-300 text-[11px] flex items-center gap-1">
                             <AlertTriangle className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span>Règle régionale du Poids des doubles (D1 ≤ D2) :</span>
+                            <span>Règle FFT du Poids des doubles (Poids D1 ≤ Poids D2) :</span>
                           </p>
                           <p className="text-[11px] text-zinc-300 pl-1">
                             {doublesWeightCheck.errorMessage}
@@ -1282,7 +1498,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               {validationSuccess && !sheetSaveSuccess && (
                 <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 text-xs flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Feuille de match certifiée conforme et enregistrée avec succès !</span>
+                  <span>{validationSuccess}</span>
                 </div>
               )}
 
@@ -1297,6 +1513,42 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </div>
               )}
 
+          {/* Progression des 3 étapes de validation du capitaine */}
+          {canEdit && (
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
+                step1Done
+                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
+                  : 'bg-orange-500/15 border-orange-500/40 text-orange-300'
+              }`}>
+                {step1Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">1</span>}
+                <span className="truncate">1. Date, heure &amp; lieu</span>
+              </div>
+
+              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
+                step2Done
+                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
+                  : step1Done
+                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
+                    : 'bg-[#12151b] border-zinc-800 text-zinc-500'
+              }`}>
+                {step2Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${step1Done ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>2</span>}
+                <span className="truncate">2. Ordre des matchs</span>
+              </div>
+
+              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
+                step3Done
+                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
+                  : step2Done
+                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
+                    : 'bg-[#12151b] border-zinc-800 text-zinc-500'
+              }`}>
+                {step3Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${step2Done ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>3</span>}
+                <span className="truncate">3. Joueurs</span>
+              </div>
+            </div>
+          )}
+
           {/* Statut de la composition officielle */}
           {composition.valideParCapitaine && (
             <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 flex items-center justify-between gap-2 shadow-md">
@@ -1306,22 +1558,21 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 </div>
                 <div>
                   <h4 className="font-heading font-black text-white text-xs sm:text-sm">
-                    Composition d'équipe officielle validée
+                    Feuille de match validée
                   </h4>
                   <p className="text-[11px] text-emerald-300/80">
-                    Enregistrée dans l'onglet Compositions_Equipes
-                    {composition.dateValidation ? ` le ${composition.dateValidation}` : ''} • Visible par tous les adhérents
+                    {composition.dateValidation ? `Validée le ${composition.dateValidation}` : 'Enregistrée'} • Visible par tous les adhérents
                   </p>
                 </div>
               </div>
               <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                Équipe validée
+                Validée
               </span>
             </div>
           )}
 
-          {/* ==================== SECTION LOGISTIQUE DU MATCH ÉPURÉE ==================== */}
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934]">
+          {/* ==================== ÉTAPE 1 : LOGISTIQUE DU MATCH (DATE, HEURE, COURTS, LIEU) ==================== */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
               
               {/* 1. Date avec mini calendrier */}
@@ -1338,6 +1589,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       onChange={(e) => {
                         if (e.target.value) {
                           setMatchDateInput(fromIsoDate(e.target.value));
+                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
                         }
                       }}
                       className="w-full bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer [color-scheme:dark]"
@@ -1368,6 +1620,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       onChange={(e) => {
                         if (e.target.value !== 'autre') {
                           setMatchHourInput(e.target.value);
+                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
                         }
                       }}
                       className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
@@ -1383,7 +1636,10 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                         <input
                           type="time"
                           value={matchHourInput}
-                          onChange={(e) => setMatchHourInput(e.target.value)}
+                          onChange={(e) => {
+                            setMatchHourInput(e.target.value);
+                            setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                          }}
                           className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
                         />
                       </div>
@@ -1408,7 +1664,10 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       <button
                         key={cnt}
                         type="button"
-                        onClick={() => setMatchCourtsInput(cnt)}
+                        onClick={() => {
+                          setMatchCourtsInput(cnt);
+                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                        }}
                         className={`flex-1 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                           matchCourtsInput === cnt
                             ? 'bg-sky-600 text-white shadow'
@@ -1432,35 +1691,52 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                   Lieu du match
                 </label>
                 {canEdit ? (
-                  <select
-                    value={matchVenueInput}
-                    onChange={(e) => setMatchVenueInput(e.target.value)}
-                    className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
-                  >
-                    {!isHome && adverseAddressInfo.hasAdverseAddress && (
-                      <option value={adverseAddressInfo.venueLabel}>
-                        🚗 {adverseAddressInfo.venueLabel}
+                  <div className="space-y-1">
+                    <select
+                      value={matchVenueInput}
+                      onChange={(e) => {
+                        setMatchVenueInput(e.target.value);
+                        setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                      }}
+                      className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
+                    >
+                      {!isHome && adverseAddressInfo.hasAdverseAddress && (
+                        <option value={adverseAddressInfo.venueLabel}>
+                          🚗 {adverseAddressInfo.venueLabel}
+                        </option>
+                      )}
+                      <option value="Clos des Moines - 2 courts couverts résine (TCM)">
+                        Clos des Moines (Résine TCM)
                       </option>
-                    )}
-                    <option value="Clos des Moines - 2 courts couverts résine (TCM)">
-                      Clos des Moines (Résine TCM)
-                    </option>
-                    <option value="Salle du TC Nivillac (Emprunt TCM 3 équipes)">
-                      Salle TC Nivillac (Emprunt 3 équipes)
-                    </option>
-                    <option value="Clos des Moines - 2 courts extérieurs (Béton poreux)">
-                      Clos des Moines (Extérieurs TCM)
-                    </option>
-                    {!isHome && (
-                      <option value={`${rencontre.clubAccueilNom} (Installations adverses)`}>
-                        {rencontre.clubAccueilNom} (Déplacement)
+                      <option value="Salle du TC Nivillac (Emprunt TCM 3 équipes)">
+                        Salle TC Nivillac (Emprunt 3 équipes)
                       </option>
+                      <option value="Clos des Moines - 2 courts extérieurs (Béton poreux)">
+                        Clos des Moines (Extérieurs TCM)
+                      </option>
+                      {!isHome && (
+                        <option value={`${rencontre.clubAccueilNom} (Installations adverses)`}>
+                          {rencontre.clubAccueilNom} (Déplacement)
+                        </option>
+                      )}
+                      <option value="Salle omnisports municipale (Repli)">
+                        Salle omnisports municipale (Repli)
+                      </option>
+                      <option value="autre">Autre lieu personnalisé...</option>
+                    </select>
+                    {matchVenueInput === 'autre' && (
+                      <input
+                        type="text"
+                        value={customVenueInput}
+                        onChange={(e) => {
+                          setCustomVenueInput(e.target.value);
+                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                        }}
+                        placeholder="Saisir le lieu..."
+                        className="w-full bg-black/50 border border-orange-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      />
                     )}
-                    <option value="Salle omnisports municipale (Repli)">
-                      Salle omnisports municipale (Repli)
-                    </option>
-                    <option value="autre">Autre lieu personnalisé...</option>
-                  </select>
+                  </div>
                 ) : (
                   <div className="bg-black/40 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-zinc-200 truncate" title={matchVenueInput}>
                     {matchVenueInput}
@@ -1469,6 +1745,28 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
               </div>
 
             </div>
+
+            {canEdit && (
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1e2430] flex-wrap">
+                <span className="text-[11px] text-zinc-400">
+                  {step1Done
+                    ? '✓ Étape 1 validée (Date, heure, courts et lieu enregistrés)'
+                    : 'Étape 1 : Validez d’abord la date, l’heure et le lieu de la rencontre'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleValidateStep1Logistics}
+                  className={`px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                    step1Done
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                      : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md hover:brightness-110'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{step1Done ? 'Date, heure et lieu validés' : '1. Valider date, heure et lieu'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ==================== CONTACTS DES CAPITAINES ==================== */}
@@ -1486,7 +1784,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     {rencontre.prenomCapitaine ? `${rencontre.prenomCapitaine} ${rencontre.nomCapitaine}` : (rencontre.nomCapitaine || 'Non désigné')}
                   </p>
                   {rencontre.portableCapitaine && (
-                    <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                    <p className="text-[11px] text-zinc-400 font-mono mt-0.5 whitespace-nowrap tabular-nums">
                       {rencontre.portableCapitaine}
                     </p>
                   )}
@@ -1545,7 +1843,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                         {advFullName || 'Non communiqué'}
                       </p>
                       {advTel && (
-                        <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                        <p className="text-[11px] text-zinc-400 font-mono mt-0.5 whitespace-nowrap tabular-nums">
                           {advTel}
                         </p>
                       )}
@@ -1642,260 +1940,265 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
             );
           })()}
 
-          {/* ==================== MATCHS OFFICIELS & ORDRE DES PARTIES ==================== */}
+          {/* ==================== MATCHS OFFICIELS, RÈGLE SPÉCIFIQUE & ORDRE ==================== */}
           <div className="space-y-3">
-            {/* Rappel des Règles de l'Ordre des Matchs */}
-            <div className="p-3.5 rounded-2xl bg-[#0e1219] border border-[#232a37] text-xs space-y-2">
-              <div className="flex items-center justify-between text-orange-400 font-bold">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Règles de déroulement &amp; Ordre des matchs</span>
-                </div>
-                <span className="text-[10px] text-zinc-400 font-mono">Jeudi 20h00</span>
+            {/* Règle spécifique uniquement à CETTE rencontre */}
+            <div className="p-3 rounded-2xl bg-[#0e1219] border border-[#232a37] text-xs space-y-1">
+              <div className="flex items-center justify-between text-orange-400 font-bold gap-2">
+                <span className="flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 shrink-0" />
+                  <span>Règle applicable à cette rencontre ({compFormat.divisionLabel})</span>
+                </span>
+                <span className="text-[10px] text-zinc-400 font-mono shrink-0">
+                  {compFormat.numSingles}S + {compFormat.numDoubles}D
+                </span>
               </div>
-
-              <div className="text-[11px] text-zinc-300 space-y-1.5 leading-relaxed">
-                <p>
-                  • <strong>Déroulement à suivre</strong> : Rencontres en continu dès 09H ou 14H (plus de convocation horaire match par match).
+              <p className="text-[11px] text-zinc-300 leading-relaxed">
+                {compFormat.orderOfPlay}
+                {compFormat.doubleWeightStrict ? ' • Poids des doubles FFT (inversé) : Poids Double 1 ≤ Poids Double 2.' : ''}
+              </p>
+              {schedulePlan.surfacesDifferentesActif && (
+                <p className="text-[10px] text-purple-300">
+                  2 terrains de surfaces différentes : le capitaine visiteur choisit le terrain pour chacun des simples avant jeudi 20h00.
                 </p>
-                <p>
-                  • <strong>Proposition du capitaine visiteur</strong> : L’ordre des parties est proposé par le capitaine qui se déplace avant le <strong>jeudi 20h00</strong> précédant la rencontre.
-                </p>
-                <p>
-                  • <strong>Sur 1 court en Pré-Régional</strong> : Possibilité de faire 2 simples / 1 double / 2 simples / 1 double (4-2, Double 2, 3-1, Double 1).
-                </p>
-                <div className="p-2 rounded-xl bg-black/40 border border-zinc-800 text-[10px] space-y-0.5 text-zinc-400">
-                  <p className="font-bold text-zinc-200">Ordres appliqués en cas de désaccord :</p>
-                  <p>• <em>Féminines &amp; Pré-Régional</em> : 4-2, 3-1, doubles (sur 2 courts) OU 4-2, D2, 3-1, D1 (sur 1 court).</p>
-                  <p>• <em>Masculines D1 / D2 / D3</em> : 4-3-2-1-5 - double (double joué en même temps que le dernier simple sur 2 courts).</p>
-                  <p>• <em>Féminines D2 / D3</em> : 1-2-3 - double.</p>
-                </div>
-                <p className="text-[10px] text-zinc-400 italic">
-                  💡 <strong>Joueurs de double</strong> : Dans la mesure du possible, ne pas les placer en dernière rencontre de simple. Un capitaine peut demander d'attendre la fin du match d'un joueur prévu en double.
-                </p>
-                {schedulePlan.surfacesDifferentesActif && (
-                  <div className="p-2 rounded-xl bg-purple-950/30 border border-purple-500/30 text-[10px] text-purple-200">
-                    🎾 <strong>2 terrains de surfaces différentes</strong> : Lors de l'échange du jeudi soir, le capitaine qui reçoit propose au capitaine qui se déplace de choisir le terrain pour chacun des matchs en simple (ex : 4 et 2 sur terrain A, 3 et 1 sur terrain B).
-                  </div>
-                )}
-              </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-orange-400" />
                 <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Matchs officiels &amp; Ordre des joueurs
+                  Matchs officiels &amp; Ordre des rencontres
                 </h3>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30 font-bold">
                   {compFormat.numSingles}S + {compFormat.numDoubles}D
                 </span>
               </div>
 
-              {/* Boutons pour réinitialiser l'ordre des numéros de joueurs */}
               {canEdit && (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => {
-                      setSinglesPlayerNumbers(defaultSinglesPlayerNumbers);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
-                    title="Ordre FFT classique (4-2 puis 3-1)"
+                    onClick={handleValidateStep2Order}
+                    disabled={!step1Done}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition ${
+                      !step1Done
+                        ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-800 cursor-not-allowed'
+                        : step2Done
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer'
+                          : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow hover:brightness-110 cursor-pointer'
+                    }`}
                   >
-                    Ordre FFT ({defaultSinglesPlayerNumbers.join('-')})
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{step2Done ? 'Ordre des rencontres validé' : "2. Valider l'ordre des rencontres"}</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => {
-                      const list: number[] = [];
-                      for (let i = 1; i <= compFormat.numSingles; i++) list.push(i);
-                      setSinglesPlayerNumbers(list);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold border border-zinc-700 transition cursor-pointer"
-                    title="Ordre numérique (1, 2, 3...)"
+                    onClick={handleValidateStep3Players}
+                    disabled={!step1Done || !step2Done || hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition ${
+                      !step1Done || !step2Done || hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
+                        ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-800 cursor-not-allowed'
+                        : step3Done
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer'
+                          : 'bg-sky-600 hover:bg-sky-500 text-white shadow cursor-pointer'
+                    }`}
                   >
-                    Numérique (1 à {compFormat.numSingles})
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>{step3Done ? 'Joueurs validés' : '3. Valider les joueurs'}</span>
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Liste des matchs : Les matchs 1..N restent dans l'ordre chronologique fixe, on permute les numéros de joueurs */}
+            {/* Liste ordonnée unifiée (Simples & Doubles en ordre numérique par défaut tant que le capitaine n'a pas validé) */}
             <div className="space-y-2.5">
-              
-              {/* 1. MATCHS DE SIMPLES (Match 1 à compFormat.numSingles) */}
-              {singlesPlayerNumbers.map((playerNum, matchIndex) => {
+              {matchOrder.map((token, matchIndex) => {
                 const timeSlot = getMatchTimeSlot(matchIndex);
-                const slotKey = `simple${playerNum}Id` as SlotKey;
+
+                if (token.startsWith('S')) {
+                  const playerNum = parseInt(token.slice(1), 10);
+                  const slotKey = `simple${playerNum}Id` as SlotKey;
+
+                  return (
+                    <div
+                      key={`match-${token}`}
+                      className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md"
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
+                            Match {matchIndex + 1}
+                          </span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-xs font-bold">
+                            <Clock className="w-3 h-3 text-orange-400" />
+                            <span>{timeSlot}</span>
+                          </span>
+
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[11px] text-zinc-400">Affectation :</span>
+                            {canEdit && step1Done ? (
+                              <select
+                                value={playerNum}
+                                onChange={(e) => {
+                                  const targetNum = parseInt(e.target.value, 10);
+                                  swapSingleTokenInOrder(matchIndex, targetNum);
+                                }}
+                                className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
+                                title="Choisir quel numéro de joueur dispute ce créneau"
+                              >
+                                {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
+                                  <option key={num} value={num}>
+                                    Joueur n°{num} {num === 1 ? '(Leader)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="font-bold text-xs text-orange-300 bg-black/60 border border-orange-500/30 px-2 py-0.5 rounded-lg">
+                                Joueur n°{playerNum} {playerNum === 1 ? '(Leader)' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {canEdit && (
+                          <div className="flex items-center space-x-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => moveMatchOrder(matchIndex, matchIndex - 1)}
+                              disabled={!step1Done || matchIndex === 0}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                                !step1Done || matchIndex === 0
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                              }`}
+                              title="Monter ce match dans l'ordre"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveMatchOrder(matchIndex, matchIndex + 1)}
+                              disabled={!step1Done || matchIndex === matchOrder.length - 1}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                                !step1Done || matchIndex === matchOrder.length - 1
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                              }`}
+                              title="Descendre ce match dans l'ordre"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        {renderSlotCard(slotKey, `Joueur n°${playerNum}`)}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Double 1 ou Double 2
+                const dNum = parseInt(token.slice(1), 10);
+                const p1SlotKey: SlotKey = dNum === 1 ? 'double1Player1Id' : 'double2Player1Id';
+                const p2SlotKey: SlotKey = dNum === 1 ? 'double1Player2Id' : 'double2Player2Id';
+                const p1 = composition[p1SlotKey] ? adherentsById.get(composition[p1SlotKey]!) : null;
+                const p2 = composition[p2SlotKey] ? adherentsById.get(composition[p2SlotKey]!) : null;
+                const pairWeight = (p1 ? getDoubleRankingWeight(p1.dernierClassTennis) : 0) + (p2 ? getDoubleRankingWeight(p2.dernierClassTennis) : 0);
+                const pairComplete = Boolean(p1 && p2);
 
                 return (
                   <div
-                    key={`match-simple-${matchIndex}`}
+                    key={`match-${token}`}
                     className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md"
                   >
-                    {/* En-tête du match chronologique avec heure fixe et sélecteur de joueur permutable */}
                     <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
                           Match {matchIndex + 1}
                         </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-xs font-bold">
-                          <Clock className="w-3 h-3 text-orange-400" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
+                          <Clock className="w-3 h-3 text-purple-400" />
                           <span>{timeSlot}</span>
                         </span>
-
-                        {/* Sélecteur direct du numéro de joueur pour ce match */}
-                        <div className="flex items-center space-x-1.5">
-                          <span className="text-[11px] text-zinc-400">Affectation :</span>
-                          {canEdit ? (
-                            <select
-                              value={playerNum}
-                              onChange={(e) => {
-                                const targetNum = parseInt(e.target.value, 10);
-                                const otherIndex = singlesPlayerNumbers.indexOf(targetNum);
-                                if (otherIndex !== -1) {
-                                  swapSinglesPlayerNumbers(matchIndex, otherIndex);
-                                }
-                              }}
-                              className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
-                              title="Choisir quel numéro de joueur dispute ce créneau"
-                            >
-                              {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
-                                <option key={num} value={num}>
-                                  Joueur n°{num} {num === 1 ? '(Leader)' : ''}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="font-bold text-xs text-orange-300 bg-black/60 border border-orange-500/30 px-2 py-0.5 rounded-lg">
-                              Joueur n°{playerNum} {playerNum === 1 ? '(Leader)' : ''}
-                            </span>
-                          )}
-                        </div>
+                        <span className="font-heading font-black text-white text-xs sm:text-sm">
+                          {compFormat.numDoubles >= 2 ? `Double N°${dNum}` : 'Double'}
+                        </span>
+                        {dNum === 1 && compFormat.numDoubles >= 2 && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
+                            Paire N°1 (Poids D1 ≤ D2)
+                          </span>
+                        )}
                       </div>
 
-                      {/* Flèches de permutation avec le match précédent / suivant */}
-                      {canEdit && (
-                        <div className="flex items-center space-x-1 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0">
+                        {dNum === 2 && canEdit && step2Done && (
                           <button
                             type="button"
-                            onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex - 1)}
-                            disabled={matchIndex === 0}
-                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                              matchIndex === 0
-                                ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                            }`}
-                            title="Permuter avec le match précédent (▲)"
+                            onClick={handleSwapDoubles}
+                            className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer mr-1"
+                            title="Intervertir la paire D1 et la paire D2"
                           >
-                            <ArrowUp className="w-3 h-3" />
+                            <ArrowUpDown className="w-3.5 h-3.5" />
+                            <span>Inverser D1 et D2</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => swapSinglesPlayerNumbers(matchIndex, matchIndex + 1)}
-                            disabled={matchIndex === compFormat.numSingles - 1}
-                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                              matchIndex === compFormat.numSingles - 1
-                                ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                            }`}
-                            title="Permuter avec le match suivant (▼)"
-                          >
-                            <ArrowDown className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        {canEdit && (
+                          <div className="flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => moveMatchOrder(matchIndex, matchIndex - 1)}
+                              disabled={!step1Done || matchIndex === 0}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                                !step1Done || matchIndex === 0
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                              }`}
+                              title="Monter ce double dans l'ordre"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveMatchOrder(matchIndex, matchIndex + 1)}
+                              disabled={!step1Done || matchIndex === matchOrder.length - 1}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
+                                !step1Done || matchIndex === matchOrder.length - 1
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                              }`}
+                              title="Descendre ce double dans l'ordre"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Bulle compacte Joueur n°X */}
-                    <div>
-                      {renderSlotCard(slotKey, `Joueur n°${playerNum}`)}
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {renderSlotCard(p1SlotKey, compFormat.numDoubles >= 2 ? `Joueur 1 (Double ${dNum})` : 'Joueur 1 (Double)')}
+                        {renderSlotCard(p2SlotKey, compFormat.numDoubles >= 2 ? `Joueur 2 (Double ${dNum})` : 'Joueur 2 (Double)')}
+                      </div>
+                      {pairComplete && (
+                        <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                          <span>
+                            Poids total {compFormat.numDoubles >= 2 ? `Double ${dNum}` : 'du Double'} :{' '}
+                            <strong className="text-white font-mono">{pairWeight}</strong>
+                            <span className="text-zinc-500 ml-1">
+                              ({getDoubleRankingWeight(p1!.dernierClassTennis)} + {getDoubleRankingWeight(p2!.dernierClassTennis)})
+                            </span>
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
-
-              {/* 2. MATCHS DE DOUBLES */}
-              {/* Double 1 */}
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md">
-                <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
-                      Match {compFormat.numSingles + 1}
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
-                      <Clock className="w-3 h-3 text-purple-400" />
-                      <span>{getMatchTimeSlot(compFormat.numSingles)}</span>
-                    </span>
-                    <span className="font-heading font-black text-white text-xs sm:text-sm">
-                      Double N°1
-                    </span>
-                    {compFormat.doubleWeightStrict && (
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
-                        Paire N°1 (Poids ≥ D2)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {renderSlotCard('double1Player1Id', 'Joueur 1 (Double 1)')}
-                    {renderSlotCard('double1Player2Id', 'Joueur 2 (Double 1)')}
-                  </div>
-                  {doublesWeightCheck.isComplete && (
-                    <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
-                      <span>Poids total D1 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble1} pts</strong></span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Double 2 (si applicable) */}
-              {compFormat.numDoubles >= 2 && (
-                <div className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md">
-                  <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
-                        Match {compFormat.numSingles + 2}
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
-                        <Clock className="w-3 h-3 text-purple-400" />
-                        <span>{getMatchTimeSlot(compFormat.numSingles + 1)}</span>
-                      </span>
-                      <span className="font-heading font-black text-white text-xs sm:text-sm">
-                        Double N°2
-                      </span>
-                    </div>
-
-                    {canEdit && (
-                      <button
-                        type="button"
-                        onClick={handleSwapDoubles}
-                        className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer"
-                        title="Intervertir la paire D1 et la paire D2"
-                      >
-                        <ArrowUpDown className="w-3.5 h-3.5" />
-                        <span>Inverser D1 et D2</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {renderSlotCard('double2Player1Id', 'Joueur 1 (Double 2)')}
-                      {renderSlotCard('double2Player2Id', 'Joueur 2 (Double 2)')}
-                    </div>
-                    {doublesWeightCheck.isComplete && (
-                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
-                        <span>Poids total D2 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble2} pts</strong></span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
             </div>
           </div>
 
@@ -2074,13 +2377,25 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
         {/* ==================== PIED DE PAGE ET ACTIONS ==================== */}
         <div className="shrink-0 p-3 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
           
-          <button
-            onClick={handleCopySummary}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#1a1f29] hover:bg-[#252c3a] border border-[#2c3444] text-zinc-300 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {copiedSummary ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-orange-400" />}
-            <span>{copiedSummary ? 'Feuille copiée !' : 'Copier résumé (SMS / Mail)'}</span>
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            <button
+              type="button"
+              onClick={handleCopyPlayersSms}
+              className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-[#1a1f29] hover:bg-[#252c3a] border border-[#2c3444] text-zinc-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {copiedPlayersSms ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <Copy className="w-4 h-4 text-orange-400 shrink-0" />}
+              <span>{copiedPlayersSms ? 'Copié !' : 'SMS pour les joueurs'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyOpponentSms}
+              className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-[#1a1f29] hover:bg-[#252c3a] border border-[#2c3444] text-zinc-200 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {copiedOpponentSms ? <Check className="w-4 h-4 text-emerald-400 shrink-0" /> : <MessageSquare className="w-4 h-4 text-sky-400 shrink-0" />}
+              <span>{copiedOpponentSms ? 'Copié !' : "SMS pour l'équipe adversaire"}</span>
+            </button>
+          </div>
 
           <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
             <button
@@ -2098,9 +2413,9 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
             ) : selectedSpreadsheetId ? (
               <button
                 onClick={handleValidateMatchSheet}
-                disabled={hasIneligiblePlayer || (compFormat.doubleWeightStrict && !doublesWeightCheck.isValid)}
+                disabled={hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
                 className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-heading font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg ${
-                  hasIneligiblePlayer || (compFormat.doubleWeightStrict && !doublesWeightCheck.isValid)
+                  hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
                     ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                     : 'bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 hover:brightness-110 active:scale-95 text-white shadow-emerald-950/60'
                 }`}
@@ -2110,7 +2425,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                     <Lock className="w-4 h-4" />
                     <span>Validation bloquée (FFT)</span>
                   </>
-                ) : compFormat.doubleWeightStrict && !doublesWeightCheck.isValid ? (
+                ) : (compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid ? (
                   <>
                     <Lock className="w-4 h-4" />
                     <span>Inverser les doubles (FFT)</span>
@@ -2118,7 +2433,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                 ) : (
                   <>
                     <FileSpreadsheet className="w-4 h-4" />
-                    <span>Enregistrer dans Données_appli</span>
+                    <span>Enregistrer</span>
                   </>
                 )}
               </button>
@@ -2128,7 +2443,7 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                   <button
                     onClick={onOpenGoogleSyncModal}
                     className="px-3.5 py-2.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                    title="Connecter Google Sheets pour sauvegarder directement dans Données_appli"
+                    title="Connecter Google Sheets pour sauvegarder la feuille de match"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                     <span>Lier Google Sheets</span>
@@ -2137,9 +2452,9 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
 
                 <button
                   onClick={handleValidateMatchSheet}
-                  disabled={hasIneligiblePlayer || (compFormat.doubleWeightStrict && !doublesWeightCheck.isValid)}
+                  disabled={hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
                   className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-heading font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer shadow-lg ${
-                    hasIneligiblePlayer || (compFormat.doubleWeightStrict && !doublesWeightCheck.isValid)
+                    hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
                       ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                       : 'bg-gradient-to-r from-[#BF360C] via-[#E65100] to-[#FF6D00] hover:brightness-110 active:scale-95 text-white shadow-orange-950/60'
                   }`}
@@ -2149,10 +2464,15 @@ Statut FFT : Conforme aux règlements 2027 ✅`;
                       <Lock className="w-4 h-4" />
                       <span>Validation bloquée (FFT)</span>
                     </>
+                  ) : (compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Inverser les doubles (FFT)</span>
+                    </>
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      <span>{selectedPlayerIds.length === 0 ? 'Valider la feuille de match (Date & Lieu)' : 'Valider la composition'}</span>
+                      <span>Enregistrer</span>
                     </>
                   )}
                 </button>
