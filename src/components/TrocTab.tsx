@@ -27,6 +27,8 @@ import {
   Store,
   UserCheck,
   ArrowLeft,
+  Minus,
+  MessageCircle,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -99,6 +101,50 @@ const GOSPORT_CATEGORIES_SUGGESTIONS = [
 function formatPriceEur(value: number): string {
   if (Number.isInteger(value)) return `${value} €`;
   return `${value.toFixed(2).replace('.', ',')} €`;
+}
+
+const GOSPORT_WHATSAPP_NUMBER = '33664491763';
+
+interface GoSportSizeStock {
+  name: string;
+  qty: number;
+  hasExplicitQty: boolean;
+}
+
+interface GoSportEditableStockItem {
+  key: string;
+  name: string;
+  qty: number;
+}
+
+function parseGoSportTaillesDispo(raw: string): GoSportSizeStock[] {
+  if (!raw || !raw.trim()) return [];
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const match = part.match(/^(.*?)\s*\((\d+)\)\s*$/);
+      if (match && match[1].trim()) {
+        return {
+          name: match[1].trim(),
+          qty: Math.max(0, parseInt(match[2], 10)),
+          hasExplicitQty: true,
+        };
+      }
+      return {
+        name: part,
+        qty: 2, // Sans parenthèse : considéré en stock par défaut
+        hasExplicitQty: false,
+      };
+    });
+}
+
+function formatGoSportStockItems(items: GoSportEditableStockItem[]): string {
+  return items
+    .filter((item) => item.name.trim())
+    .map((item) => `${item.name.trim()} (${Math.max(0, Math.floor(Number(item.qty) || 0))})`)
+    .join(', ');
 }
 
 function normalizePhoneCompare(phone?: string): string {
@@ -210,6 +256,8 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [goSportSearch, setGoSportSearch] = useState('');
   const [goSportSelectedCat, setGoSportSelectedCat] = useState<string>('Toutes');
   const [goSportBrokenPhotos, setGoSportBrokenPhotos] = useState<Record<string, boolean>>({});
+  const [selectedSizesByOffre, setSelectedSizesByOffre] = useState<Record<string, string>>({});
+  const [sizeHintByOffre, setSizeHintByOffre] = useState<Record<string, boolean>>({});
 
   // Modale Admin : Gérer les offres GO Sport
   const [isGoSportModalOpen, setIsGoSportModalOpen] = useState(false);
@@ -222,7 +270,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [gsPrixPromo, setGsPrixPromo] = useState('');
   const [gsTarifAdherent, setGsTarifAdherent] = useState('');
   const [gsExcluClub, setGsExcluClub] = useState(false);
-  const [gsTaillesDispo, setGsTaillesDispo] = useState('');
+  const [gsStockItems, setGsStockItems] = useState<GoSportEditableStockItem[]>([]);
+  const [gsNewSizeName, setGsNewSizeName] = useState('');
+  const [gsNewSizeQty, setGsNewSizeQty] = useState('1');
   const [gsDescription, setGsDescription] = useState('');
   const [isSavingGoSport, setIsSavingGoSport] = useState(false);
   const [isCompressingGsPhoto, setIsCompressingGsPhoto] = useState(false);
@@ -360,7 +410,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setGsPrixPromo('');
     setGsTarifAdherent('');
     setGsExcluClub(false);
-    setGsTaillesDispo('');
+    setGsStockItems([]);
+    setGsNewSizeName('');
+    setGsNewSizeQty('1');
     setGsDescription('');
     setGoSportFormError(null);
   };
@@ -386,11 +438,50 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         : ''
     );
     setGsExcluClub(!!offre.excluClub);
-    setGsTaillesDispo(offre.taillesDispo || '');
+    const parsedStock = parseGoSportTaillesDispo(offre.taillesDispo || '');
+    setGsStockItems(
+      parsedStock.map((item, idx) => ({
+        key: `stock-${Date.now()}-${idx}`,
+        name: item.name,
+        qty: item.qty,
+      }))
+    );
+    setGsNewSizeName('');
+    setGsNewSizeQty('1');
     setGsDescription(offre.description || '');
     setGoSportFormError(null);
     setGoSportModalView('form');
     setIsGoSportModalOpen(true);
+  };
+
+  const handleAddGsStockRow = () => {
+    const trimmed = gsNewSizeName.trim();
+    if (!trimmed) return;
+    const qtyNum = Math.max(0, parseInt(gsNewSizeQty, 10) || 0);
+    setGsStockItems((prev) => [
+      ...prev,
+      { key: `stock-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: trimmed, qty: qtyNum },
+    ]);
+    setGsNewSizeName('');
+    setGsNewSizeQty('1');
+  };
+
+  const handleUpdateGsStockQty = (key: string, delta: number) => {
+    setGsStockItems((prev) =>
+      prev.map((item) =>
+        item.key === key ? { ...item, qty: Math.max(0, item.qty + delta) } : item
+      )
+    );
+  };
+
+  const handleUpdateGsStockName = (key: string, name: string) => {
+    setGsStockItems((prev) =>
+      prev.map((item) => (item.key === key ? { ...item, name } : item))
+    );
+  };
+
+  const handleRemoveGsStockRow = (key: string) => {
+    setGsStockItems((prev) => prev.filter((item) => item.key !== key));
   };
 
   const handleGsPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,6 +528,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       return;
     }
 
+    const itemsToSave = [...gsStockItems];
+    if (gsNewSizeName.trim()) {
+      itemsToSave.push({
+        key: `stock-pending-${Date.now()}`,
+        name: gsNewSizeName.trim(),
+        qty: Math.max(0, parseInt(gsNewSizeQty, 10) || 0),
+      });
+    }
+    const serializedTailles = formatGoSportStockItems(itemsToSave);
+
     setIsSavingGoSport(true);
     const res = await saveGoSportOffreToSheet(
       {
@@ -448,7 +549,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         prixPromo: promoNum,
         tarifAdherent: adhNum,
         excluClub: gsExcluClub,
-        taillesDispo: gsTaillesDispo.trim(),
+        taillesDispo: serializedTailles,
         description: gsDescription.trim(),
       },
       gasUrl || TCM_APPS_SCRIPT_URL
@@ -1129,10 +1230,27 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 const photoInvalid = !offre.photoUrl || goSportBrokenPhotos[offre.id];
                 const hasPromo = offre.prixPromo !== null && offre.prixPromo !== undefined;
                 const hasAdherent = offre.tarifAdherent !== null && offre.tarifAdherent !== undefined;
-                const taillesList = offre.taillesDispo
-                  .split(',')
-                  .map((t) => t.trim())
-                  .filter(Boolean);
+                const parsedSizes = parseGoSportTaillesDispo(offre.taillesDispo);
+                const availableSizes = parsedSizes.filter((s) => s.qty > 0);
+                const isAllOutOfStock = parsedSizes.length > 0 && availableSizes.length === 0;
+                const storedSelection = selectedSizesByOffre[offre.id];
+                const validSelectedSize =
+                  storedSelection && availableSizes.some((s) => s.name === storedSelection)
+                    ? storedSelection
+                    : availableSizes.length === 1
+                      ? availableSizes[0].name
+                      : null;
+                const effectiveTailleForWhatsApp =
+                  validSelectedSize || (parsedSizes.length === 0 ? 'Unique' : null);
+                const clubPriceForMessage =
+                  offre.tarifAdherent ?? offre.prixPromo ?? offre.tarifMagasin;
+                const whatsappMessage = effectiveTailleForWhatsApp
+                  ? `Bonjour, je suis adhérent du Muzillac Tennis Club (TCM). Serait-il possible de me mettre de côté l'article suivant en magasin : ${offre.nomProduit} - Taille : ${effectiveTailleForWhatsApp} (Tarif Club : ${clubPriceForMessage} €) ? Merci !`
+                  : '';
+                const whatsappHref = effectiveTailleForWhatsApp
+                  ? `https://wa.me/${GOSPORT_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappMessage)}`
+                  : '';
+                const showSelectSizeHint = !!sizeHintByOffre[offre.id] && !validSelectedSize;
 
                 return (
                   <article
@@ -1227,24 +1345,108 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           )}
                         </div>
 
-                        {/* Tailles disponibles & Stock Muzillac */}
-                        {taillesList.length > 0 && (
-                          <div className="space-y-1.5">
+                        {/* Gestion des stocks & tailles interactives */}
+                        {parsedSizes.length > 0 && (
+                          <div className="space-y-2">
                             <p className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
                               <PackageCheck className="w-3.5 h-3.5 shrink-0" />
-                              <span>En stock à Muzillac</span>
+                              <span>
+                                {isAllOutOfStock
+                                  ? 'Stock magasin Muzillac'
+                                  : availableSizes.length > 1
+                                    ? 'En stock à Muzillac · Choisissez votre taille :'
+                                    : 'En stock à Muzillac'}
+                              </span>
                             </p>
                             <div className="flex flex-wrap gap-1.5">
-                              {taillesList.map((taille, idx) => (
-                                <span
-                                  key={`${offre.id}-taille-${idx}`}
-                                  className="px-2.5 py-1 rounded-lg bg-[#0b0e14] border border-zinc-700 text-xs font-bold text-white"
-                                >
-                                  {taille}
-                                </span>
-                              ))}
+                              {parsedSizes.map((item, idx) => {
+                                const isSelected = validSelectedSize === item.name;
+                                if (item.qty === 0) {
+                                  return (
+                                    <span
+                                      key={`${offre.id}-taille-${idx}`}
+                                      aria-disabled="true"
+                                      className="min-h-[36px] px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-zinc-500 text-xs font-semibold line-through cursor-not-allowed inline-flex items-center"
+                                    >
+                                      {item.name} (Épuisé)
+                                    </span>
+                                  );
+                                }
+
+                                const isLastOne = item.qty === 1;
+                                const labelQty = item.hasExplicitQty
+                                  ? isLastOne
+                                    ? 'Dernier !'
+                                    : `${item.qty} dispo`
+                                  : 'En stock';
+
+                                return (
+                                  <button
+                                    key={`${offre.id}-taille-${idx}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSizesByOffre((prev) => ({
+                                        ...prev,
+                                        [offre.id]:
+                                          prev[offre.id] === item.name && availableSizes.length > 1
+                                            ? ''
+                                            : item.name,
+                                      }));
+                                      setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: false }));
+                                    }}
+                                    className={`min-h-[38px] px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 tabular-nums ${
+                                      isLastOne
+                                        ? isSelected
+                                          ? 'bg-orange-500/30 border-white ring-2 ring-orange-400 text-white shadow-md'
+                                          : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/50 text-orange-300'
+                                        : isSelected
+                                          ? 'bg-emerald-500/30 border-white ring-2 ring-emerald-400 text-white shadow-md'
+                                          : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-300'
+                                    }`}
+                                  >
+                                    <span>
+                                      {item.name} ({labelQty})
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
+                        )}
+
+                        {/* Message d'invitation si plusieurs tailles et aucune sélectionnée */}
+                        {showSelectSizeHint && (
+                          <p className="text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+                            Cliquez d'abord sur votre taille ci-dessus pour réserver en magasin.
+                          </p>
+                        )}
+
+                        {/* Bouton WhatsApp ou Bandeau Rupture */}
+                        {isAllOutOfStock ? (
+                          <div className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-bold flex items-center justify-center text-center">
+                            Temporairement en rupture à Muzillac
+                          </div>
+                        ) : effectiveTailleForWhatsApp ? (
+                          <a
+                            href={whatsappHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-950/50 text-center"
+                          >
+                            <MessageCircle className="w-4 h-4 shrink-0" />
+                            <span>Mettre de côté à GO Sport Muzillac</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: true }))
+                            }
+                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
+                          >
+                            <MessageCircle className="w-4 h-4 shrink-0" />
+                            <span>Mettre de côté à GO Sport Muzillac</span>
+                          </button>
                         )}
 
                         {/* Actions rapides Admin sur la carte */}
@@ -1793,35 +1995,145 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   </div>
                 </div>
 
-                {/* Tailles disponibles & Exclu Club */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
-                      Tailles disponibles (séparées par virgules)
-                    </label>
+                {/* Exclu Club */}
+                <div>
+                  <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0e14] border border-zinc-700 flex items-center justify-between gap-3 cursor-pointer">
+                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <Award className="w-4 h-4" />
+                      <span>Badge doré « Exclu Club »</span>
+                    </span>
                     <input
-                      type="text"
-                      value={gsTaillesDispo}
-                      onChange={(e) => setGsTaillesDispo(e.target.value)}
-                      placeholder="Ex : S, M, L, XL ou 40, 41, 42"
-                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#0b0e14] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                      type="checkbox"
+                      checked={gsExcluClub}
+                      onChange={(e) => setGsExcluClub(e.target.checked)}
+                      className="w-5 h-5 accent-amber-400 cursor-pointer"
                     />
+                  </label>
+                </div>
+
+                {/* Éditeur de stock interactif par taille */}
+                <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                      <PackageCheck className="w-3.5 h-3.5" />
+                      <span>Stock par taille (Muzillac)</span>
+                    </label>
+                    <span className="text-[11px] text-zinc-400">
+                      0 = Épuisé · 1 = Dernier !
+                    </span>
                   </div>
 
-                  <div className="pt-0 sm:pt-5">
-                    <label className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0e14] border border-zinc-700 flex items-center justify-between gap-3 cursor-pointer">
-                      <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                        <Award className="w-4 h-4" />
-                        <span>Badge doré « Exclu Club »</span>
-                      </span>
+                  {gsStockItems.length > 0 && (
+                    <div className="space-y-2">
+                      {gsStockItems.map((item) => (
+                        <div
+                          key={item.key}
+                          className="flex items-center gap-2 p-2 rounded-xl bg-[#141820] border border-zinc-800"
+                        >
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleUpdateGsStockName(item.key, e.target.value)}
+                            placeholder="Taille"
+                            className="min-w-0 flex-1 min-h-[40px] px-3 py-1.5 rounded-lg bg-[#0b0e14] border border-zinc-700 text-white text-xs font-bold focus:border-[#FF6D00] focus:outline-none"
+                          />
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateGsStockQty(item.key, -1)}
+                              disabled={item.qty <= 0}
+                              aria-label={`Diminuer le stock pour ${item.name}`}
+                              className="min-w-[40px] min-h-[40px] rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-white flex items-center justify-center transition cursor-pointer"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+
+                            <span
+                              className={`min-w-[36px] text-center font-mono font-black text-sm tabular-nums ${
+                                item.qty === 0
+                                  ? 'text-zinc-500'
+                                  : item.qty === 1
+                                    ? 'text-orange-400'
+                                    : 'text-emerald-400'
+                              }`}
+                            >
+                              {item.qty}
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateGsStockQty(item.key, 1)}
+                              aria-label={`Augmenter le stock pour ${item.name}`}
+                              className="min-w-[40px] min-h-[40px] rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white flex items-center justify-center transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveGsStockRow(item.key)}
+                            aria-label={`Supprimer la taille ${item.name}`}
+                            className="min-w-[40px] min-h-[40px] rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 flex items-center justify-center transition cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Ajout rapide d'une taille */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={gsNewSizeName}
+                      onChange={(e) => setGsNewSizeName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddGsStockRow();
+                        }
+                      }}
+                      placeholder="Ajouter taille (ex : S, 42, Manche 2)"
+                      className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                    />
+                    <div className="flex items-center gap-2">
                       <input
-                        type="checkbox"
-                        checked={gsExcluClub}
-                        onChange={(e) => setGsExcluClub(e.target.checked)}
-                        className="w-5 h-5 accent-amber-400 cursor-pointer"
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        value={gsNewSizeQty}
+                        onChange={(e) => setGsNewSizeQty(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddGsStockRow();
+                          }
+                        }}
+                        aria-label="Quantité initiale"
+                        className="w-20 min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white font-mono tabular-nums text-center text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
                       />
-                    </label>
+                      <button
+                        type="button"
+                        onClick={handleAddGsStockRow}
+                        className="min-h-[44px] flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Ajouter</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {gsStockItems.length > 0 && (
+                    <p className="text-[11px] text-zinc-500 truncate">
+                      Enregistré dans Google Sheet :{' '}
+                      <span className="text-zinc-300 font-mono">
+                        {formatGoSportStockItems(gsStockItems)}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Photo */}
