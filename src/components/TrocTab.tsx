@@ -148,6 +148,27 @@ function formatGoSportStockItems(items: GoSportEditableStockItem[]): string {
     .join(', ');
 }
 
+function serializeGoSportSizesPreservingImplicit(sizes: GoSportSizeStock[]): string {
+  return sizes
+    .filter((s) => s.name.trim())
+    .map((s) =>
+      s.hasExplicitQty
+        ? `${s.name.trim()} (${Math.max(0, Math.floor(s.qty))})`
+        : s.name.trim()
+    )
+    .join(', ');
+}
+
+interface WhatsAppConfirmData {
+  offre: GoSportOffre;
+  tailleName: string;
+  sizeIndex: number;
+  hasExplicitQty: boolean;
+  currentQty: number;
+  clubPrice: number;
+  whatsappHref: string;
+}
+
 function normalizePhoneCompare(phone?: string): string {
   return String(phone || '').replace(/\D/g, '');
 }
@@ -259,6 +280,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [goSportBrokenPhotos, setGoSportBrokenPhotos] = useState<Record<string, boolean>>({});
   const [selectedSizesByOffre, setSelectedSizesByOffre] = useState<Record<string, string>>({});
   const [sizeHintByOffre, setSizeHintByOffre] = useState<Record<string, boolean>>({});
+  const [quickStockStatusByOffre, setQuickStockStatusByOffre] = useState<
+    Record<string, 'idle' | 'saving' | 'saved' | 'error'>
+  >({});
+  const [whatsappConfirmData, setWhatsappConfirmData] = useState<WhatsAppConfirmData | null>(null);
+  const goSportOffresRef = useRef<GoSportOffre[]>([]);
+  const stockSaveChainRef = useRef<Record<string, Promise<void>>>({});
+
+  useEffect(() => {
+    goSportOffresRef.current = goSportOffres;
+  }, [goSportOffres]);
 
   // Modale Admin : Gérer les offres GO Sport
   const [isGoSportModalOpen, setIsGoSportModalOpen] = useState(false);
@@ -280,6 +311,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [goSportFormError, setGoSportFormError] = useState<string | null>(null);
   const [goSportSuccessMsg, setGoSportSuccessMsg] = useState<string | null>(null);
   const [deletingGoSportId, setDeletingGoSportId] = useState<string | null>(null);
+  const [confirmDeleteGoSportId, setConfirmDeleteGoSportId] = useState<string | null>(null);
   const gsFileInputRef = useRef<HTMLInputElement>(null);
 
   // ==================== ÉTAT : PETITES ANNONCES (Troc_Annonces) ====================
@@ -400,6 +432,83 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       return next;
     });
   }, []);
+
+  // ==================== AJUSTEMENT RAPIDE & DÉCRÉMENTATION AUTO STOCK GO SPORT ====================
+  const applyGoSportStockDelta = useCallback(
+    (offreId: string, sizeIndex: number, delta: -1 | 1, onlyIfExplicit = false) => {
+      const current = goSportOffresRef.current.find((o) => o.id === offreId);
+      if (!current) return null;
+
+      const parsed = parseGoSportTaillesDispo(current.taillesDispo);
+      const target = parsed[sizeIndex];
+      if (!target) return null;
+      if (onlyIfExplicit && !target.hasExplicitQty) return null;
+
+      const nextQty = Math.max(0, target.qty + delta);
+      if (nextQty === target.qty && target.hasExplicitQty) return null;
+
+      const updatedSizes: GoSportSizeStock[] = parsed.map((s, idx) =>
+        idx === sizeIndex ? { ...s, qty: nextQty, hasExplicitQty: true } : s
+      );
+      const nextTaillesDispo = serializeGoSportSizesPreservingImplicit(updatedSizes);
+      const updatedOffre: GoSportOffre = { ...current, taillesDispo: nextTaillesDispo };
+
+      // Mise à jour synchrone pour supporter les clics rapides en rafale (-1 / +1)
+      goSportOffresRef.current = goSportOffresRef.current.map((o) =>
+        o.id === offreId ? updatedOffre : o
+      );
+      setGoSportOffres(goSportOffresRef.current);
+
+      if (nextQty === 0) {
+        setSelectedSizesByOffre((prev) =>
+          prev[offreId] === target.name ? { ...prev, [offreId]: '' } : prev
+        );
+      }
+
+      setQuickStockStatusByOffre((prev) => ({ ...prev, [offreId]: 'saving' }));
+
+      const prevChain = stockSaveChainRef.current[offreId] || Promise.resolve();
+      const nextChain = prevChain.then(async () => {
+        const res = await saveGoSportOffreToSheet(
+          updatedOffre,
+          gasUrl || TCM_APPS_SCRIPT_URL
+        );
+        if (res.success) {
+          setQuickStockStatusByOffre((prev) => ({ ...prev, [offreId]: 'saved' }));
+          setTimeout(() => {
+            setQuickStockStatusByOffre((prev) =>
+              prev[offreId] === 'saved' ? { ...prev, [offreId]: 'idle' } : prev
+            );
+          }, 2200);
+        } else {
+          setQuickStockStatusByOffre((prev) => ({ ...prev, [offreId]: 'error' }));
+          setGoSportError(res.error || "Impossible d'enregistrer la mise à jour du stock.");
+        }
+      });
+      stockSaveChainRef.current[offreId] = nextChain;
+
+      return { updatedOffre, previousQty: target.qty, nextQty, tailleName: target.name };
+    },
+    [gasUrl]
+  );
+
+  const handleConfirmWhatsAppReservation = () => {
+    if (!whatsappConfirmData) return;
+    const { offre, tailleName, sizeIndex, hasExplicitQty, currentQty } = whatsappConfirmData;
+
+    if (hasExplicitQty && currentQty > 0 && sizeIndex >= 0) {
+      applyGoSportStockDelta(offre.id, sizeIndex, -1, true);
+      setGoSportSuccessMsg(
+        `Réservation confirmée ! Le stock de « ${offre.nomProduit} » (${tailleName}) a été mis à jour (-1).`
+      );
+    } else {
+      setGoSportSuccessMsg(
+        `Demande WhatsApp prête pour « ${offre.nomProduit} » (${tailleName}).`
+      );
+    }
+    setTimeout(() => setGoSportSuccessMsg(null), 5000);
+    setWhatsappConfirmData(null);
+  };
 
   // ==================== FORMULAIRE GO SPORT ADMIN ====================
   const resetGoSportForm = () => {
@@ -575,14 +684,26 @@ export const TrocTab: React.FC<TrocTabProps> = ({
 
   const handleDeleteGoSport = async (id: string) => {
     setDeletingGoSportId(id);
+    setGoSportFormError(null);
+    setGoSportError(null);
     const res = await deleteGoSportOffreInSheet(id, gasUrl || TCM_APPS_SCRIPT_URL);
     setDeletingGoSportId(null);
+    setConfirmDeleteGoSportId(null);
     if (res.success) {
-      setGoSportSuccessMsg("Offre retirée de « Partenaire_GOSport ».");
+      const next = goSportOffresRef.current.filter((o) => o.id !== id);
+      goSportOffresRef.current = next;
+      setGoSportOffres(next);
+      if (editingGoSportId === id) {
+        resetGoSportForm();
+        setGoSportModalView('list');
+      }
+      setGoSportSuccessMsg("Article supprimé définitivement de « Partenaire_GOSport ».");
       setTimeout(() => setGoSportSuccessMsg(null), 4000);
       await loadGoSportLive();
     } else {
-      setGoSportFormError(res.error || "Impossible de supprimer cette offre.");
+      const errMsg = res.error || "Impossible de supprimer cet article.";
+      setGoSportFormError(errMsg);
+      setGoSportError(errMsg);
     }
   };
 
@@ -1431,21 +1552,34 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           </p>
                         )}
 
-                        {/* Bouton WhatsApp ou Bandeau Rupture */}
+                        {/* Bouton WhatsApp (avec confirmation + décrémentation auto) ou Bandeau Rupture */}
                         {isAllOutOfStock ? (
                           <div className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-bold flex items-center justify-center text-center">
                             Temporairement en rupture à Muzillac
                           </div>
                         ) : effectiveTailleForWhatsApp ? (
-                          <a
-                            href={whatsappHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-950/50 text-center"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const matchedIdx = validSelectedSize
+                                ? parsedSizes.findIndex((s) => s.name === validSelectedSize && s.qty > 0)
+                                : -1;
+                              const matchedItem = matchedIdx >= 0 ? parsedSizes[matchedIdx] : null;
+                              setWhatsappConfirmData({
+                                offre,
+                                tailleName: effectiveTailleForWhatsApp,
+                                sizeIndex: matchedIdx,
+                                hasExplicitQty: !!matchedItem?.hasExplicitQty,
+                                currentQty: matchedItem ? matchedItem.qty : 0,
+                                clubPrice: clubPriceForMessage,
+                                whatsappHref,
+                              });
+                            }}
+                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
                           >
                             <MessageCircle className="w-4 h-4 shrink-0" />
                             <span>Mettre de côté à GO Sport Muzillac</span>
-                          </a>
+                          </button>
                         ) : (
                           <button
                             type="button"
@@ -1459,17 +1593,150 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           </button>
                         )}
 
-                        {/* Actions rapides Admin sur la carte */}
+                        {/* Actions rapides Admin / GO Sport directement sur la carte */}
                         {userRole === 'admin' && (
-                          <div className="flex items-center gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => openGoSportEdit(offre)}
-                              className="min-h-[44px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-amber-300" />
-                              <span>Modifier tarifs / stock</span>
-                            </button>
+                          <div className="space-y-2 pt-2 border-t border-zinc-800/70">
+                            {parsedSizes.length > 0 && (
+                              <div className="p-2.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                                    Stock magasin (-1 / +1)
+                                  </span>
+                                  {quickStockStatusByOffre[offre.id] === 'saving' && (
+                                    <span className="text-[10px] font-bold text-amber-300 inline-flex items-center gap-1">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      <span>Sync...</span>
+                                    </span>
+                                  )}
+                                  {quickStockStatusByOffre[offre.id] === 'saved' && (
+                                    <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-1">
+                                      <Check className="w-3 h-3" />
+                                      <span>Enregistré</span>
+                                    </span>
+                                  )}
+                                  {quickStockStatusByOffre[offre.id] === 'error' && (
+                                    <span className="text-[10px] font-bold text-rose-400">
+                                      Erreur sync
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  {parsedSizes.map((item, idx) => (
+                                    <div
+                                      key={`${offre.id}-quick-${idx}`}
+                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[#141820] border border-zinc-800/90"
+                                    >
+                                      <div className="min-w-0 flex items-center gap-2">
+                                        <span className="text-xs font-bold text-white truncate">
+                                          {item.name}
+                                        </span>
+                                        {!item.hasExplicitQty && (
+                                          <span className="text-[10px] text-zinc-500">
+                                            (défaut)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => applyGoSportStockDelta(offre.id, idx, -1)}
+                                          disabled={item.qty <= 0}
+                                          aria-label={`Diminuer le stock de ${item.name}`}
+                                          className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-rose-500/25 hover:text-rose-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+                                        >
+                                          <Minus className="w-3.5 h-3.5" />
+                                        </button>
+                                        <span
+                                          className={`min-w-[28px] text-center font-mono text-xs font-black tabular-nums ${
+                                            item.qty === 0
+                                              ? 'text-zinc-500'
+                                              : item.qty === 1
+                                                ? 'text-orange-300'
+                                                : 'text-emerald-300'
+                                          }`}
+                                        >
+                                          {item.qty}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => applyGoSportStockDelta(offre.id, idx, 1)}
+                                          aria-label={`Augmenter le stock de ${item.name}`}
+                                          className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-emerald-500/25 hover:text-emerald-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {confirmDeleteGoSportId === offre.id ? (
+                              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/40 space-y-2">
+                                <p className="text-[11px] font-bold text-rose-200 text-center">
+                                  Supprimer définitivement cet article ?
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteGoSportId(null)}
+                                    disabled={deletingGoSportId === offre.id}
+                                    className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer disabled:opacity-50"
+                                  >
+                                    Annuler
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteGoSport(offre.id)}
+                                    disabled={deletingGoSportId === offre.id}
+                                    className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                  >
+                                    {deletingGoSportId === offre.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Confirmer</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => openGoSportEdit(offre)}
+                                    className="min-h-[44px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-amber-300" />
+                                    <span>Modifier tarifs / stock</span>
+                                  </button>
+                                  {!isAllOutOfStock && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteGoSportId(offre.id)}
+                                      title="Supprimer cet article"
+                                      aria-label="Supprimer cet article"
+                                      className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 flex items-center justify-center transition cursor-pointer shrink-0"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                                {isAllOutOfStock && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteGoSportId(offre.id)}
+                                    className="min-h-[44px] w-full px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/45 text-rose-200 text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Retirer cet article épuisé</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2211,26 +2478,69 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   />
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={() => setGoSportModalView('list')}
-                    className="min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingGoSport || isCompressingGsPhoto}
-                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {isSavingGoSport ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-800">
+                  {editingGoSportId ? (
+                    confirmDeleteGoSportId === editingGoSportId ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGoSport(editingGoSportId)}
+                          disabled={deletingGoSportId === editingGoSportId}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {deletingGoSportId === editingGoSportId ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                          <span>Confirmer suppression</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteGoSportId(null)}
+                          className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-bold cursor-pointer"
+                        >
+                          Annuler
+                        </button>
+                      </div>
                     ) : (
-                      <CheckCircle2 className="w-4 h-4" />
-                    )}
-                    <span>{isSavingGoSport ? 'Enregistrement...' : 'Enregistrer dans Partenaire_GOSport'}</span>
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteGoSportId(editingGoSportId)}
+                        className="min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Supprimer l'article</span>
+                      </button>
+                    )
+                  ) : (
+                    <span />
+                  )}
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmDeleteGoSportId(null);
+                        setGoSportModalView('list');
+                      }}
+                      className="min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingGoSport || isCompressingGsPhoto}
+                      className="min-h-[44px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isSavingGoSport ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                      )}
+                      <span>{isSavingGoSport ? 'Enregistrement...' : 'Enregistrer dans Partenaire_GOSport'}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
@@ -2563,6 +2873,94 @@ export const TrocTab: React.FC<TrocTabProps> = ({
               className="w-full h-full border-0 block bg-white"
               allow="payment; fullscreen"
             />
+          </div>
+        </div>,
+        document.body
+      )}
+      {/* ==================== MODALE CONFIRMATION MISE DE CÔTÉ WHATSAPP ==================== */}
+      {whatsappConfirmData && typeof document !== 'undefined' && createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirmer la mise de côté"
+          onClick={() => setWhatsappConfirmData(null)}
+          className="fixed inset-0 z-[99999] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#141820] border-t sm:border border-emerald-500/40 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 w-full sm:max-w-md shadow-2xl space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-white text-base sm:text-lg">
+                    Confirmer la mise de côté
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    GO Sport Muzillac · Réservation WhatsApp
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsappConfirmData(null)}
+                aria-label="Fermer"
+                className="min-w-[44px] min-h-[44px] rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-1.5">
+              <p className="font-heading font-black text-white text-sm">
+                {whatsappConfirmData.offre.nomProduit}
+              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-zinc-300">
+                  Taille : <strong className="text-emerald-300">{whatsappConfirmData.tailleName}</strong>
+                </span>
+                <span className="font-mono font-black text-[#FF6D00] tabular-nums">
+                  Tarif Club : {formatPriceEur(whatsappConfirmData.clubPrice)}
+                </span>
+              </div>
+            </div>
+
+            {whatsappConfirmData.hasExplicitQty && whatsappConfirmData.currentQty > 0 ? (
+              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 leading-relaxed">
+                En confirmant, <strong>1 exemplaire</strong> sera automatiquement décompté du stock en ligne (
+                <span className="font-mono font-bold tabular-nums">
+                  {whatsappConfirmData.currentQty} → {whatsappConfirmData.currentQty - 1}
+                </span>
+                ), puis WhatsApp s'ouvrira avec votre message pré-rempli.
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-zinc-800/60 border border-zinc-700 text-xs text-zinc-300 leading-relaxed">
+                WhatsApp va s'ouvrir avec votre demande de mise de côté pré-remplie pour GO Sport Muzillac.
+              </div>
+            )}
+
+            <div className="flex items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setWhatsappConfirmData(null)}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer"
+              >
+                Annuler
+              </button>
+              <a
+                href={whatsappConfirmData.whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleConfirmWhatsAppReservation}
+                className="min-h-[44px] flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-950/50 text-center"
+              >
+                <MessageCircle className="w-4 h-4 shrink-0" />
+                <span>Confirmer & Ouvrir WhatsApp</span>
+              </a>
+            </div>
           </div>
         </div>,
         document.body
