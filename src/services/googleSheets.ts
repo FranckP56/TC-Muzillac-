@@ -655,32 +655,38 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
   } else {
     try {
       const url = `${urlToUse}?action=getAll&_t=${now}`;
-      let response: Response | null = null;
 
       // 1. Priorité au proxy local (contourne les blocages CORS et restrictions d'iframe des navigateurs)
       try {
         const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(url)}`;
-        response = await fetch(proxyUrl, {
+        const pRes = await fetch(proxyUrl, {
           method: "GET",
           headers: { 'Accept': 'application/json' },
         });
+        const ct = pRes.headers.get('content-type') || '';
+        if (pRes.ok && ct.includes('application/json')) {
+          rawJson = await pRes.json();
+        }
       } catch (proxyError) {
         console.warn("[AppsScript] Proxy local indisponible, bascule sur fetch direct :", proxyError);
       }
 
-      // 2. Si le proxy n'a pas répondu ou a renvoyé une erreur, tentative directe
-      if (!response || !response.ok) {
+      // 2. Si le proxy n'a pas répondu ou n'a pas renvoyé de JSON valide, tentative directe
+      if (!rawJson) {
         try {
-          response = await fetch(url, {
+          const directRes = await fetch(url, {
             method: "GET",
             redirect: "follow",
           });
+          if (directRes.ok) {
+            rawJson = await directRes.json();
+          }
         } catch (directError) {
           console.warn("[AppsScript] Échec du fetch direct :", directError);
         }
       }
 
-      if (!response || !response.ok) {
+      if (!rawJson) {
         if (cachedRawData) {
           rawJson = cachedRawData;
         } else {
@@ -692,7 +698,6 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
           };
         }
       } else {
-        rawJson = await response.json();
         cachedRawData = rawJson;
         lastFetchTime = now;
       }
@@ -1067,7 +1072,9 @@ export async function saveCompositionViaAppsScript(
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload),
       });
-      if (pRes.ok) {
+      const ct = pRes.headers.get('content-type') || '';
+      if (pRes.ok && ct.includes('application/json')) {
+        await pRes.json();
         return { success: true, rowsSaved: slots.length };
       }
     } catch {
@@ -1160,7 +1167,9 @@ export async function saveClubInfoViaAppsScript(
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload),
       });
-      if (pRes.ok) {
+      const ct = pRes.headers.get('content-type') || '';
+      if (pRes.ok && ct.includes('application/json')) {
+        await pRes.json();
         return { success: true, savedLocally: true };
       }
     } catch {
@@ -1545,25 +1554,37 @@ export async function fetchTrocAnnoncesLive(
   const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
   const liveUrl = `${urlToUse}?action=getTroc&_t=${Date.now()}`;
 
-  let response: Response | null = null;
+  let json: any = null;
   try {
     const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(liveUrl)}`;
-    response = await fetch(proxyUrl, {
+    const pRes = await fetch(proxyUrl, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store',
     });
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      json = await pRes.json();
+    }
   } catch (e) {
     console.warn("[Troc] Proxy indisponible, bascule directe:", e);
   }
 
-  if (!response || !response.ok) {
+  if (!json) {
     try {
-      response = await fetch(liveUrl, {
+      const directRes = await fetch(liveUrl, {
         method: 'GET',
         redirect: 'follow',
         cache: 'no-store',
       });
+      if (!directRes.ok) {
+        return {
+          success: false,
+          annonces: [],
+          error: "Impossible de joindre l'API Apps Script pour lire Troc_Annonces.",
+        };
+      }
+      json = await directRes.json();
     } catch (directErr: any) {
       return {
         success: false,
@@ -1573,41 +1594,24 @@ export async function fetchTrocAnnoncesLive(
     }
   }
 
-  if (!response || !response.ok) {
+  if (json && json.success === false) {
+    const errMsg = String(json.error || '');
+    const isUnknownAction = errMsg.toLowerCase().includes('action inconnue') || errMsg.toLowerCase().includes('getTroc'.toLowerCase());
     return {
       success: false,
       annonces: [],
-      error: "Impossible de joindre l'API Apps Script pour lire Troc_Annonces.",
+      scriptUpdateNeeded: isUnknownAction,
+      error: isUnknownAction
+        ? "L'action 'getTroc' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
+        : errMsg || "Erreur Apps Script lors de la lecture de Troc_Annonces.",
     };
   }
 
-  try {
-    const json = await response.json();
-    if (json && json.success === false) {
-      const errMsg = String(json.error || '');
-      const isUnknownAction = errMsg.toLowerCase().includes('action inconnue') || errMsg.toLowerCase().includes('getTroc'.toLowerCase());
-      return {
-        success: false,
-        annonces: [],
-        scriptUpdateNeeded: isUnknownAction,
-        error: isUnknownAction
-          ? "L'action 'getTroc' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
-          : errMsg || "Erreur Apps Script lors de la lecture de Troc_Annonces.",
-      };
-    }
-
-    const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.troc) ? json.troc : []);
-    return {
-      success: true,
-      annonces: parseTrocRowsOrObjects(rawList),
-    };
-  } catch (parseErr: any) {
-    return {
-      success: false,
-      annonces: [],
-      error: `Réponse invalide de Google Sheets (${parseErr?.message || 'JSON invalide'}).`,
-    };
-  }
+  const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.troc) ? json.troc : []);
+  return {
+    success: true,
+    annonces: parseTrocRowsOrObjects(rawList),
+  };
 }
 
 /**
@@ -1656,8 +1660,9 @@ export async function saveTrocAnnonceToSheet(
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
-    if (pRes.ok) {
-      const pJson = await pRes.json().catch(() => ({ success: true }));
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
       if (pJson && pJson.success === false) {
         appsScriptError = pJson.error || "Le script Google Sheets doit être mis à jour pour accepter 'saveTrocAnnonce'.";
       } else {
@@ -1754,8 +1759,9 @@ export async function updateTrocStatutInSheet(
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
-    if (pRes.ok) {
-      const pJson = await pRes.json().catch(() => ({ success: true }));
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
       if (pJson && pJson.success === false) {
         return { success: false, error: pJson.error || 'Erreur de mise à jour.' };
       }
@@ -1901,25 +1907,37 @@ export async function fetchGoSportOffresLive(
   const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
   const liveUrl = `${urlToUse}?action=getGoSport&_t=${Date.now()}`;
 
-  let response: Response | null = null;
+  let json: any = null;
   try {
     const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(liveUrl)}`;
-    response = await fetch(proxyUrl, {
+    const pRes = await fetch(proxyUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      json = await pRes.json();
+    }
   } catch (e) {
     console.warn("[GO Sport] Proxy indisponible, bascule directe:", e);
   }
 
-  if (!response || !response.ok) {
+  if (!json) {
     try {
-      response = await fetch(liveUrl, {
+      const directRes = await fetch(liveUrl, {
         method: 'GET',
         redirect: 'follow',
         cache: 'no-store',
       });
+      if (!directRes.ok) {
+        return {
+          success: false,
+          offres: [],
+          error: "Impossible de joindre l'API Apps Script pour lire Partenaire_GOSport.",
+        };
+      }
+      json = await directRes.json();
     } catch (directErr: any) {
       return {
         success: false,
@@ -1929,47 +1947,30 @@ export async function fetchGoSportOffresLive(
     }
   }
 
-  if (!response || !response.ok) {
+  if (json && json.success === false) {
+    const errMsg = String(json.error || '');
+    const isUnknownAction =
+      errMsg.toLowerCase().includes('action inconnue') ||
+      errMsg.toLowerCase().includes('getgosport');
     return {
       success: false,
       offres: [],
-      error: "Impossible de joindre l'API Apps Script pour lire Partenaire_GOSport.",
+      scriptUpdateNeeded: isUnknownAction,
+      error: isUnknownAction
+        ? "L'action 'getGoSport' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
+        : errMsg || "Erreur Apps Script lors de la lecture de Partenaire_GOSport.",
     };
   }
 
-  try {
-    const json = await response.json();
-    if (json && json.success === false) {
-      const errMsg = String(json.error || '');
-      const isUnknownAction =
-        errMsg.toLowerCase().includes('action inconnue') ||
-        errMsg.toLowerCase().includes('getgosport');
-      return {
-        success: false,
-        offres: [],
-        scriptUpdateNeeded: isUnknownAction,
-        error: isUnknownAction
-          ? "L'action 'getGoSport' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
-          : errMsg || "Erreur Apps Script lors de la lecture de Partenaire_GOSport.",
-      };
-    }
-
-    const rawList = Array.isArray(json?.data)
-      ? json.data
-      : Array.isArray(json?.gosport)
-        ? json.gosport
-        : [];
-    return {
-      success: true,
-      offres: parseGoSportRowsOrObjects(rawList),
-    };
-  } catch (parseErr: any) {
-    return {
-      success: false,
-      offres: [],
-      error: `Réponse invalide de Google Sheets (${parseErr?.message || 'JSON invalide'}).`,
-    };
-  }
+  const rawList = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json?.gosport)
+      ? json.gosport
+      : [];
+  return {
+    success: true,
+    offres: parseGoSportRowsOrObjects(rawList),
+  };
 }
 
 /**
@@ -2017,8 +2018,9 @@ export async function saveGoSportOffreToSheet(
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
-    if (pRes.ok) {
-      const pJson = await pRes.json().catch(() => ({ success: true }));
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
       if (pJson && pJson.success === false) {
         appsScriptError =
           pJson.error || "Le script Google Sheets doit être mis à jour pour accepter 'saveGoSportOffre'.";
@@ -2070,8 +2072,9 @@ export async function deleteGoSportOffreInSheet(
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
     });
-    if (pRes.ok) {
-      const pJson = await pRes.json().catch(() => ({ success: true }));
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
       if (pJson && pJson.success === false) {
         return { success: false, error: pJson.error || "Erreur lors de la suppression de l'offre." };
       }

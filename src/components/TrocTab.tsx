@@ -29,6 +29,7 @@ import {
   ArrowLeft,
   Minus,
   MessageCircle,
+  Check,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -1384,6 +1385,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                                   <button
                                     key={`${offre.id}-taille-${idx}`}
                                     type="button"
+                                    aria-pressed={isSelected}
                                     onClick={() => {
                                       setSelectedSizesByOffre((prev) => ({
                                         ...prev,
@@ -1394,16 +1396,17 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                                       }));
                                       setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: false }));
                                     }}
-                                    className={`min-h-[38px] px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer inline-flex items-center gap-1 tabular-nums ${
+                                    className={`min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer inline-flex items-center gap-1.5 tabular-nums select-none ${
                                       isLastOne
                                         ? isSelected
-                                          ? 'bg-orange-500/30 border-white ring-2 ring-orange-400 text-white shadow-md'
+                                          ? 'bg-orange-500 border-white text-zinc-950 font-black shadow-lg shadow-orange-500/30 ring-2 ring-orange-300'
                                           : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/50 text-orange-300'
                                         : isSelected
-                                          ? 'bg-emerald-500/30 border-white ring-2 ring-emerald-400 text-white shadow-md'
+                                          ? 'bg-emerald-500 border-white text-zinc-950 font-black shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-300'
                                           : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-300'
                                     }`}
                                   >
+                                    {isSelected && <Check className="w-3.5 h-3.5 shrink-0 stroke-[3]" />}
                                     <span>
                                       {item.name} ({labelQty})
                                     </span>
@@ -1411,6 +1414,13 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                                 );
                               })}
                             </div>
+
+                            {validSelectedSize && (
+                              <p className="text-[11px] font-bold text-emerald-300 flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5 shrink-0" />
+                                <span>Taille sélectionnée : {validSelectedSize}</span>
+                              </p>
+                            )}
                           </div>
                         )}
 
