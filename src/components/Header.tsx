@@ -441,7 +441,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[11px] leading-tight tracking-tight truncate">Tutos & Infos</span>
             </button>
 
-            {/* 8. Troc & Occasions (Tous) */}
+            {/* 8. ProShop (Tous) */}
             <button
               onClick={() => setActiveTab('troc')}
               className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
@@ -451,7 +451,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <ShoppingBag className="w-4 h-4 shrink-0 mb-0.5 text-sky-400" />
-              <span className="text-[11px] leading-tight tracking-tight truncate">Troc</span>
+              <span className="text-[11px] leading-tight tracking-tight truncate">ProShop</span>
             </button>
 
           </nav>

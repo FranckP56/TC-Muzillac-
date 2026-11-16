@@ -1,4 +1,4 @@
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce, GoSportOffre } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
@@ -17,6 +17,7 @@ export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
 export const TROC_SHEET_TITLE = 'Troc_Annonces';
+export const GOSPORT_SHEET_TITLE = 'Partenaire_GOSport';
 
 export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
@@ -1762,6 +1763,322 @@ export async function updateTrocStatutInSheet(
     }
   } catch {
     // Fallback
+  }
+
+  try {
+    await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      mode: 'no-cors',
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erreur réseau.' };
+  }
+}
+
+/**
+ * =========================================================================
+ * MODULE PARTENAIRE GO SPORT MUZILLAC (Onglet 'Partenaire_GOSport')
+ * Colonnes : ID, Nom_Produit, Categorie, Photo_URL, Tarif_Magasin,
+ *            Prix_Promo, Tarif_Adherent, Exclu_Club, Tailles_Dispo, Description
+ * =========================================================================
+ */
+
+function parseOptionalPrice(val: any): number | null {
+  if (val === null || val === undefined) return null;
+  const s = String(val).replace(/€/g, '').replace(/\s+/g, '').replace(',', '.').trim();
+  if (!s) return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function parseExcluClubFlag(val: any): boolean {
+  if (typeof val === 'boolean') return val;
+  const s = String(val || '').trim().toUpperCase();
+  return s === 'OUI' || s === 'YES' || s === 'TRUE' || s === '1';
+}
+
+function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
+  // Cas 1 : tableau d'objets JSON (renvoyé par Code.gs getGoSportOffres)
+  if (!Array.isArray(raw[0]) && typeof raw[0] === 'object') {
+    return raw
+      .filter((item: any) => item && (item.nomProduit || item.Nom_Produit))
+      .map((item: any, idx: number) => ({
+        id: String(item.id || item.ID || `gosport-${idx}`).trim(),
+        nomProduit: String(item.nomProduit || item.Nom_Produit || '').trim(),
+        categorie: String(item.categorie || item.Categorie || 'Équipement').trim(),
+        photoUrl: String(item.photoUrl || item.Photo_URL || '').trim() || undefined,
+        tarifMagasin: parseOptionalPrice(item.tarifMagasin ?? item.Tarif_Magasin) ?? 0,
+        prixPromo: parseOptionalPrice(item.prixPromo ?? item.Prix_Promo),
+        tarifAdherent: parseOptionalPrice(item.tarifAdherent ?? item.Tarif_Adherent),
+        excluClub: parseExcluClubFlag(item.excluClub ?? item.Exclu_Club),
+        taillesDispo: String(item.taillesDispo ?? item.Tailles_Dispo ?? '').trim(),
+        description: String(item.description ?? item.Description ?? '').trim(),
+      }));
+  }
+
+  // Cas 2 : tableau 2D de lignes Google Sheets (en-têtes en ligne 0)
+  if (Array.isArray(raw[0])) {
+    const headers = raw[0].map((h: any) => String(h || '').trim().toLowerCase());
+    const findCol = (candidates: string[], fallbackIdx: number) => {
+      const found = headers.findIndex((h: string) =>
+        candidates.some((c) => h === c || h.replace(/[\s_-]+/g, '') === c.replace(/[\s_-]+/g, ''))
+      );
+      return found >= 0 ? found : fallbackIdx;
+    };
+
+    const idxId = findCol(['id'], 0);
+    const idxNom = findCol(['nom_produit', 'nom produit', 'nom'], 1);
+    const idxCat = findCol(['categorie', 'catégorie'], 2);
+    const idxPhoto = findCol(['photo_url', 'photo url', 'photo'], 3);
+    const idxMag = findCol(['tarif_magasin', 'tarif magasin'], 4);
+    const idxPromo = findCol(['prix_promo', 'prix promo'], 5);
+    const idxAdh = findCol(['tarif_adherent', 'tarif adhérent', 'tarif adherent'], 6);
+    const idxExclu = findCol(['exclu_club', 'exclu club'], 7);
+    const idxTailles = findCol(['tailles_dispo', 'tailles dispo', 'tailles'], 8);
+    const idxDesc = findCol(['description'], 9);
+
+    const list: GoSportOffre[] = [];
+    for (let i = 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!Array.isArray(row) || row.length === 0) continue;
+      const nomProduit = String(row[idxNom] || '').trim();
+      if (!nomProduit) continue;
+
+      list.push({
+        id: String(row[idxId] || `gosport-${i}`).trim(),
+        nomProduit,
+        categorie: String(row[idxCat] || 'Équipement').trim(),
+        photoUrl: String(row[idxPhoto] || '').trim() || undefined,
+        tarifMagasin: parseOptionalPrice(row[idxMag]) ?? 0,
+        prixPromo: parseOptionalPrice(row[idxPromo]),
+        tarifAdherent: parseOptionalPrice(row[idxAdh]),
+        excluClub: parseExcluClubFlag(row[idxExclu]),
+        taillesDispo: String(row[idxTailles] || '').trim(),
+        description: String(row[idxDesc] || '').trim(),
+      });
+    }
+    return list;
+  }
+
+  return [];
+}
+
+/**
+ * Lit les offres partenaire GO Sport Muzillac en direct depuis l'onglet Partenaire_GOSport.
+ */
+export async function fetchGoSportOffresLive(
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL,
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<{
+  success: boolean;
+  offres: GoSportOffre[];
+  error?: string;
+  scriptUpdateNeeded?: boolean;
+}> {
+  if (spreadsheetId && accessToken) {
+    try {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(GOSPORT_SHEET_TITLE)}?valueRenderOption=UNFORMATTED_VALUE`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const rows = json.values || [];
+        return { success: true, offres: parseGoSportRowsOrObjects(rows) };
+      }
+    } catch (e) {
+      console.warn("Erreur lecture directe Partenaire_GOSport via Sheets API:", e);
+    }
+  }
+
+  const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const liveUrl = `${urlToUse}?action=getGoSport&_t=${Date.now()}`;
+
+  let response: Response | null = null;
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(liveUrl)}`;
+    response = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+  } catch (e) {
+    console.warn("[GO Sport] Proxy indisponible, bascule directe:", e);
+  }
+
+  if (!response || !response.ok) {
+    try {
+      response = await fetch(liveUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+    } catch (directErr: any) {
+      return {
+        success: false,
+        offres: [],
+        error: `Connexion impossible à l'onglet Partenaire_GOSport (${directErr?.message || 'réseau indisponible'}).`,
+      };
+    }
+  }
+
+  if (!response || !response.ok) {
+    return {
+      success: false,
+      offres: [],
+      error: "Impossible de joindre l'API Apps Script pour lire Partenaire_GOSport.",
+    };
+  }
+
+  try {
+    const json = await response.json();
+    if (json && json.success === false) {
+      const errMsg = String(json.error || '');
+      const isUnknownAction =
+        errMsg.toLowerCase().includes('action inconnue') ||
+        errMsg.toLowerCase().includes('getgosport');
+      return {
+        success: false,
+        offres: [],
+        scriptUpdateNeeded: isUnknownAction,
+        error: isUnknownAction
+          ? "L'action 'getGoSport' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
+          : errMsg || "Erreur Apps Script lors de la lecture de Partenaire_GOSport.",
+      };
+    }
+
+    const rawList = Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.gosport)
+        ? json.gosport
+        : [];
+    return {
+      success: true,
+      offres: parseGoSportRowsOrObjects(rawList),
+    };
+  } catch (parseErr: any) {
+    return {
+      success: false,
+      offres: [],
+      error: `Réponse invalide de Google Sheets (${parseErr?.message || 'JSON invalide'}).`,
+    };
+  }
+}
+
+/**
+ * Ajoute ou met à jour un produit dans l'onglet 'Partenaire_GOSport' via Apps Script.
+ */
+export async function saveGoSportOffreToSheet(
+  offre: Omit<GoSportOffre, 'id'> & { id?: string },
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  const id = (offre.id || '').trim() || `gosport-${Date.now()}`;
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+
+  const cleanOffre = {
+    id,
+    nomProduit: offre.nomProduit.trim(),
+    categorie: (offre.categorie || 'Équipement').trim(),
+    photoUrl: (offre.photoUrl || '').trim(),
+    tarifMagasin: Number(offre.tarifMagasin) || 0,
+    prixPromo:
+      offre.prixPromo !== null && offre.prixPromo !== undefined && !isNaN(Number(offre.prixPromo))
+        ? Number(offre.prixPromo)
+        : '',
+    tarifAdherent:
+      offre.tarifAdherent !== null &&
+      offre.tarifAdherent !== undefined &&
+      !isNaN(Number(offre.tarifAdherent))
+        ? Number(offre.tarifAdherent)
+        : '',
+    excluClub: offre.excluClub ? 'OUI' : 'NON',
+    taillesDispo: (offre.taillesDispo || '').trim(),
+    description: (offre.description || '').trim(),
+  };
+
+  const payload = {
+    action: 'saveGoSportOffre',
+    offre: cleanOffre,
+  };
+
+  let appsScriptError: string | undefined;
+
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    if (pRes.ok) {
+      const pJson = await pRes.json().catch(() => ({ success: true }));
+      if (pJson && pJson.success === false) {
+        appsScriptError =
+          pJson.error || "Le script Google Sheets doit être mis à jour pour accepter 'saveGoSportOffre'.";
+      } else {
+        return { success: true, id: pJson.id || id };
+      }
+    }
+  } catch {
+    // Fallback direct
+  }
+
+  if (!appsScriptError) {
+    try {
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors',
+      });
+      return { success: true, id };
+    } catch (netErr: any) {
+      return {
+        success: false,
+        error: `Impossible d'enregistrer l'offre GO Sport (${netErr?.message || 'erreur réseau'}).`,
+      };
+    }
+  }
+
+  return { success: false, error: appsScriptError };
+}
+
+/**
+ * Supprime un produit de l'onglet 'Partenaire_GOSport' via Apps Script.
+ */
+export async function deleteGoSportOffreInSheet(
+  id: string,
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<{ success: boolean; error?: string }> {
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const payload = {
+    action: 'deleteGoSportOffre',
+    id,
+  };
+
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    if (pRes.ok) {
+      const pJson = await pRes.json().catch(() => ({ success: true }));
+      if (pJson && pJson.success === false) {
+        return { success: false, error: pJson.error || "Erreur lors de la suppression de l'offre." };
+      }
+      return { success: true };
+    }
+  } catch {
+    // Fallback direct
   }
 
   try {

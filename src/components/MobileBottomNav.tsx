@@ -103,8 +103,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     },
     {
       id: 'troc',
-      label: 'Troc & Occasions',
-      subtitle: 'Petites annonces matériel en direct',
+      label: 'ProShop',
+      subtitle: 'Boutique club, offres GO Sport & annonces',
       visible: true,
       icon: <ShoppingBag className="w-5 h-5 text-sky-400" />,
     },
@@ -153,7 +153,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             }`}
           >
             <ShoppingBag className="w-5 h-5" />
-            <span className="text-[11px] font-bold leading-none whitespace-nowrap">Troc</span>
+            <span className="text-[11px] font-bold leading-none whitespace-nowrap">ProShop</span>
           </button>
 
           <button

@@ -46,7 +46,8 @@ function doGet(e) {
         bureau: getSheetRawValues('Bureau_Profs'),
         installations: getSheetRawValues('Installations'),
         tarifs: getSheetRawValues('Cotisations_Tarifs'),
-        troc: getSheetRawValues('Troc_Annonces')
+        troc: getSheetRawValues('Troc_Annonces'),
+        gosport: getSheetRawValues('Partenaire_GOSport')
       };
     } else if (action === 'getAdherents' || action === 'adherents') {
       result = { success: true, data: getSheetRawValues('Adhérents') };
@@ -54,6 +55,8 @@ function doGet(e) {
       result = { success: true, data: getSheetRawValues('Rencontres') };
     } else if (action === 'getTroc' || action === 'troc') {
       result = { success: true, data: getSheetRawValues('Troc_Annonces') };
+    } else if (action === 'getGoSport' || action === 'gosport') {
+      result = { success: true, data: getSheetRawValues('Partenaire_GOSport') };
     } else {
       result = { success: false, error: "Action inconnue : " + action };
     }
@@ -79,6 +82,10 @@ function doPost(e) {
       return handleSaveTrocAnnonce(json);
     } else if (action === 'updateTrocStatut' || action === 'deleteTrocAnnonce') {
       return handleUpdateTrocStatut(json);
+    } else if (action === 'saveGoSportOffre') {
+      return handleSaveGoSportOffre(json);
+    } else if (action === 'deleteGoSportOffre') {
+      return handleDeleteGoSportOffre(json);
     } else {
       return createJsonResponse({ success: false, error: 'Action inconnue : ' + action });
     }
@@ -340,6 +347,62 @@ function handleUpdateTrocStatut(payload) {
     }
   }
   return createJsonResponse({ success: false, error: 'Annonce introuvable.' });
+}
+
+function handleSaveGoSportOffre(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Partenaire_GOSport');
+  if (!sheet) {
+    sheet = ss.insertSheet('Partenaire_GOSport');
+    sheet.setTabColor('#0284C7');
+    sheet.appendRow([
+      "ID", "Nom_Produit", "Categorie", "Photo_URL", "Tarif_Magasin",
+      "Prix_Promo", "Tarif_Adherent", "Exclu_Club", "Tailles_Dispo", "Description"
+    ]);
+    sheet.setFrozenRows(1);
+  }
+  var o = payload.offre || payload || {};
+  if (!o.nomProduit || !String(o.nomProduit).trim()) {
+    return createJsonResponse({ success: false, error: 'Le nom du produit est obligatoire.' });
+  }
+  var id = String(o.id || ('gosport-' + new Date().getTime())).trim();
+  var excluFlag = (o.excluClub === true || String(o.excluClub || '').toUpperCase() === 'OUI') ? 'OUI' : 'NON';
+  var rowValues = [
+    safeCellValue(id),
+    safeCellValue(String(o.nomProduit).trim()),
+    safeCellValue(String(o.categorie || 'Équipement').trim()),
+    safeCellValue(String(o.photoUrl || '').trim()),
+    o.tarifMagasin !== '' && o.tarifMagasin !== null && o.tarifMagasin !== undefined ? Number(o.tarifMagasin) : 0,
+    o.prixPromo !== '' && o.prixPromo !== null && o.prixPromo !== undefined ? Number(o.prixPromo) : '',
+    o.tarifAdherent !== '' && o.tarifAdherent !== null && o.tarifAdherent !== undefined ? Number(o.tarifAdherent) : '',
+    excluFlag,
+    safeCellValue(String(o.taillesDispo || '').trim()),
+    safeCellValue(String(o.description || '').trim())
+  ];
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === id) {
+      sheet.getRange(i + 1, 1, 1, rowValues.length).setValues([rowValues]);
+      return createJsonResponse({ success: true, id: id, updated: true });
+    }
+  }
+  sheet.appendRow(rowValues);
+  return createJsonResponse({ success: true, id: id, created: true });
+}
+
+function handleDeleteGoSportOffre(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Partenaire_GOSport');
+  if (!sheet) return createJsonResponse({ success: false, error: 'Onglet Partenaire_GOSport introuvable.' });
+  var id = String(payload.id || '').trim();
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === id) {
+      sheet.deleteRow(i + 1);
+      return createJsonResponse({ success: true, id: id });
+    }
+  }
+  return createJsonResponse({ success: false, error: 'Produit GO Sport introuvable.' });
 }`;
 
   const handleCopy = (content: string) => {

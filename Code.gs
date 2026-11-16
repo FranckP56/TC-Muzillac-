@@ -17,6 +17,7 @@ const SHEET_INSTALLATIONS = 'Installations';
 const SHEET_TARIFS = 'Cotisations_Tarifs';
 const SHEET_CLUB_INFO = 'Club_Info';
 const SHEET_TROC = 'Troc_Annonces';
+const SHEET_GOSPORT = 'Partenaire_GOSport';
 
 /**
  * Normalisation des numéros de téléphone au format officiel français (10 chiffres, 0 initial)
@@ -60,6 +61,10 @@ function doPost(e) {
       result = saveTrocAnnonce(payload);
     } else if (action === 'updateTrocStatut' || action === 'deleteTrocAnnonce') {
       result = updateTrocStatut(payload);
+    } else if (action === 'saveGoSportOffre') {
+      result = saveGoSportOffre(payload);
+    } else if (action === 'deleteGoSportOffre') {
+      result = deleteGoSportOffre(payload);
     } else {
       result = { success: false, error: 'Action inconnue : ' + action };
     }
@@ -91,6 +96,8 @@ function doGet(e) {
         result = { success: true, data: getClubInfo() };
       } else if (action === 'getTroc' || action === 'troc') {
         result = { success: true, data: getTrocAnnonces() };
+      } else if (action === 'getGoSport' || action === 'gosport') {
+        result = { success: true, data: getGoSportOffres() };
       } else if (action === 'getAll' || action === 'all') {
         result = { 
           success: true, 
@@ -101,7 +108,8 @@ function doGet(e) {
           bureau: getBureauData(),
           installations: getInstallationsData(),
           tarifs: getTarifsData(),
-          troc: getTrocAnnonces()
+          troc: getTrocAnnonces(),
+          gosport: getGoSportOffres()
         };
       } else {
         result = { success: false, error: "Action inconnue : " + action };
@@ -627,6 +635,15 @@ function getSavedCompositions() {
         valCap = String(row[16] || '').toLowerCase() === 'oui' || String(row[16] || '').toLowerCase() === 'true';
       }
 
+      let ordreMatchs = [];
+      let heuresRotations = {};
+      try {
+        if (row[20]) ordreMatchs = JSON.parse(String(row[20]));
+      } catch (e) {}
+      try {
+        if (row[21]) heuresRotations = JSON.parse(String(row[21]));
+      } catch (e) {}
+
       result[matchId] = {
         matchId: matchId,
         dateRencontre: String(row[1] || ''),
@@ -636,6 +653,8 @@ function getSavedCompositions() {
         nombreCourts: nCourts,
         dateValidation: dateVal,
         valideParCapitaine: valCap,
+        ordreMatchs: Array.isArray(ordreMatchs) ? ordreMatchs : [],
+        heuresRotations: (heuresRotations && typeof heuresRotations === 'object') ? heuresRotations : {},
         frozenPlayers: []
       };
     }
@@ -660,16 +679,18 @@ function getSavedCompositions() {
 function saveFrozenComposition(payload) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_COMPOSITIONS);
+  const expectedHeaders = [
+    "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
+    "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence",
+    "Classement Gelé au Match", "Date Naissance", "Âge Sportif", "Type Licence",
+    "Heure Début", "Lieu Rencontre", "Nombre Courts", "Date Enregistrement", "Validé par Capitaine",
+    "Ordre des Matchs", "Heures Rotations"
+  ];
   
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_COMPOSITIONS);
     sheet.setTabColor('#E65100');
-    sheet.appendRow([
-      "ID Rencontre", "Date Rencontre", "Numéro Équipe", "Homologation", "Catégorie", "Sexe",
-      "Club Accueil", "Club Visiteur", "Poste", "Nom Prénom Joueur", "N° Licence",
-      "Classement Gelé au Match", "Date Naissance", "Âge Sportif", "Type Licence",
-      "Heure Début", "Lieu Rencontre", "Nombre Courts", "Date Enregistrement", "Validé par Capitaine"
-    ]);
+    sheet.appendRow(expectedHeaders);
     sheet.setFrozenRows(1);
   }
 
@@ -687,54 +708,81 @@ function saveFrozenComposition(payload) {
   const dateValidation = payload.dateValidation || (payload.composition && payload.composition.dateValidation) || Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy");
   const isValide = payload.valideParCapitaine !== undefined ? payload.valideParCapitaine : (payload.composition && payload.composition.valideParCapitaine);
   const valideParCapitaine = isValide ? 'OUI' : 'NON';
+  const ordreJson = JSON.stringify(payload.ordreMatchs || (payload.composition && payload.composition.ordreMatchs) || []);
+  const rotationsJson = JSON.stringify(payload.heuresRotations || (payload.composition && payload.composition.heuresRotations) || {});
 
   const players = payload.slots || payload.frozenPlayers || [];
 
-  if (!matchId || players.length === 0) {
-    return { success: false, error: "Données de rencontre ou joueurs manquants." };
+  if (!matchId) {
+    return { success: false, error: "Identifiant de rencontre manquant." };
   }
 
   const existingValues = sheet.getDataRange().getValues();
   const keptRows = [];
-  const header = existingValues[0];
+  let header = existingValues.length > 0 ? existingValues[0].slice() : expectedHeaders.slice();
+  while (header.length > 0 && String(header[header.length - 1] || '').trim() === '') {
+    header.pop();
+  }
+  while (header.length < expectedHeaders.length) {
+    header.push(expectedHeaders[header.length]);
+  }
+  header[20] = expectedHeaders[20];
+  header[21] = expectedHeaders[21];
   keptRows.push(header);
 
   for (let i = 1; i < existingValues.length; i++) {
     if (String(existingValues[i][0]).trim() !== String(matchId).trim()) {
-      keptRows.push(existingValues[i]);
+      const r = existingValues[i].slice(0, header.length);
+      while (r.length < header.length) r.push('');
+      keptRows.push(r);
     }
   }
 
-  for (let p = 0; p < players.length; p++) {
-    const pl = players[p];
-    keptRows.push([
-      matchId,
-      dateRencontre,
-      numeroEquipe,
-      libelleHomologation,
-      categorieAgeHomologation,
-      sexeHomologation,
-      clubAccueilNom,
-      clubVisiteurNom,
-      pl.poste || '',
-      pl.nomPrenom || '',
-      pl.licence || '',
-      pl.classementGele || pl.dernierClassTennis || 'NC',
-      pl.dateNaissance || '',
-      pl.ageSportif || '',
-      pl.typeLicence || '',
-      heureDebut,
-      lieuRencontre,
-      nombreCourts,
-      dateValidation,
-      valideParCapitaine
-    ]);
+  function padRow(rowArr) {
+    while (rowArr.length < header.length) rowArr.push('');
+    return rowArr.slice(0, header.length);
+  }
+
+  if (players.length === 0) {
+    keptRows.push(padRow([
+      matchId, dateRencontre, numeroEquipe, libelleHomologation, categorieAgeHomologation,
+      sexeHomologation, clubAccueilNom, clubVisiteurNom, 'Logistique & Ordre', '', '', '', '', '', '',
+      heureDebut, lieuRencontre, nombreCourts, dateValidation, valideParCapitaine, ordreJson, rotationsJson
+    ]));
+  } else {
+    for (let p = 0; p < players.length; p++) {
+      const pl = players[p];
+      keptRows.push(padRow([
+        matchId,
+        dateRencontre,
+        numeroEquipe,
+        libelleHomologation,
+        categorieAgeHomologation,
+        sexeHomologation,
+        clubAccueilNom,
+        clubVisiteurNom,
+        pl.poste || '',
+        pl.nomPrenom || '',
+        pl.licence || '',
+        pl.classementGele || pl.dernierClassTennis || 'NC',
+        pl.dateNaissance || '',
+        pl.ageSportif || '',
+        pl.typeLicence || '',
+        heureDebut,
+        lieuRencontre,
+        nombreCourts,
+        dateValidation,
+        valideParCapitaine,
+        ordreJson,
+        rotationsJson
+      ]));
+    }
   }
 
   sheet.clearContents();
-  sheet.getRange(1, 1, keptRows.length, keptRows[0].length).setValues(keptRows);
+  sheet.getRange(1, 1, keptRows.length, header.length).setValues(keptRows);
 
-  return { success: true, rowsSaved: players.length };
+  return { success: true, rowsSaved: players.length || 1 };
 }
 
 /**
@@ -871,3 +919,135 @@ function updateTrocStatut(payload) {
 
   return { success: false, error: "Annonce introuvable." };
 }
+
+/**
+ * =========================================================================
+ * MODULE PARTENAIRE GO SPORT MUZILLAC (Onglet 'Partenaire_GOSport')
+ * Colonnes : ID, Nom_Produit, Categorie, Photo_URL, Tarif_Magasin,
+ *            Prix_Promo, Tarif_Adherent, Exclu_Club, Tailles_Dispo, Description
+ * =========================================================================
+ */
+
+function ensureGoSportSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_GOSPORT);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_GOSPORT);
+    sheet.setTabColor('#0284C7');
+    sheet.appendRow([
+      "ID",
+      "Nom_Produit",
+      "Categorie",
+      "Photo_URL",
+      "Tarif_Magasin",
+      "Prix_Promo",
+      "Tarif_Adherent",
+      "Exclu_Club",
+      "Tailles_Dispo",
+      "Description"
+    ]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function parseGoSportNum(val) {
+  if (val === null || val === undefined || val === '') return null;
+  const s = String(val).replace(/€/g, '').replace(/\s+/g, '').replace(',', '.').trim();
+  if (!s) return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function getGoSportOffres() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_GOSPORT);
+  if (!sheet) return [];
+
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return [];
+
+  const list = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const nomProduit = String(row[1] || '').trim();
+    if (!nomProduit) continue;
+
+    const id = String(row[0] || ('gosport-' + i)).trim();
+    const excluRaw = String(row[7] || '').trim().toUpperCase();
+
+    list.push({
+      id: id,
+      nomProduit: nomProduit,
+      categorie: String(row[2] || 'Équipement').trim(),
+      photoUrl: String(row[3] || '').trim(),
+      tarifMagasin: parseGoSportNum(row[4]) || 0,
+      prixPromo: parseGoSportNum(row[5]),
+      tarifAdherent: parseGoSportNum(row[6]),
+      excluClub: excluRaw === 'OUI' || excluRaw === 'TRUE' || excluRaw === '1',
+      taillesDispo: String(row[8] || '').trim(),
+      description: String(row[9] || '').trim()
+    });
+  }
+
+  return list;
+}
+
+function saveGoSportOffre(payload) {
+  const sheet = ensureGoSportSheet();
+  const o = payload.offre || payload || {};
+
+  if (!o.nomProduit || !String(o.nomProduit).trim()) {
+    return { success: false, error: "Le nom du produit est obligatoire." };
+  }
+
+  const id = String(o.id || ('gosport-' + Date.now())).trim();
+  const tarifMagasin = parseGoSportNum(o.tarifMagasin);
+  const prixPromo = parseGoSportNum(o.prixPromo);
+  const tarifAdherent = parseGoSportNum(o.tarifAdherent);
+  const excluFlag = (o.excluClub === true || String(o.excluClub || '').toUpperCase() === 'OUI') ? 'OUI' : 'NON';
+
+  const rowValues = [
+    safeCellValue(id),
+    safeCellValue(String(o.nomProduit).trim()),
+    safeCellValue(String(o.categorie || 'Équipement').trim()),
+    safeCellValue(String(o.photoUrl || '').trim()),
+    tarifMagasin !== null ? tarifMagasin : 0,
+    prixPromo !== null ? prixPromo : '',
+    tarifAdherent !== null ? tarifAdherent : '',
+    excluFlag,
+    safeCellValue(String(o.taillesDispo || '').trim()),
+    safeCellValue(String(o.description || '').trim())
+  ];
+
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === id) {
+      sheet.getRange(i + 1, 1, 1, rowValues.length).setValues([rowValues]);
+      return { success: true, id: id, updated: true };
+    }
+  }
+
+  sheet.appendRow(rowValues);
+  return { success: true, id: id, created: true };
+}
+
+function deleteGoSportOffre(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_GOSPORT);
+  if (!sheet) return { success: false, error: "Onglet Partenaire_GOSport introuvable." };
+
+  const targetId = String(payload.id || payload.offreId || '').trim();
+  if (!targetId) return { success: false, error: "Identifiant de produit manquant." };
+
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === targetId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, id: targetId };
+    }
+  }
+
+  return { success: false, error: "Produit GO Sport introuvable." };
+}
+

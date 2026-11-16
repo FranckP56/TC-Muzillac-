@@ -293,3 +293,15 @@ export interface TrocAnnonce {
   statut: 'Disponible' | 'Vendu' | string;
 }
 
+export interface GoSportOffre {
+  id: string;
+  nomProduit: string;
+  categorie: string;
+  photoUrl?: string;
+  tarifMagasin: number;
+  prixPromo?: number | null;
+  tarifAdherent?: number | null;
+  excluClub: boolean;
+  taillesDispo: string;
+  description: string;
+}
