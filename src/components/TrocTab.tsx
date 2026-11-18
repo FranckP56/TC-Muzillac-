@@ -30,6 +30,8 @@ import {
   Minus,
   MessageCircle,
   Check,
+  Sparkles,
+  Upload,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -125,7 +127,7 @@ function parseGoSportTaillesDispo(raw: string): GoSportSizeStock[] {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const match = part.match(/^(.*?)\s*\((\d+)\)\s*$/);
+      const match = part.match(/^(.*?)\s*\((-?\d+)\)\s*$/);
       if (match && match[1].trim()) {
         return {
           name: match[1].trim(),
@@ -139,6 +141,24 @@ function parseGoSportTaillesDispo(raw: string): GoSportSizeStock[] {
         hasExplicitQty: false,
       };
     });
+}
+
+function isGoSportUnitaire(reference?: string, nomProduit?: string): boolean {
+  const refStr = String(reference || '').trim();
+  const nomStr = String(nomProduit || '').trim();
+  return /\/u(?:\b|$)/i.test(refStr) || /\/u(?:\b|$)/i.test(nomStr);
+}
+
+function deriveCleanSupplierRef(rawRef: string): string {
+  const s = rawRef.trim();
+  if (!s) return '';
+  const withoutUnit = s.replace(/\/u(?:\b|$)/gi, '').trim();
+  const slashParts = withoutUnit
+    .split('/')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const base = slashParts.length >= 2 ? slashParts[slashParts.length - 1] : withoutUnit;
+  return base.replace(/\+$/, '').trim();
 }
 
 function formatGoSportStockItems(items: GoSportEditableStockItem[]): string {
@@ -213,7 +233,7 @@ function writeSellerProfile(profile: SellerProfile): void {
 /**
  * Compression côté client en JPEG < ~40 Ko pour respecter la limite de 50 000 caractères par cellule Google Sheets
  */
-async function compressImageToBase64(file: File): Promise<string> {
+async function compressImageToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -312,7 +332,20 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [goSportSuccessMsg, setGoSportSuccessMsg] = useState<string | null>(null);
   const [deletingGoSportId, setDeletingGoSportId] = useState<string | null>(null);
   const [confirmDeleteGoSportId, setConfirmDeleteGoSportId] = useState<string | null>(null);
+  const [gsReference, setGsReference] = useState('');
+  const [gsReferenceClean, setGsReferenceClean] = useState('');
+  const [isLookingUpGoSport, setIsLookingUpGoSport] = useState(false);
+  const [gsLookupError, setGsLookupError] = useState<string | null>(null);
+  const [gsLookupWarning, setGsLookupWarning] = useState<string | null>(null);
+  const [gsLookupPhotos, setGsLookupPhotos] = useState<
+    Array<{ url: string; source: string; useProxy?: boolean; broken?: boolean }>
+  >([]);
+  const [gsSelectedCandidateUrl, setGsSelectedCandidateUrl] = useState<string | null>(null);
+  const [gsValidatingPhotoUrl, setGsValidatingPhotoUrl] = useState<string | null>(null);
+  const [gsLookupSuggestedDesc, setGsLookupSuggestedDesc] = useState('');
+  const [gsLastLookedUpRef, setGsLastLookedUpRef] = useState('');
   const gsFileInputRef = useRef<HTMLInputElement>(null);
+  const gsCameraInputRef = useRef<HTMLInputElement>(null);
 
   // ==================== ÉTAT : PETITES ANNONCES (Troc_Annonces) ====================
   const [annonces, setAnnonces] = useState<TrocAnnonce[]>([]);
@@ -513,6 +546,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   // ==================== FORMULAIRE GO SPORT ADMIN ====================
   const resetGoSportForm = () => {
     setEditingGoSportId(null);
+    setGsReference('');
+    setGsReferenceClean('');
+    setIsLookingUpGoSport(false);
+    setGsLookupError(null);
+    setGsLookupWarning(null);
+    setGsLookupPhotos([]);
+    setGsSelectedCandidateUrl(null);
+    setGsValidatingPhotoUrl(null);
+    setGsLookupSuggestedDesc('');
+    setGsLastLookedUpRef('');
     setGsNomProduit('');
     setGsCategorie('Raquettes');
     setGsPhotoUrl('');
@@ -533,8 +576,114 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setIsGoSportModalOpen(true);
   };
 
+  const handleLookupGoSportByReference = async (override?: {
+    query?: string;
+    referenceMagasin?: string;
+    referenceClean?: string;
+    nomProduit?: string;
+    categorie?: string;
+    currentDesc?: string;
+    isEdit?: boolean;
+  }) => {
+    const refMag = (override?.referenceMagasin ?? gsReference).trim();
+    const refClean = (override?.referenceClean ?? gsReferenceClean).trim();
+    const queryRef = (override?.query ?? (refClean || refMag)).trim();
+    const fallbackNom = (override?.nomProduit ?? gsNomProduit).trim();
+    const effectiveQuery = queryRef || fallbackNom;
+    if (!effectiveQuery) {
+      setGsLookupError('Saisissez une référence produit (ou un nom) avant de lancer la recherche.');
+      return;
+    }
+
+    const effectiveCategorie = (override?.categorie ?? gsCategorie).trim();
+    const effectiveCurrentDesc = (override?.currentDesc ?? gsDescription).trim();
+    const effectiveIsEdit = override?.isEdit ?? !!editingGoSportId;
+
+    setIsLookingUpGoSport(true);
+    setGsLookupError(null);
+    setGsLookupWarning(null);
+    setGsLastLookedUpRef(effectiveQuery);
+
+    try {
+      const res = await fetch('/api/gosport-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference: effectiveQuery,
+          referenceMagasin: refMag || undefined,
+          referenceClean: refClean || undefined,
+          nomProduit: fallbackNom || undefined,
+          categorie: effectiveCategorie || undefined,
+        }),
+      });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        throw new Error(
+          "Le service de recherche n'est pas joignable sur cet hébergement."
+        );
+      }
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Impossible de récupérer les infos produit.');
+      }
+
+      const foundPhotos = Array.isArray(data.photos)
+        ? data.photos
+            .filter((p: any) => p && typeof p.url === 'string' && p.url.startsWith('http'))
+            .map((p: any) => ({
+              url: String(p.url),
+              source: String(p.source || 'Web'),
+              useProxy: false,
+              broken: false,
+            }))
+        : [];
+
+      setGsLookupPhotos(foundPhotos);
+      setGsLookupWarning(data.warning ? String(data.warning) : null);
+      if (foundPhotos.length === 0) {
+        setGsLookupError(
+          "Aucune photo exploitable trouvée pour cette référence. Essayez d'ajouter la marque ou le modèle, ou importez une photo manuellement."
+        );
+      }
+
+      if (!fallbackNom && data.nomProduit) {
+        setGsNomProduit(String(data.nomProduit));
+      }
+      if (!effectiveIsEdit && data.categorie) {
+        setGsCategorie(String(data.categorie));
+      }
+      if (!refClean && data.referenceClean) {
+        setGsReferenceClean(String(data.referenceClean));
+      }
+      const suggestedDesc = String(data.description || '').trim();
+      setGsLookupSuggestedDesc(suggestedDesc);
+      if (!effectiveCurrentDesc && suggestedDesc) {
+        setGsDescription(suggestedDesc);
+      }
+    } catch (err: any) {
+      setGsLookupError(err?.message || 'Erreur lors de la recherche produit.');
+    } finally {
+      setIsLookingUpGoSport(false);
+    }
+  };
+
   const openGoSportEdit = (offre: GoSportOffre) => {
+    const initialRefMag = (offre.reference || '').trim();
+    const initialRefClean =
+      (offre.referenceFabricantClean || '').trim() ||
+      (initialRefMag ? deriveCleanSupplierRef(initialRefMag) : '');
+
     setEditingGoSportId(offre.id);
+    setGsReference(initialRefMag);
+    setGsReferenceClean(initialRefClean);
+    setIsLookingUpGoSport(false);
+    setGsLookupError(null);
+    setGsLookupWarning(null);
+    setGsLookupPhotos([]);
+    setGsSelectedCandidateUrl(null);
+    setGsValidatingPhotoUrl(null);
+    setGsLookupSuggestedDesc('');
+    setGsLastLookedUpRef('');
     setGsNomProduit(offre.nomProduit);
     setGsCategorie(offre.categorie || 'Équipement');
     setGsPhotoUrl(offre.photoUrl || '');
@@ -562,6 +711,48 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setGoSportFormError(null);
     setGoSportModalView('form');
     setIsGoSportModalOpen(true);
+
+    // Si l'article importé depuis le logiciel magasin possède une référence mais pas encore de photo/description, lancer la recherche auto
+    if ((initialRefClean || initialRefMag) && (!offre.photoUrl?.trim() || !offre.description?.trim())) {
+      void handleLookupGoSportByReference({
+        query: initialRefClean || initialRefMag,
+        referenceMagasin: initialRefMag,
+        referenceClean: initialRefClean,
+        nomProduit: offre.nomProduit,
+        categorie: offre.categorie || 'Équipement',
+        currentDesc: offre.description || '',
+        isEdit: true,
+      });
+    }
+  };
+
+  const handleSelectAndValidatePhoto = async (photo: {
+    url: string;
+    source: string;
+    useProxy?: boolean;
+  }) => {
+    setGsSelectedCandidateUrl(photo.url);
+    setGsLookupError(null);
+
+    if (photo.useProxy) {
+      setGsValidatingPhotoUrl(photo.url);
+      try {
+        const res = await fetch(`/api/image-proxy?url=${encodeURIComponent(photo.url)}`);
+        if (res.ok) {
+          const blob = await res.blob();
+          const compressed = await compressImageToBase64(blob);
+          setGsPhotoUrl(compressed);
+          setGsValidatingPhotoUrl(null);
+          return;
+        }
+      } catch {
+        // Fallback URL directe
+      } finally {
+        setGsValidatingPhotoUrl(null);
+      }
+    }
+
+    setGsPhotoUrl(photo.url);
   };
 
   const handleAddGsStockRow = () => {
@@ -606,6 +797,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       setGoSportFormError(err?.message || "Erreur lors du traitement de la photo.");
     } finally {
       setIsCompressingGsPhoto(false);
+      e.target.value = '';
     }
   };
 
@@ -648,10 +840,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     }
     const serializedTailles = formatGoSportStockItems(itemsToSave);
 
+    const finalRefMag = gsReference.trim();
+    const finalRefClean =
+      gsReferenceClean.trim() || (finalRefMag ? deriveCleanSupplierRef(finalRefMag) : '');
+
     setIsSavingGoSport(true);
     const res = await saveGoSportOffreToSheet(
       {
         id: editingGoSportId || undefined,
+        reference: finalRefMag || undefined,
+        referenceFabricantClean: finalRefClean || undefined,
         nomProduit: gsNomProduit.trim(),
         categorie: gsCategorie.trim() || 'Équipement',
         photoUrl: gsPhotoUrl.trim(),
@@ -683,10 +881,15 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   };
 
   const handleDeleteGoSport = async (id: string) => {
+    const targetOffre = goSportOffresRef.current.find((o) => o.id === id);
     setDeletingGoSportId(id);
     setGoSportFormError(null);
     setGoSportError(null);
-    const res = await deleteGoSportOffreInSheet(id, gasUrl || TCM_APPS_SCRIPT_URL);
+    const res = await deleteGoSportOffreInSheet(
+      id,
+      gasUrl || TCM_APPS_SCRIPT_URL,
+      targetOffre?.reference
+    );
     setDeletingGoSportId(null);
     setConfirmDeleteGoSportId(null);
     if (res.success) {
@@ -861,7 +1064,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     return goSportOffres.filter((o) => {
       if (goSportSelectedCat !== 'Toutes' && o.categorie !== goSportSelectedCat) return false;
       if (!q) return true;
-      const hay = `${o.nomProduit} ${o.categorie} ${o.description} ${o.taillesDispo}`.toLowerCase();
+      const hay = `${o.nomProduit} ${o.reference || ''} ${o.referenceFabricantClean || ''} ${o.categorie} ${o.description} ${o.taillesDispo}`.toLowerCase();
       return hay.includes(q);
     });
   }, [goSportOffres, goSportSearch, goSportSelectedCat]);
@@ -1233,7 +1436,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 inputMode="search"
                 value={goSportSearch}
                 onChange={(e) => setGoSportSearch(e.target.value)}
-                placeholder="Rechercher un produit, une taille, une catégorie..."
+                placeholder="Rechercher un produit, une référence, une taille, une catégorie..."
                 className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-[#0b0e14] border border-zinc-700/80 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none transition"
               />
             </div>
@@ -1417,17 +1620,40 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                     {/* Corps carte GO Sport */}
                     <div className="p-4 flex-1 flex flex-col justify-between gap-4">
                       <div className="space-y-2">
-                        <p className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
-                          {offre.categorie}
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <p className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
+                            {offre.categorie}
+                          </p>
+                          {isGoSportUnitaire(offre.reference, offre.nomProduit) && (
+                            <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase tracking-wide">
+                              Vendu à l'unité
+                            </span>
+                          )}
+                        </div>
                         <h3 className="font-heading font-black text-white text-base sm:text-lg leading-snug">
                           {offre.nomProduit}
                         </h3>
-                        {offre.description && (
+                        {userRole === 'admin' && (offre.reference || offre.referenceFabricantClean) && (
+                          <p className="text-[11px] font-mono text-zinc-400">
+                            {offre.reference ? `Réf. ${offre.reference}` : ''}
+                            {offre.reference &&
+                            offre.referenceFabricantClean &&
+                            offre.referenceFabricantClean !== offre.reference
+                              ? ` · Fournisseur : ${offre.referenceFabricantClean}`
+                              : !offre.reference && offre.referenceFabricantClean
+                                ? `Réf. fournisseur : ${offre.referenceFabricantClean}`
+                                : ''}
+                          </p>
+                        )}
+                        {offre.description ? (
                           <p className="text-xs text-zinc-300 leading-relaxed">
                             {offre.description}
                           </p>
-                        )}
+                        ) : userRole === 'admin' && (offre.reference || offre.referenceFabricantClean) ? (
+                          <p className="text-[11px] text-amber-300/90 italic">
+                            Cliquez sur « Modifier tarifs / stock » pour rechercher automatiquement photos & description.
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="space-y-3 pt-3 border-t border-zinc-800/80">
@@ -2121,12 +2347,29 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                         <div className="min-w-0 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-bold text-white text-sm truncate">{o.nomProduit}</span>
+                            {isGoSportUnitaire(o.reference, o.nomProduit) && (
+                              <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase">
+                                Unité (/U)
+                              </span>
+                            )}
                             {o.excluClub && (
                               <span className="px-2 py-0.5 rounded-md bg-amber-400 text-zinc-950 text-[10px] font-black uppercase">
                                 Exclu Club
                               </span>
                             )}
                           </div>
+                          {(o.reference || o.referenceFabricantClean) && (
+                            <p className="text-[11px] font-mono text-zinc-400">
+                              {o.reference ? `Réf. magasin : ${o.reference}` : ''}
+                              {o.reference &&
+                              o.referenceFabricantClean &&
+                              o.referenceFabricantClean !== o.reference
+                                ? ` · Réf. clean : ${o.referenceFabricantClean}`
+                                : !o.reference && o.referenceFabricantClean
+                                  ? `Réf. fournisseur : ${o.referenceFabricantClean}`
+                                  : ''}
+                            </p>
+                          )}
                           <p className="text-xs text-zinc-400 tabular-nums">
                             Magasin: {formatPriceEur(o.tarifMagasin)}
                             {o.prixPromo !== null && o.prixPromo !== undefined
@@ -2184,6 +2427,249 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   >
                     ← Retour à la liste
                   </button>
+                </div>
+
+                {/* Références Google Sheet + Recherche automatique (≥ 3 photos à valider + description sommaire) */}
+                <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-orange-500/35 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-orange-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#FF6D00]" />
+                      <span>Références produit & recherche photos / description</span>
+                    </label>
+                    {isGoSportUnitaire(gsReference, gsNomProduit) ? (
+                      <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase">
+                        Déloté (/U) · Vendu à l'unité
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-zinc-400">
+                        Col. Référence & Reference_Fabricant_Clean
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                        Référence logiciel magasin
+                      </label>
+                      <input
+                        type="text"
+                        value={gsReference}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const prevDerived = deriveCleanSupplierRef(gsReference);
+                          setGsReference(val);
+                          if (!gsReferenceClean.trim() || gsReferenceClean === prevDerived) {
+                            setGsReferenceClean(deriveCleanSupplierRef(val));
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleLookupGoSportByReference();
+                          }
+                        }}
+                        placeholder="Ex : WRT13730B/U, 1508397/WRT116400..."
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 font-mono text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                        Référence fournisseur nettoyée
+                      </label>
+                      <input
+                        type="text"
+                        value={gsReferenceClean}
+                        onChange={(e) => setGsReferenceClean(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleLookupGoSportByReference();
+                          }
+                        }}
+                        onBlur={() => {
+                          const trimmed = gsReferenceClean.trim() || gsReference.trim();
+                          if (
+                            !editingGoSportId &&
+                            trimmed.length >= 3 &&
+                            trimmed !== gsLastLookedUpRef &&
+                            gsLookupPhotos.length === 0 &&
+                            !isLookingUpGoSport
+                          ) {
+                            void handleLookupGoSportByReference({ query: trimmed });
+                          }
+                        }}
+                        placeholder="Ex : WRT13730B, WRT116400..."
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 font-mono text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <p className="text-[11px] text-zinc-400">
+                      La recherche interroge prioritairement la référence fournisseur nettoyée
+                      {isGoSportUnitaire(gsReference, gsNomProduit)
+                        ? ' et précise « vendu à l’unité » (/U).'
+                        : '.'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isLookingUpGoSport}
+                      onClick={() => void handleLookupGoSportByReference()}
+                      className="min-h-[44px] px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {isLookingUpGoSport ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Search className="w-4 h-4" />
+                      )}
+                      <span>{isLookingUpGoSport ? 'Recherche...' : 'Chercher photos & infos'}</span>
+                    </button>
+                  </div>
+
+                  {isLookingUpGoSport && (
+                    <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/25 text-xs text-orange-200 flex items-center gap-2.5">
+                      <Loader2 className="w-4 h-4 animate-spin text-[#FF6D00] shrink-0" />
+                      <span>Recherche du produit, vérification des photos et rédaction de la description sommaire...</span>
+                    </div>
+                  )}
+
+                  {gsLookupError && (
+                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/35 text-xs text-rose-200 space-y-2.5">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <span>{gsLookupError}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isCompressingGsPhoto}
+                          onClick={() => gsCameraInputRef.current?.click()}
+                          className="min-h-[40px] px-3 py-1.5 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 border border-orange-400/45 text-orange-200 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-orange-400" />
+                          <span>Prendre une photo</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isCompressingGsPhoto}
+                          onClick={() => gsFileInputRef.current?.click()}
+                          className="min-h-[40px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-zinc-300" />
+                          <span>Importer une photo</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {gsLookupWarning && !gsLookupError && (
+                    <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/35 text-xs text-amber-200 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span>{gsLookupWarning}</span>
+                    </div>
+                  )}
+
+                  {gsLookupPhotos.filter((p) => !p.broken).length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-bold text-zinc-200">
+                          Photos trouvées ({gsLookupPhotos.filter((p) => !p.broken).length}) — cliquez pour valider :
+                        </p>
+                        {gsPhotoUrl && (
+                          <span className="text-[11px] font-bold text-emerald-400 inline-flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Photo validée</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        {gsLookupPhotos.map((photo, idx) => {
+                          if (photo.broken) return null;
+                          const isValidated =
+                            gsPhotoUrl === photo.url || gsSelectedCandidateUrl === photo.url;
+                          const isConverting = gsValidatingPhotoUrl === photo.url;
+                          const displaySrc = photo.useProxy
+                            ? `/api/image-proxy?url=${encodeURIComponent(photo.url)}`
+                            : photo.url;
+
+                          return (
+                            <button
+                              key={`${photo.url}-${idx}`}
+                              type="button"
+                              onClick={() => handleSelectAndValidatePhoto(photo)}
+                              className={`group relative rounded-xl overflow-hidden border-2 text-left transition cursor-pointer bg-white ${
+                                isValidated
+                                  ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-950/50'
+                                  : 'border-zinc-700 hover:border-[#FF6D00]'
+                              }`}
+                            >
+                              <div className="aspect-[4/3] w-full bg-white flex items-center justify-center overflow-hidden">
+                                <img
+                                  src={displaySrc}
+                                  alt={`Proposition ${idx + 1}`}
+                                  referrerPolicy="no-referrer"
+                                  onError={() => {
+                                    setGsLookupPhotos((prev) =>
+                                      prev.map((item, i) =>
+                                        i === idx
+                                          ? item.useProxy
+                                            ? { ...item, broken: true }
+                                            : { ...item, useProxy: true }
+                                          : item
+                                      )
+                                    );
+                                  }}
+                                  className="w-full h-full object-contain p-1.5"
+                                />
+                              </div>
+
+                              <div className="px-2 py-1 bg-[#141820] border-t border-zinc-800 flex items-center justify-between gap-1">
+                                <span className="text-[10px] text-zinc-400 truncate">
+                                  {photo.source}
+                                </span>
+                                {isConverting ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-orange-400 shrink-0" />
+                                ) : isValidated ? (
+                                  <span className="text-[10px] font-black text-emerald-400 shrink-0 inline-flex items-center gap-0.5">
+                                    <Check className="w-3 h-3" />
+                                    Validée
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-orange-300 shrink-0">
+                                    Choisir
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {gsLookupSuggestedDesc && (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-emerald-300">
+                          Description sommaire proposée
+                        </span>
+                        {gsDescription.trim() !== gsLookupSuggestedDesc && (
+                          <button
+                            type="button"
+                            onClick={() => setGsDescription(gsLookupSuggestedDesc)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black cursor-pointer"
+                          >
+                            Utiliser cette description
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-200 leading-relaxed">
+                        {gsLookupSuggestedDesc}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2415,7 +2901,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
 
                 {/* Photo */}
                 <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                       <ImageIcon className="w-3.5 h-3.5 text-orange-400" />
                       <span>Photo du produit</span>
@@ -2427,31 +2913,75 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                       onChange={handleGsPhotoChange}
                       className="hidden"
                     />
-                    <button
-                      type="button"
-                      disabled={isCompressingGsPhoto}
-                      onClick={() => gsFileInputRef.current?.click()}
-                      className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      {isCompressingGsPhoto ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
-                      ) : (
-                        <Camera className="w-4 h-4 text-orange-400" />
-                      )}
-                      <span>{isCompressingGsPhoto ? 'Compression...' : 'Importer photo'}</span>
-                    </button>
-                  </div>
-
-                  {gsPhotoUrl && gsPhotoUrl.startsWith('data:image') ? (
-                    <div className="relative h-28 rounded-xl overflow-hidden border border-zinc-700">
-                      <img src={gsPhotoUrl} alt="Aperçu" className="w-full h-full object-cover" />
+                    <input
+                      ref={gsCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleGsPhotoChange}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setGsPhotoUrl('')}
-                        className="min-w-[44px] min-h-[44px] absolute top-1.5 right-1.5 rounded-xl bg-black/75 text-white flex items-center justify-center cursor-pointer"
+                        disabled={isCompressingGsPhoto}
+                        onClick={() => gsCameraInputRef.current?.click()}
+                        className="min-h-[44px] px-3 py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
                       >
-                        <X className="w-4 h-4" />
+                        {isCompressingGsPhoto ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                        ) : (
+                          <Camera className="w-4 h-4 text-orange-400" />
+                        )}
+                        <span>{isCompressingGsPhoto ? 'Traitement...' : 'Prendre une photo'}</span>
                       </button>
+                      <button
+                        type="button"
+                        disabled={isCompressingGsPhoto}
+                        onClick={() => gsFileInputRef.current?.click()}
+                        className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+                      >
+                        {isCompressingGsPhoto ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                        ) : (
+                          <Upload className="w-4 h-4 text-orange-400" />
+                        )}
+                        <span>{isCompressingGsPhoto ? 'Compression...' : 'Importer une photo'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {gsPhotoUrl ? (
+                    <div className="space-y-2">
+                      <div className="relative h-32 rounded-xl overflow-hidden border border-zinc-700 bg-white">
+                        <img
+                          src={gsPhotoUrl}
+                          alt="Aperçu produit validé"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-contain p-1.5"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGsPhotoUrl('');
+                            setGsSelectedCandidateUrl(null);
+                          }}
+                          aria-label="Retirer la photo"
+                          className="min-w-[44px] min-h-[44px] absolute top-1.5 right-1.5 rounded-xl bg-black/75 text-white flex items-center justify-center cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {!gsPhotoUrl.startsWith('data:image') && (
+                        <input
+                          type="url"
+                          inputMode="url"
+                          value={gsPhotoUrl}
+                          onChange={(e) => setGsPhotoUrl(e.target.value)}
+                          placeholder="URL de la photo (https://...)"
+                          className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                        />
+                      )}
                     </div>
                   ) : (
                     <input

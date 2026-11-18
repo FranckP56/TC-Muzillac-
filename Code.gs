@@ -936,6 +936,8 @@ function ensureGoSportSheet() {
     sheet.setTabColor('#0284C7');
     sheet.appendRow([
       "ID",
+      "Référence",
+      "Reference_Fabricant_Clean",
       "Nom_Produit",
       "Categorie",
       "Photo_URL",
@@ -951,12 +953,44 @@ function ensureGoSportSheet() {
   return sheet;
 }
 
+function getGoSportColMap(headersRow) {
+  const norm = headersRow.map(function(h) {
+    return String(h || '').trim().toLowerCase();
+  });
+  function findCol(candidates, fallbackIdx) {
+    for (let i = 0; i < norm.length; i++) {
+      const h = norm[i];
+      const compact = h.replace(/[\s_-]+/g, '');
+      for (let c = 0; c < candidates.length; c++) {
+        if (h === candidates[c] || compact === candidates[c].replace(/[\s_-]+/g, '')) {
+          return i;
+        }
+      }
+    }
+    return fallbackIdx;
+  }
+  return {
+    id: findCol(['id'], 0),
+    reference: findCol(['référence', 'reference', 'ref', 'ref_magasin'], -1),
+    referenceClean: findCol(['reference_fabricant_clean', 'référence_fabricant_clean', 'reference fabricant clean', 'reference_clean', 'ref_clean'], -1),
+    nomProduit: findCol(['nom_produit', 'nom produit', 'nom'], 1),
+    categorie: findCol(['categorie', 'catégorie'], 2),
+    photoUrl: findCol(['photo_url', 'photo url', 'photo'], 3),
+    tarifMagasin: findCol(['tarif_magasin', 'tarif magasin'], 4),
+    prixPromo: findCol(['prix_promo', 'prix promo'], 5),
+    tarifAdherent: findCol(['tarif_adherent', 'tarif adhérent', 'tarif adherent'], 6),
+    excluClub: findCol(['exclu_club', 'exclu club'], 7),
+    taillesDispo: findCol(['tailles_dispo', 'tailles dispo', 'tailles'], 8),
+    description: findCol(['description'], 9)
+  };
+}
+
 function parseGoSportNum(val) {
   if (val === null || val === undefined || val === '') return null;
   const s = String(val).replace(/€/g, '').replace(/\s+/g, '').replace(',', '.').trim();
   if (!s) return null;
   const n = parseFloat(s);
-  return isNaN(n) ? null : n;
+  return isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 
 function getGoSportOffres() {
@@ -967,26 +1001,32 @@ function getGoSportOffres() {
   const values = sheet.getDataRange().getValues();
   if (values.length <= 1) return [];
 
+  const cols = getGoSportColMap(values[0]);
   const list = [];
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const nomProduit = String(row[1] || '').trim();
+    const nomProduit = cols.nomProduit >= 0 ? String(row[cols.nomProduit] || '').trim() : '';
     if (!nomProduit) continue;
 
-    const id = String(row[0] || ('gosport-' + i)).trim();
-    const excluRaw = String(row[7] || '').trim().toUpperCase();
+    const rawId = cols.id >= 0 ? String(row[cols.id] || '').trim() : '';
+    const refMag = cols.reference >= 0 ? String(row[cols.reference] || '').trim() : '';
+    const refClean = cols.referenceClean >= 0 ? String(row[cols.referenceClean] || '').trim() : '';
+    const id = rawId || (refMag ? ('ref-' + refMag + '-' + i) : ('gosport-' + i));
+    const excluRaw = cols.excluClub >= 0 ? String(row[cols.excluClub] || '').trim().toUpperCase() : '';
 
     list.push({
       id: id,
+      reference: refMag,
+      referenceFabricantClean: refClean,
       nomProduit: nomProduit,
-      categorie: String(row[2] || 'Équipement').trim(),
-      photoUrl: String(row[3] || '').trim(),
-      tarifMagasin: parseGoSportNum(row[4]) || 0,
-      prixPromo: parseGoSportNum(row[5]),
-      tarifAdherent: parseGoSportNum(row[6]),
+      categorie: cols.categorie >= 0 ? String(row[cols.categorie] || 'Équipement').trim() : 'Équipement',
+      photoUrl: cols.photoUrl >= 0 ? String(row[cols.photoUrl] || '').trim() : '',
+      tarifMagasin: cols.tarifMagasin >= 0 ? (parseGoSportNum(row[cols.tarifMagasin]) || 0) : 0,
+      prixPromo: cols.prixPromo >= 0 ? parseGoSportNum(row[cols.prixPromo]) : null,
+      tarifAdherent: cols.tarifAdherent >= 0 ? parseGoSportNum(row[cols.tarifAdherent]) : null,
       excluClub: excluRaw === 'OUI' || excluRaw === 'TRUE' || excluRaw === '1',
-      taillesDispo: String(row[8] || '').trim(),
-      description: String(row[9] || '').trim()
+      taillesDispo: cols.taillesDispo >= 0 ? String(row[cols.taillesDispo] || '').trim() : '',
+      description: cols.description >= 0 ? String(row[cols.description] || '').trim() : ''
     });
   }
 
@@ -1002,33 +1042,51 @@ function saveGoSportOffre(payload) {
   }
 
   const id = String(o.id || ('gosport-' + Date.now())).trim();
+  const refMag = String(o.reference || '').trim();
+  const refClean = String(o.referenceFabricantClean || '').trim();
+  const nomTrim = String(o.nomProduit).trim();
   const tarifMagasin = parseGoSportNum(o.tarifMagasin);
   const prixPromo = parseGoSportNum(o.prixPromo);
   const tarifAdherent = parseGoSportNum(o.tarifAdherent);
   const excluFlag = (o.excluClub === true || String(o.excluClub || '').toUpperCase() === 'OUI') ? 'OUI' : 'NON';
 
-  const rowValues = [
-    safeCellValue(id),
-    safeCellValue(String(o.nomProduit).trim()),
-    safeCellValue(String(o.categorie || 'Équipement').trim()),
-    safeCellValue(String(o.photoUrl || '').trim()),
-    tarifMagasin !== null ? tarifMagasin : 0,
-    prixPromo !== null ? prixPromo : '',
-    tarifAdherent !== null ? tarifAdherent : '',
-    excluFlag,
-    safeCellValue(String(o.taillesDispo || '').trim()),
-    safeCellValue(String(o.description || '').trim())
-  ];
-
   const rows = sheet.getDataRange().getValues();
+  const cols = getGoSportColMap(rows[0] || []);
+  const colCount = Math.max((rows[0] || []).length, 10);
+
+  let matchRowIdx = -1;
   for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][0] || '').trim() === id) {
-      sheet.getRange(i + 1, 1, 1, rowValues.length).setValues([rowValues]);
-      return { success: true, id: id, updated: true };
+    const rId = cols.id >= 0 ? String(rows[i][cols.id] || '').trim() : '';
+    const rRef = cols.reference >= 0 ? String(rows[i][cols.reference] || '').trim() : '';
+    const rNom = cols.nomProduit >= 0 ? String(rows[i][cols.nomProduit] || '').trim() : '';
+    if ((rId && rId === id) || (refMag && rRef && rRef === refMag && rNom === nomTrim) || (!rId && rNom === nomTrim && (!refMag || rRef === refMag))) {
+      matchRowIdx = i;
+      break;
     }
   }
 
-  sheet.appendRow(rowValues);
+  const rowArr = matchRowIdx >= 1 ? rows[matchRowIdx].slice() : new Array(colCount).fill('');
+  while (rowArr.length < colCount) rowArr.push('');
+
+  if (cols.id >= 0) rowArr[cols.id] = safeCellValue(id);
+  if (cols.reference >= 0 && (refMag || matchRowIdx === -1)) rowArr[cols.reference] = safeCellValue(refMag);
+  if (cols.referenceClean >= 0 && (refClean || matchRowIdx === -1)) rowArr[cols.referenceClean] = safeCellValue(refClean);
+  if (cols.nomProduit >= 0) rowArr[cols.nomProduit] = safeCellValue(nomTrim);
+  if (cols.categorie >= 0) rowArr[cols.categorie] = safeCellValue(String(o.categorie || 'Équipement').trim());
+  if (cols.photoUrl >= 0) rowArr[cols.photoUrl] = safeCellValue(String(o.photoUrl || '').trim());
+  if (cols.tarifMagasin >= 0) rowArr[cols.tarifMagasin] = tarifMagasin !== null ? tarifMagasin : 0;
+  if (cols.prixPromo >= 0) rowArr[cols.prixPromo] = prixPromo !== null ? prixPromo : '';
+  if (cols.tarifAdherent >= 0) rowArr[cols.tarifAdherent] = tarifAdherent !== null ? tarifAdherent : '';
+  if (cols.excluClub >= 0) rowArr[cols.excluClub] = excluFlag;
+  if (cols.taillesDispo >= 0) rowArr[cols.taillesDispo] = safeCellValue(String(o.taillesDispo || '').trim());
+  if (cols.description >= 0) rowArr[cols.description] = safeCellValue(String(o.description || '').trim());
+
+  if (matchRowIdx >= 1) {
+    sheet.getRange(matchRowIdx + 1, 1, 1, rowArr.length).setValues([rowArr]);
+    return { success: true, id: id, updated: true };
+  }
+
+  sheet.appendRow(rowArr);
   return { success: true, id: id, created: true };
 }
 
@@ -1038,13 +1096,19 @@ function deleteGoSportOffre(payload) {
   if (!sheet) return { success: false, error: "Onglet Partenaire_GOSport introuvable." };
 
   const targetId = String(payload.id || payload.offreId || '').trim();
-  if (!targetId) return { success: false, error: "Identifiant de produit manquant." };
+  const targetRef = String(payload.reference || '').trim();
+  if (!targetId && !targetRef) return { success: false, error: "Identifiant de produit manquant." };
 
   const rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return { success: false, error: "Produit GO Sport introuvable." };
+  const cols = getGoSportColMap(rows[0]);
+
   for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][0] || '').trim() === targetId) {
+    const rId = cols.id >= 0 ? String(rows[i][cols.id] || '').trim() : '';
+    const rRef = cols.reference >= 0 ? String(rows[i][cols.reference] || '').trim() : '';
+    if ((targetId && rId && rId === targetId) || (targetRef && rRef && rRef === targetRef)) {
       sheet.deleteRow(i + 1);
-      return { success: true, id: targetId };
+      return { success: true, id: targetId || targetRef };
     }
   }
 

@@ -1797,7 +1797,8 @@ function parseOptionalPrice(val: any): number | null {
   const s = String(val).replace(/€/g, '').replace(/\s+/g, '').replace(',', '.').trim();
   if (!s) return null;
   const n = parseFloat(s);
-  return isNaN(n) ? null : n;
+  if (isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
 }
 
 function parseExcluClubFlag(val: any): boolean {
@@ -1813,18 +1814,34 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
   if (!Array.isArray(raw[0]) && typeof raw[0] === 'object') {
     return raw
       .filter((item: any) => item && (item.nomProduit || item.Nom_Produit))
-      .map((item: any, idx: number) => ({
-        id: String(item.id || item.ID || `gosport-${idx}`).trim(),
-        nomProduit: String(item.nomProduit || item.Nom_Produit || '').trim(),
-        categorie: String(item.categorie || item.Categorie || 'Équipement').trim(),
-        photoUrl: String(item.photoUrl || item.Photo_URL || '').trim() || undefined,
-        tarifMagasin: parseOptionalPrice(item.tarifMagasin ?? item.Tarif_Magasin) ?? 0,
-        prixPromo: parseOptionalPrice(item.prixPromo ?? item.Prix_Promo),
-        tarifAdherent: parseOptionalPrice(item.tarifAdherent ?? item.Tarif_Adherent),
-        excluClub: parseExcluClubFlag(item.excluClub ?? item.Exclu_Club),
-        taillesDispo: String(item.taillesDispo ?? item.Tailles_Dispo ?? '').trim(),
-        description: String(item.description ?? item.Description ?? '').trim(),
-      }));
+      .map((item: any, idx: number) => {
+        const refMag = String(
+          item.reference ?? item['Référence'] ?? item.Reference ?? ''
+        ).trim();
+        const refClean = String(
+          item.referenceFabricantClean ??
+            item.Reference_Fabricant_Clean ??
+            item['Référence_Fabricant_Clean'] ??
+            ''
+        ).trim();
+        const rawId = String(item.id ?? item.ID ?? '').trim();
+        const safeId = rawId || (refMag ? `ref-${refMag}-${idx + 1}` : `gosport-${idx + 1}`);
+
+        return {
+          id: safeId,
+          reference: refMag || undefined,
+          referenceFabricantClean: refClean || undefined,
+          nomProduit: String(item.nomProduit || item.Nom_Produit || '').trim(),
+          categorie: String(item.categorie || item.Categorie || 'Équipement').trim(),
+          photoUrl: String(item.photoUrl || item.Photo_URL || '').trim() || undefined,
+          tarifMagasin: parseOptionalPrice(item.tarifMagasin ?? item.Tarif_Magasin) ?? 0,
+          prixPromo: parseOptionalPrice(item.prixPromo ?? item.Prix_Promo),
+          tarifAdherent: parseOptionalPrice(item.tarifAdherent ?? item.Tarif_Adherent),
+          excluClub: parseExcluClubFlag(item.excluClub ?? item.Exclu_Club),
+          taillesDispo: String(item.taillesDispo ?? item.Tailles_Dispo ?? '').trim(),
+          description: String(item.description ?? item.Description ?? '').trim(),
+        };
+      });
   }
 
   // Cas 2 : tableau 2D de lignes Google Sheets (en-têtes en ligne 0)
@@ -1838,6 +1855,17 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
     };
 
     const idxId = findCol(['id'], 0);
+    const idxRef = findCol(['référence', 'reference', 'ref', 'ref_magasin'], -1);
+    const idxRefClean = findCol(
+      [
+        'reference_fabricant_clean',
+        'référence_fabricant_clean',
+        'reference fabricant clean',
+        'reference_clean',
+        'ref_clean',
+      ],
+      -1
+    );
     const idxNom = findCol(['nom_produit', 'nom produit', 'nom'], 1);
     const idxCat = findCol(['categorie', 'catégorie'], 2);
     const idxPhoto = findCol(['photo_url', 'photo url', 'photo'], 3);
@@ -1855,8 +1883,15 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
       const nomProduit = String(row[idxNom] || '').trim();
       if (!nomProduit) continue;
 
+      const rawId = idxId >= 0 ? String(row[idxId] || '').trim() : '';
+      const reference = idxRef >= 0 ? String(row[idxRef] || '').trim() : '';
+      const referenceFabricantClean = idxRefClean >= 0 ? String(row[idxRefClean] || '').trim() : '';
+      const safeId = rawId || (reference ? `ref-${reference}-${i}` : `gosport-${i}`);
+
       list.push({
-        id: String(row[idxId] || `gosport-${i}`).trim(),
+        id: safeId,
+        reference: reference || undefined,
+        referenceFabricantClean: referenceFabricantClean || undefined,
         nomProduit,
         categorie: String(row[idxCat] || 'Équipement').trim(),
         photoUrl: String(row[idxPhoto] || '').trim() || undefined,
@@ -1985,6 +2020,8 @@ export async function saveGoSportOffreToSheet(
 
   const cleanOffre = {
     id,
+    reference: (offre.reference || '').trim(),
+    referenceFabricantClean: (offre.referenceFabricantClean || '').trim(),
     nomProduit: offre.nomProduit.trim(),
     categorie: (offre.categorie || 'Équipement').trim(),
     photoUrl: (offre.photoUrl || '').trim(),
@@ -2057,12 +2094,14 @@ export async function saveGoSportOffreToSheet(
  */
 export async function deleteGoSportOffreInSheet(
   id: string,
-  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL,
+  reference?: string
 ): Promise<{ success: boolean; error?: string }> {
   const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
   const payload = {
     action: 'deleteGoSportOffre',
     id,
+    reference: (reference || '').trim() || undefined,
   };
 
   try {

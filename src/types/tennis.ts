@@ -295,6 +295,8 @@ export interface TrocAnnonce {
 
 export interface GoSportOffre {
   id: string;
+  reference?: string;
+  referenceFabricantClean?: string;
   nomProduit: string;
   categorie: string;
   photoUrl?: string;
