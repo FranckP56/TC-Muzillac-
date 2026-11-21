@@ -234,24 +234,28 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
 
               {/* Ligne principale : Macaron Classement + Nom Prénom EN ENTIER + Croix de retour abaissée */}
               <div className="flex items-center justify-between gap-3 sm:gap-4 relative z-10">
-                {/* Badge Classement FFT */}
-                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex flex-col items-center justify-center font-heading font-black border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-md shrink-0`}>
-                  <span className="text-base sm:text-lg leading-tight">{adherent.dernierClassTennis || 'NC'}</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider opacity-85">
-                    {meta.serie}
-                  </span>
-                  {(() => {
-                    const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
-                    if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
-                      return (
-                        <span className="text-[8px] font-bold opacity-80 mt-0.5" title="Meilleur classement FFT">
-                          Max {maxRank}
-                        </span>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
+                {/* Badge Classement FFT (sans mention de série, classement actuel + max classt) */}
+                {(() => {
+                  const currentRank = adherent.dernierClassTennis || 'NC';
+                  const rawMax = cleanRanking(adherent.meilleurClassTennis, '');
+                  const maxRank =
+                    rawMax && isValidTennisRanking(rawMax)
+                      ? rawMax
+                      : cleanRanking(currentRank, '') || currentRank;
+                  return (
+                    <div
+                      className={`min-w-[68px] sm:min-w-[76px] px-2.5 py-2 rounded-2xl flex flex-col items-center justify-center font-heading font-black border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-md shrink-0 text-center`}
+                    >
+                      <span className="text-base sm:text-lg leading-none">{currentRank}</span>
+                      <span
+                        className="text-[9px] font-bold leading-tight opacity-85 mt-1"
+                        title="Meilleur classement FFT (max classt)"
+                      >
+                        max classt {maxRank}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Nom & Prénom affichés EN ENTIER (sans troncature) */}
                 <div className="min-w-0 flex-1">
@@ -502,16 +506,42 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                   </div>
                 </div>
 
-                {/* Groupe d'enseignement sur une seule ligne (si renseigné) */}
-                {adherent.groupeEnseignement && (
-                  <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
-                    <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
-                      <BookOpen className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                      <span>Groupe</span>
+                {/* Solde du compte */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <CreditCard className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Solde du compte</span>
+                  </span>
+                  {isOwed ? (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs tabular-nums">
+                      Dû : {Math.abs(adherent.soldeDu).toFixed(0)} €
                     </span>
-                    <span className="font-semibold text-white truncate text-xs">{adherent.groupeEnseignement}</span>
-                  </div>
-                )}
+                  ) : adherent.soldeDu > 0 ? (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs tabular-nums">
+                      Avoir : +{adherent.soldeDu.toFixed(0)} €
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs tabular-nums">
+                      À jour (0 €)
+                    </span>
+                  )}
+                </div>
+
+                {/* Groupe de cours / Pratique */}
+                <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>
+                  <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                    <BookOpen className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <span>Cours / Pratique</span>
+                  </span>
+                  <span className="font-semibold text-white truncate text-xs text-right">
+                    {adherent.groupeEnseignement || adherent.formuleCours || 'Pratique libre'}
+                    {adherent.groupeEnseignement &&
+                    adherent.formuleCours &&
+                    adherent.formuleCours !== adherent.groupeEnseignement
+                      ? ` · ${adherent.formuleCours}`
+                      : ''}
+                  </span>
+                </div>
 
                 {/* Compte Ten'Up sur une seule ligne */}
                 <div className={`flex items-center justify-between gap-2 py-1.5 border-b ${theme.infoRowBorder}`}>

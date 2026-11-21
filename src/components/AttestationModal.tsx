@@ -14,7 +14,9 @@ import {
   RotateCcw,
   Plus,
   Trash2,
-  Lock
+  Lock,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -90,12 +92,21 @@ async function compressImageFile(file: File, maxWidth = 350, maxHeight = 350, qu
   });
 }
 
+export interface AttestationBatchQueue {
+  currentIndex: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+  onFinish: () => void;
+}
+
 interface AttestationModalProps {
   adherent: Adherent;
   clubInfo: ClubInfo;
   userRole?: UserRole;
   onClose: () => void;
   onSaveClubInfo?: (info: ClubInfo) => Promise<void> | void;
+  batchQueue?: AttestationBatchQueue;
 }
 
 export const AttestationModal: React.FC<AttestationModalProps> = ({
@@ -104,6 +115,7 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
   userRole = 'adherent',
   onClose,
   onSaveClubInfo,
+  batchQueue,
 }) => {
   const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
   const [isEditingClubInfo, setIsEditingClubInfo] = useState(false);
@@ -649,6 +661,52 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Barre de progression en mode envoi groupé (sélection multiple) */}
+        {batchQueue && batchQueue.total > 1 && (
+          <div className="no-print px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="px-2 py-0.5 rounded-lg bg-amber-500/25 text-amber-200 border border-amber-500/40 font-black tabular-nums shrink-0">
+                Attestation {batchQueue.currentIndex + 1} / {batchQueue.total}
+              </span>
+              <span className="text-amber-100/90 text-[11px] truncate">
+                Vérifiez les paramètres personnels ci-dessous (formule, montant, règlements) puis envoyez.
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={batchQueue.currentIndex === 0}
+                onClick={batchQueue.onPrev}
+                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-35 text-zinc-200 font-bold flex items-center gap-1 transition cursor-pointer disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Précédent</span>
+              </button>
+
+              {batchQueue.currentIndex < batchQueue.total - 1 ? (
+                <button
+                  type="button"
+                  onClick={batchQueue.onNext}
+                  className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-black flex items-center gap-1 transition cursor-pointer shadow-sm"
+                >
+                  <span>Suivant</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={batchQueue.onFinish}
+                  className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black flex items-center gap-1 transition cursor-pointer shadow-sm"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Terminer</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* =================================================================== */}
         {/* PANNEAU D'ÉDITION AVEC ONGLETS : CLUB (GSHEET) vs SIGNATAIRE (LOCAL) */}

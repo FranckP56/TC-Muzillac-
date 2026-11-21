@@ -22,10 +22,14 @@ import {
   Download, 
   Award,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  CheckSquare
 } from 'lucide-react';
 import { Adherent, ClubInfo, Enseignant, UserRole } from '../types/tennis';
 import { AttestationModal } from './AttestationModal';
+import { useLongPressSelection } from '../hooks/useLongPressSelection';
+import { SelectionActionBar } from './SelectionActionBar';
+import { BatchMessageModal, BatchModalMode } from './BatchMessageModal';
 
 interface EnseignantsTabProps {
   adherents: Adherent[];
@@ -98,6 +102,22 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
 
   // Modale d'attestation de paiement & licence (Admin / Bureau uniquement)
   const [attestationAdherent, setAttestationAdherent] = useState<Adherent | null>(null);
+
+  // Sélection multiple (appui long)
+  const [batchModalMode, setBatchModalMode] = useState<BatchModalMode | null>(null);
+  const [batchAttestationQueue, setBatchAttestationQueue] = useState<Adherent[]>([]);
+  const [batchAttestationIndex, setBatchAttestationIndex] = useState(0);
+
+  const {
+    selectedIds,
+    isSelectionMode,
+    isSelected,
+    selectAll,
+    deselectAll,
+    enterSelectionMode,
+    exitSelectionMode,
+    getCardProps,
+  } = useLongPressSelection();
 
   // Helper : Vérifie si un membre est inscrit aux cours de tennis (colonne BA)
   const isEleveEnCours = (a: Adherent): boolean => {
@@ -236,6 +256,14 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
       return true;
     });
   }, [elevesEnCours, searchQuery, filterSolde, filterGroupe]);
+
+  const selectedMembers = useMemo(
+    () => elevesEnCours.filter((a) => selectedIds.has(a.id)),
+    [elevesEnCours, selectedIds]
+  );
+
+  const visibleIds = useMemo(() => filteredEleves.map((a) => a.id), [filteredEleves]);
+  const currentBatchAttestation = batchAttestationQueue[batchAttestationIndex] || null;
 
   // Statistiques financières de l'enseignement (comptabilisant strictement les élèves en cours)
   const stats = useMemo(() => {
@@ -574,6 +602,37 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
             </div>
           )}
 
+          {/* En-tête rapide liste élèves + bouton sélection multiple */}
+          <div className="flex items-center justify-between gap-2 flex-wrap px-1 text-xs">
+            <span className="text-zinc-400 font-semibold">
+              {filteredEleves.length} élève{filteredEleves.length > 1 ? 's' : ''} affiché{filteredEleves.length > 1 ? 's' : ''}
+              <span className="hidden sm:inline text-zinc-500"> • Appui long sur une carte pour sélectionner plusieurs élèves</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={isSelectionMode ? exitSelectionMode : enterSelectionMode}
+              className={`px-3 py-1.5 rounded-xl font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                isSelectionMode
+                  ? 'bg-[#E65100] text-white border-[#FF6D00] shadow-md shadow-orange-950/40'
+                  : 'bg-[#141820] hover:bg-[#1c222e] text-zinc-300 border-[#252b37]'
+              }`}
+              title="Sélection multiple (ou appui long sur un élève)"
+            >
+              {isSelectionMode ? (
+                <>
+                  <X className="w-3.5 h-3.5" />
+                  <span>Quitter sélection</span>
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="w-3.5 h-3.5 text-[#FF6D00]" />
+                  <span>Sélection multiple</span>
+                </>
+              )}
+            </button>
+          </div>
+
           {/* Liste des cartes élèves */}
           <div className="space-y-3">
             {filteredEleves.length > 0 ? (
@@ -581,14 +640,31 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                 const isDue = eleve.soldeDu < 0;
                 const isUpToDate = eleve.soldeDu === 0;
                 const isCredit = eleve.soldeDu > 0;
+                const selected = isSelected(eleve.id);
 
                 return (
                   <div
                     key={eleve.id}
-                    className="p-4 bg-[#161a22] rounded-2xl border border-[#252b37] hover:border-orange-500/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+                    {...getCardProps(eleve.id, () => onSelectAdherent && onSelectAdherent(eleve))}
+                    className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm cursor-pointer select-none ${
+                      selected
+                        ? 'bg-[#FF6D00]/15 border-[#FF6D00] ring-2 ring-[#FF6D00]'
+                        : 'bg-[#161a22] border-[#252b37] hover:border-orange-500/40'
+                    }`}
                   >
                     {/* Infos élève */}
                     <div className="flex items-start space-x-3.5 min-w-0">
+                      {isSelectionMode && (
+                        <span
+                          className={`mt-3 w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition ${
+                            selected
+                              ? 'bg-[#FF6D00] border-[#FF6D00] text-white'
+                              : 'bg-black/40 border-zinc-500 text-transparent'
+                          }`}
+                        >
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        </span>
+                      )}
                       <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-heading font-black text-sm shrink-0 ${
                         isDue 
                           ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' 
@@ -600,8 +676,7 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span 
-                            onClick={() => onSelectAdherent && onSelectAdherent(eleve)}
-                            className="font-heading font-black text-white text-sm hover:text-orange-400 transition cursor-pointer truncate"
+                            className="font-heading font-black text-white text-sm hover:text-orange-400 transition truncate"
                           >
                             {eleve.nomPrenom}
                           </span>
@@ -660,55 +735,67 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
                       </div>
 
                       {/* Boutons d'actions rapides du prof */}
-                      <div className="flex items-center space-x-1.5">
-                        
-                        {/* Appel téléphonique */}
-                        {eleve.telephonePortable && (
-                          <a
-                            href={`tel:${eleve.telephonePortable}`}
-                            className="p-2 rounded-xl bg-[#11141a] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-zinc-700 hover:border-emerald-500/40 transition cursor-pointer"
-                            title={`Appeler ${eleve.nomPrenom} (${eleve.telephonePortable})`}
-                          >
-                            <Phone className="w-4 h-4" />
-                          </a>
-                        )}
+                      {!isSelectionMode && (
+                        <div className="flex items-center space-x-1.5">
+                          
+                          {/* Appel téléphonique */}
+                          {eleve.telephonePortable && (
+                            <a
+                              href={`tel:${eleve.telephonePortable}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-2 rounded-xl bg-[#11141a] hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-400 border border-zinc-700 hover:border-emerald-500/40 transition cursor-pointer"
+                              title={`Appeler ${eleve.nomPrenom} (${eleve.telephonePortable})`}
+                            >
+                              <Phone className="w-4 h-4" />
+                            </a>
+                          )}
 
-                        {/* Envoi SMS direct */}
-                        {eleve.telephonePortable && (
-                          <a
-                            href={`sms:${eleve.telephonePortable}`}
-                            className="p-2 rounded-xl bg-[#11141a] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-zinc-700 hover:border-sky-500/40 transition cursor-pointer"
-                            title={`Envoyer un SMS à ${eleve.nomPrenom}`}
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                          </a>
-                        )}
+                          {/* Envoi SMS direct */}
+                          {eleve.telephonePortable && (
+                            <a
+                              href={`sms:${eleve.telephonePortable}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-2 rounded-xl bg-[#11141a] hover:bg-sky-500/20 text-zinc-300 hover:text-sky-400 border border-zinc-700 hover:border-sky-500/40 transition cursor-pointer"
+                              title={`Envoyer un SMS à ${eleve.nomPrenom}`}
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </a>
+                          )}
 
-                        {/* Relancer de paiement (si solde négatif) */}
-                        {isDue && (
-                          <button
-                            onClick={() => setRelanceAdherent(eleve)}
-                            className="min-h-[44px] px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
-                            title="Ouvrir la relance de paiement (SMS & Email)"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Relancer</span>
-                          </button>
-                        )}
+                          {/* Relancer de paiement (si solde négatif) */}
+                          {isDue && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRelanceAdherent(eleve);
+                              }}
+                              className="min-h-[44px] px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+                              title="Ouvrir la relance de paiement (SMS & Email)"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Relancer</span>
+                            </button>
+                          )}
 
-                        {/* Attestation de paiement & Licence (si solde à jour >= 0 et profil Bureau / Admin uniquement) */}
-                        {canIssueAttestation && !isDue && (
-                          <button
-                            onClick={() => setAttestationAdherent(eleve)}
-                            className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                            title="Générer l'attestation PDF officielle (Bureau / Admin uniquement)"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Attestation</span>
-                          </button>
-                        )}
+                          {/* Attestation de paiement & Licence (si solde à jour >= 0 et profil Bureau / Admin uniquement) */}
+                          {canIssueAttestation && !isDue && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAttestationAdherent(eleve);
+                              }}
+                              className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                              title="Générer l'attestation PDF officielle (Bureau / Admin uniquement)"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Attestation</span>
+                            </button>
+                          )}
 
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -912,6 +999,57 @@ export const EnseignantsTab: React.FC<EnseignantsTabProps> = ({
           userRole={userRole}
           onClose={() => setAttestationAdherent(null)}
           onSaveClubInfo={onSaveClubInfo}
+        />
+      )}
+
+      {/* Barre d'actions flottante de sélection multiple */}
+      {activeSubView === 'eleves' && isSelectionMode && (
+        <SelectionActionBar
+          selectedMembers={selectedMembers}
+          visibleIds={visibleIds}
+          canIssueAttestation={canIssueAttestation}
+          onSelectAllVisible={() => selectAll(visibleIds)}
+          onDeselectAll={deselectAll}
+          onExit={exitSelectionMode}
+          onOpenSms={() => setBatchModalMode('sms')}
+          onOpenWhatsApp={() => setBatchModalMode('whatsapp')}
+          onOpenRelance={() => setBatchModalMode('relance')}
+          onOpenAttestations={() => {
+            if (selectedMembers.length > 0) {
+              setBatchAttestationQueue(selectedMembers);
+              setBatchAttestationIndex(0);
+            }
+          }}
+        />
+      )}
+
+      {/* Modale d'envoi multiple (SMS groupé, SMS chacun, WhatsApp, Relances personnalisées) */}
+      {batchModalMode && selectedMembers.length > 0 && (
+        <BatchMessageModal
+          initialMode={batchModalMode}
+          selectedMembers={selectedMembers}
+          clubInfo={clubInfo}
+          onClose={() => setBatchModalMode(null)}
+        />
+      )}
+
+      {/* Envoi séquentiel d'attestations PDF avec vérification des paramètres personnels */}
+      {canIssueAttestation && currentBatchAttestation && (
+        <AttestationModal
+          key={currentBatchAttestation.id}
+          adherent={currentBatchAttestation}
+          clubInfo={clubInfo}
+          userRole={userRole}
+          onClose={() => setBatchAttestationQueue([])}
+          onSaveClubInfo={onSaveClubInfo}
+          batchQueue={{
+            currentIndex: batchAttestationIndex,
+            total: batchAttestationQueue.length,
+            onPrev: () => setBatchAttestationIndex((i) => Math.max(0, i - 1)),
+            onNext: () =>
+              setBatchAttestationIndex((i) => Math.min(batchAttestationQueue.length - 1, i + 1)),
+            onFinish: () => setBatchAttestationQueue([]),
+          }}
         />
       )}
 

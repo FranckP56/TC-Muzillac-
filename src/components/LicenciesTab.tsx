@@ -5,6 +5,8 @@ import {
   CheckCircle2, 
   X,
   FileText,
+  CheckSquare,
+  Check,
 } from 'lucide-react';
 import { Adherent, ClubInfo, UserRole } from '../types/tennis';
 import { filterLicenciesMuzillac2027, getLicenciesStats } from '../utils/licencies';
@@ -12,6 +14,9 @@ import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ran
 import { extractBirthYear } from '../utils/fftEligibility';
 import { INITIAL_CLUB_INFO } from '../data/clubData';
 import { AttestationModal } from './AttestationModal';
+import { useLongPressSelection } from '../hooks/useLongPressSelection';
+import { SelectionActionBar } from './SelectionActionBar';
+import { BatchMessageModal, BatchModalMode } from './BatchMessageModal';
 
 interface LicenciesTabProps {
   adherents: Adherent[];
@@ -46,6 +51,20 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
   const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAttestationAdherent, setSelectedAttestationAdherent] = useState<Adherent | null>(null);
+  const [batchModalMode, setBatchModalMode] = useState<BatchModalMode | null>(null);
+  const [batchAttestationQueue, setBatchAttestationQueue] = useState<Adherent[]>([]);
+  const [batchAttestationIndex, setBatchAttestationIndex] = useState(0);
+
+  const {
+    selectedIds,
+    isSelectionMode,
+    isSelected,
+    selectAll,
+    deselectAll,
+    enterSelectionMode,
+    exitSelectionMode,
+    getCardProps,
+  } = useLongPressSelection();
 
   // Persistance locale du choix Hommes / Femmes / Tous dans le navigateur
   const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>(() => {
@@ -190,6 +209,15 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
       return true;
     });
   }, [licenciesMuzillac, searchQuery, filterSex, ageRange]);
+
+  const selectedMembers = useMemo(
+    () => licenciesMuzillac.filter((a) => selectedIds.has(a.id)),
+    [licenciesMuzillac, selectedIds]
+  );
+
+  const visibleIds = useMemo(() => filteredList.map((a) => a.id), [filteredList]);
+  const currentBatchAttestation = batchAttestationQueue[batchAttestationIndex] || null;
+  const effectiveClubInfo = clubInfo || INITIAL_CLUB_INFO;
 
   return (
     <div className="space-y-3.5">
@@ -362,6 +390,29 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
 
         </div>
 
+        <button
+          type="button"
+          onClick={isSelectionMode ? exitSelectionMode : enterSelectionMode}
+          className={`min-h-[40px] px-3 py-1.5 rounded-xl font-bold border transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 ${
+            isSelectionMode
+              ? 'bg-[#E65100] text-white border-[#FF6D00] shadow-md shadow-orange-950/40'
+              : 'bg-[#1b202c] hover:bg-[#232a3a] text-zinc-300 border-[#2c3547]'
+          }`}
+          title="Sélection multiple (ou appui long sur un licencié)"
+        >
+          {isSelectionMode ? (
+            <>
+              <X className="w-3.5 h-3.5" />
+              <span>Quitter sélection</span>
+            </>
+          ) : (
+            <>
+              <CheckSquare className="w-3.5 h-3.5 text-[#FF6D00]" />
+              <span>Sélectionner</span>
+            </>
+          )}
+        </button>
+
       </div>
 
       {/* ==================== GRILLE COMPACTE DES BULLES DE LICENCIÉS ==================== */}
@@ -370,18 +421,35 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
           filteredList.map((adh) => {
             const meta = getRankingMeta(adh.dernierClassTennis);
             const isFemme = adh.civilite === 'Madame';
+            const selected = isSelected(adh.id);
 
             // Teinte contrastée de la bulle selon le sexe pour ressortir sur fond noir
             const cardGenderStyle = isFemme
               ? "bg-[#251328] hover:bg-[#341838] border-2 border-[#63275b] hover:border-pink-400/90 shadow-md shadow-pink-950/30"
               : "bg-[#0e1c30] hover:bg-[#152844] border-2 border-[#244b7a] hover:border-blue-400/90 shadow-md shadow-blue-950/30";
 
+            const selectionRing = selected
+              ? 'ring-2 ring-[#FF6D00] border-[#FF6D00] bg-[#FF6D00]/15'
+              : '';
+
             return (
               <div
                 key={adh.id}
-                onClick={() => onSelectAdherent && onSelectAdherent(adh, filteredList)}
-                className={`${cardGenderStyle} rounded-xl px-3.5 py-2 transition-all shadow-sm hover:shadow-lg cursor-pointer group flex items-center justify-between gap-3`}
+                {...getCardProps(adh.id, () => onSelectAdherent && onSelectAdherent(adh, filteredList))}
+                className={`${cardGenderStyle} ${selectionRing} rounded-xl px-3.5 py-2 transition-all shadow-sm hover:shadow-lg cursor-pointer group flex items-center justify-between gap-3 select-none`}
               >
+                {isSelectionMode && (
+                  <span
+                    className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition ${
+                      selected
+                        ? 'bg-[#FF6D00] border-[#FF6D00] text-white'
+                        : 'bg-black/40 border-zinc-500 text-transparent'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </span>
+                )}
+
                 {/* Bloc Gauche : Nom, Prénom, Âge et Numéro de licence */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1.5 truncate">
@@ -405,7 +473,7 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                     </span>
 
                     {/* Bouton Attestation (Réservé exclusivement aux membres du Bureau / Admin) */}
-                    {canIssueAttestation && (
+                    {canIssueAttestation && !isSelectionMode && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -457,10 +525,61 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
       {canIssueAttestation && selectedAttestationAdherent && (
         <AttestationModal
           adherent={selectedAttestationAdherent}
-          clubInfo={clubInfo || INITIAL_CLUB_INFO}
+          clubInfo={effectiveClubInfo}
           userRole={userRole}
           onClose={() => setSelectedAttestationAdherent(null)}
           onSaveClubInfo={onSaveClubInfo}
+        />
+      )}
+
+      {/* Barre d'actions flottante de sélection multiple */}
+      {isSelectionMode && (
+        <SelectionActionBar
+          selectedMembers={selectedMembers}
+          visibleIds={visibleIds}
+          canIssueAttestation={canIssueAttestation}
+          onSelectAllVisible={() => selectAll(visibleIds)}
+          onDeselectAll={deselectAll}
+          onExit={exitSelectionMode}
+          onOpenSms={() => setBatchModalMode('sms')}
+          onOpenWhatsApp={() => setBatchModalMode('whatsapp')}
+          onOpenRelance={() => setBatchModalMode('relance')}
+          onOpenAttestations={() => {
+            if (selectedMembers.length > 0) {
+              setBatchAttestationQueue(selectedMembers);
+              setBatchAttestationIndex(0);
+            }
+          }}
+        />
+      )}
+
+      {/* Modale d'envoi multiple (SMS groupé, SMS chacun, WhatsApp, Relances personnalisées) */}
+      {batchModalMode && selectedMembers.length > 0 && (
+        <BatchMessageModal
+          initialMode={batchModalMode}
+          selectedMembers={selectedMembers}
+          clubInfo={effectiveClubInfo}
+          onClose={() => setBatchModalMode(null)}
+        />
+      )}
+
+      {/* Envoi séquentiel d'attestations PDF avec vérification des paramètres personnels */}
+      {canIssueAttestation && currentBatchAttestation && (
+        <AttestationModal
+          key={currentBatchAttestation.id}
+          adherent={currentBatchAttestation}
+          clubInfo={effectiveClubInfo}
+          userRole={userRole}
+          onClose={() => setBatchAttestationQueue([])}
+          onSaveClubInfo={onSaveClubInfo}
+          batchQueue={{
+            currentIndex: batchAttestationIndex,
+            total: batchAttestationQueue.length,
+            onPrev: () => setBatchAttestationIndex((i) => Math.max(0, i - 1)),
+            onNext: () =>
+              setBatchAttestationIndex((i) => Math.min(batchAttestationQueue.length - 1, i + 1)),
+            onFinish: () => setBatchAttestationQueue([]),
+          }}
         />
       )}
 

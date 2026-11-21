@@ -20,7 +20,11 @@ import {
   Calendar,
   X,
   FileText,
-  Send
+  Send,
+  KeyRound,
+  BookOpen,
+  CheckSquare,
+  Check
 } from 'lucide-react';
 import { Adherent, ClubInfo, UserRole } from '../types/tennis';
 import { 
@@ -35,6 +39,9 @@ import { FileSpreadsheet } from 'lucide-react';
 import { DataSyncBanner } from './DataSyncBanner';
 import { AttestationModal } from './AttestationModal';
 import { RelanceModal } from './RelanceModal';
+import { useLongPressSelection } from '../hooks/useLongPressSelection';
+import { SelectionActionBar } from './SelectionActionBar';
+import { BatchMessageModal, BatchModalMode } from './BatchMessageModal';
 
 interface AdherentsTabProps {
   adherents: Adherent[];
@@ -64,6 +71,21 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
   const [selectedAttestationAdherent, setSelectedAttestationAdherent] = useState<Adherent | null>(null);
   const [selectedRelanceAdherent, setSelectedRelanceAdherent] = useState<Adherent | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [batchModalMode, setBatchModalMode] = useState<BatchModalMode | null>(null);
+  const [batchAttestationQueue, setBatchAttestationQueue] = useState<Adherent[]>([]);
+  const [batchAttestationIndex, setBatchAttestationIndex] = useState(0);
+
+  const canIssueAttestation = userRole === 'admin' || userRole === 'bureau';
+  const {
+    selectedIds,
+    isSelectionMode,
+    isSelected,
+    selectAll,
+    deselectAll,
+    enterSelectionMode,
+    exitSelectionMode,
+    getCardProps,
+  } = useLongPressSelection();
   
   // Persistance des filtres en local (localStorage)
   const [filterSex, setFilterSex] = useState<'all' | 'Messieurs' | 'Dames'>(() => {
@@ -251,6 +273,18 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
     });
   }, [adherents, searchQuery, filterSex, filterSerie, filterSolde, sortBy]);
 
+  const selectedMembers = useMemo(
+    () => adherents.filter((a) => selectedIds.has(a.id)),
+    [adherents, selectedIds]
+  );
+
+  const visibleIds = useMemo(
+    () => filteredAdherents.map((a) => a.id),
+    [filteredAdherents]
+  );
+
+  const currentBatchAttestation = batchAttestationQueue[batchAttestationIndex] || null;
+
   return (
     <div className="space-y-6">
       
@@ -265,7 +299,7 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
       )}
 
       {/* ==================== EN-TÊTE ÉPURÉ DE LA SECTION ==================== */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center space-x-2">
           <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
             Annuaire des Adhérents
@@ -274,6 +308,29 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
             {stats.total} inscrits
           </span>
         </div>
+
+        <button
+          type="button"
+          onClick={isSelectionMode ? exitSelectionMode : enterSelectionMode}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+            isSelectionMode
+              ? 'bg-[#E65100] text-white border-[#FF6D00] shadow-md shadow-orange-950/40'
+              : 'bg-[#141820] hover:bg-[#1c222e] text-zinc-300 border-[#252b37]'
+          }`}
+          title="Sélection multiple (ou appui long sur une carte)"
+        >
+          {isSelectionMode ? (
+            <>
+              <X className="w-3.5 h-3.5" />
+              <span>Quitter sélection</span>
+            </>
+          ) : (
+            <>
+              <CheckSquare className="w-3.5 h-3.5 text-[#FF6D00]" />
+              <span>Sélection multiple</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* ==================== STATISTIQUES (CALQUÉES SUR LICENCIÉS) ==================== */}
@@ -523,161 +580,97 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {filteredAdherents.length > 0 ? (
           filteredAdherents.map((adh) => {
-            const meta = getRankingMeta(adh.dernierClassTennis);
             const isFemme = adh.civilite === 'Madame';
             const isOwed = adh.soldeDu < 0;
             const isCredit = adh.soldeDu > 0;
+            const pratiqueLabel = adh.groupeEnseignement || adh.formuleCours || 'Pratique libre';
+            const selected = isSelected(adh.id);
 
             const cardGenderStyle = isFemme
               ? 'bg-[#251328] hover:bg-[#341838] border-2 border-[#63275b] hover:border-pink-400/90 shadow-md shadow-pink-950/30'
               : 'bg-[#0e1c30] hover:bg-[#152844] border-2 border-[#244b7a] hover:border-blue-400/90 shadow-md shadow-blue-950/30';
 
+            const selectionRing = selected
+              ? 'ring-2 ring-[#FF6D00] border-[#FF6D00] bg-[#FF6D00]/15'
+              : '';
+
             return (
               <div
                 key={adh.id}
-                onClick={() => onSelectAdherent(adh, filteredAdherents)}
-                className={`${cardGenderStyle} rounded-2xl p-4 transition-all flex flex-col justify-between space-y-3 cursor-pointer group`}
+                {...getCardProps(adh.id, () => onSelectAdherent(adh, filteredAdherents))}
+                className={`${cardGenderStyle} ${selectionRing} rounded-2xl p-3.5 sm:p-4 transition-all flex flex-col justify-between gap-2.5 cursor-pointer group select-none`}
               >
-                <div>
-                  {/* Ligne 1 : Nom, Prénom et Classement (indication de sexe retirée car donnée par la couleur) */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="font-heading font-black text-white text-sm group-hover:text-orange-400 transition truncate block">
-                        {adh.nomPrenom}
-                      </span>
-
-                      <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                        <span>{adh.ageSportif ? `${adh.ageSportif} ans` : 'Senior'}</span>
-                        <span>•</span>
-                        <span>Né(e) en {adh.dateNaissance ? adh.dateNaissance.split('/')[2] || adh.dateNaissance : 'N/A'}</span>
-                      </p>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span className={`px-2.5 py-1 rounded-xl text-xs font-black border block ${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`}>
-                        {adh.dernierClassTennis || 'NC'}
-                      </span>
-                      {(() => {
-                        const maxRank = cleanRanking(adh.meilleurClassTennis, '');
-                        if (maxRank && maxRank !== adh.dernierClassTennis && isValidTennisRanking(maxRank)) {
-                          return (
-                            <span className="text-[9px] text-zinc-500 block mt-0.5" title="Meilleur classement FFT">
-                              Max: {maxRank}
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Ligne 2 : Numéro de licence (agrandi), Solde & Badges */}
-                  <div className="flex items-center gap-1.5 flex-wrap mt-2.5 text-[10px]">
-                    {adh.licence ? (
-                      <span className="font-mono font-bold text-white text-xs flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-lg border border-white/10">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{adh.licence}</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-zinc-500 italic">Sans licence</span>
-                    )}
-
-                    {isOwed ? (
-                      <span className="px-2 py-0.5 rounded font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                        Dû : {Math.abs(adh.soldeDu).toFixed(0)} €
-                      </span>
-                    ) : isCredit ? (
-                      <span className="px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        Avoir : +{adh.soldeDu.toFixed(0)} €
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
-                        À jour (0 €)
-                      </span>
-                    )}
-
-                    {adh.groupeEnseignement && (
-                      <span className="px-2 py-0.5 rounded font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 truncate max-w-[140px]" title={adh.groupeEnseignement}>
-                        {adh.groupeEnseignement}
-                      </span>
-                    )}
-
-                    {/* Bulle Attestation de paiement & licence (Bureau / Admin uniquement) */}
-                    {(userRole === 'admin' || userRole === 'bureau') && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedAttestationAdherent(adh);
-                        }}
-                        className="px-2 py-0.5 rounded-lg font-bold bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-500/35 transition flex items-center gap-1 cursor-pointer shadow-sm"
-                        title="Générer l'attestation PDF officielle (Bureau / Admin)"
+                {/* Ligne 1 : Case sélection (si actif) + Nom & Prénom + Attestation (Bureau / Admin) */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isSelectionMode && (
+                      <span
+                        className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition ${
+                          selected
+                            ? 'bg-[#FF6D00] border-[#FF6D00] text-white'
+                            : 'bg-black/40 border-zinc-500 text-transparent'
+                        }`}
                       >
-                        <FileText className="w-3 h-3 text-emerald-400" />
-                        <span>Attestation</span>
-                      </button>
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      </span>
                     )}
-
+                    <span className="font-heading font-black text-white text-sm sm:text-base group-hover:text-orange-400 transition truncate min-w-0">
+                      {adh.nomPrenom}
+                    </span>
                   </div>
+
+                  {(userRole === 'admin' || userRole === 'bureau') && !isSelectionMode && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedAttestationAdherent(adh);
+                      }}
+                      className="min-h-[32px] px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 hover:text-white border border-emerald-500/35 transition flex items-center gap-1 cursor-pointer shadow-sm shrink-0"
+                      title="Générer l'attestation PDF officielle (Bureau / Admin)"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Attestation</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* Ligne 3 : Actions rapides & Coordonnées directes */}
-                <div className="pt-2.5 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400 gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {adh.telephonePortable && (
-                      <a
-                        href={`tel:${adh.telephonePortable}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-emerald-500/20 hover:text-emerald-400 border border-white/10 transition"
-                        title={`Appeler ${adh.nomPrenom}`}
-                      >
-                        <Phone className="w-4 h-4" />
-                      </a>
-                    )}
-                    {adh.telephonePortable && (
-                      <a
-                        href={`sms:${adh.telephonePortable}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-sky-500/20 hover:text-sky-400 border border-white/10 transition"
-                        title={`SMS à ${adh.nomPrenom}`}
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </a>
-                    )}
-                    {adh.email && (
-                      <a
-                        href={`mailto:${adh.email}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/40 hover:bg-orange-500/20 hover:text-orange-400 border border-white/10 transition"
-                        title={`Email à ${adh.nomPrenom}`}
-                      >
-                        <Mail className="w-4 h-4" />
-                      </a>
-                    )}
+                {/* Ligne 2 : Solde du compte, Groupe de cours ou Pratique, Badge */}
+                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                  {isOwed ? (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 tabular-nums">
+                      Solde dû : {Math.abs(adh.soldeDu).toFixed(0)} €
+                    </span>
+                  ) : isCredit ? (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums">
+                      Avoir : +{adh.soldeDu.toFixed(0)} €
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 tabular-nums">
+                      À jour (0 €)
+                    </span>
+                  )}
 
-                    {/* Relance de paiement (si solde négatif / dû - identique à l'onglet Enseignants) */}
-                    {isOwed && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedRelanceAdherent(adh);
-                        }}
-                        className="min-h-[40px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer ml-1 whitespace-nowrap"
-                        title="Ouvrir la relance de paiement (SMS & Email)"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Relancer</span>
-                      </button>
-                    )}
-                  </div>
+                  <span
+                    className="px-2 py-0.5 rounded-lg font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30 inline-flex items-center gap-1 truncate max-w-[180px]"
+                    title={pratiqueLabel}
+                  >
+                    <BookOpen className="w-3 h-3 shrink-0 text-orange-400" />
+                    <span className="truncate">{pratiqueLabel}</span>
+                  </span>
 
-                  <span className="text-[10px] text-zinc-400 flex items-center gap-1 group-hover:text-orange-300 transition font-semibold">
-                    <span>Fiche</span>
-                    <span>→</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-lg font-mono font-bold border inline-flex items-center gap-1 ${
+                      adh.badge
+                        ? 'bg-sky-500/15 text-sky-200 border-sky-500/35'
+                        : 'bg-black/30 text-zinc-500 border-white/10'
+                    }`}
+                    title={adh.badge ? `Badge d'accès : ${adh.badge}` : 'Aucun badge attribué'}
+                  >
+                    <KeyRound className="w-3 h-3 shrink-0" />
+                    <span>{adh.badge ? `Badge ${adh.badge}` : 'Sans badge'}</span>
                   </span>
                 </div>
-
               </div>
             );
           })
@@ -720,6 +713,57 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
           adherent={selectedRelanceAdherent}
           clubInfo={clubInfo}
           onClose={() => setSelectedRelanceAdherent(null)}
+        />
+      )}
+
+      {/* Barre d'actions flottante de sélection multiple */}
+      {isSelectionMode && (
+        <SelectionActionBar
+          selectedMembers={selectedMembers}
+          visibleIds={visibleIds}
+          canIssueAttestation={canIssueAttestation}
+          onSelectAllVisible={() => selectAll(visibleIds)}
+          onDeselectAll={deselectAll}
+          onExit={exitSelectionMode}
+          onOpenSms={() => setBatchModalMode('sms')}
+          onOpenWhatsApp={() => setBatchModalMode('whatsapp')}
+          onOpenRelance={() => setBatchModalMode('relance')}
+          onOpenAttestations={() => {
+            if (selectedMembers.length > 0) {
+              setBatchAttestationQueue(selectedMembers);
+              setBatchAttestationIndex(0);
+            }
+          }}
+        />
+      )}
+
+      {/* Modale d'envoi multiple (SMS groupé, SMS chacun, WhatsApp, Relances personnalisées) */}
+      {batchModalMode && selectedMembers.length > 0 && (
+        <BatchMessageModal
+          initialMode={batchModalMode}
+          selectedMembers={selectedMembers}
+          clubInfo={clubInfo}
+          onClose={() => setBatchModalMode(null)}
+        />
+      )}
+
+      {/* Envoi séquentiel d'attestations PDF avec vérification des paramètres personnels */}
+      {canIssueAttestation && currentBatchAttestation && (
+        <AttestationModal
+          key={currentBatchAttestation.id}
+          adherent={currentBatchAttestation}
+          clubInfo={clubInfo}
+          userRole={userRole}
+          onClose={() => setBatchAttestationQueue([])}
+          onSaveClubInfo={onSaveClubInfo}
+          batchQueue={{
+            currentIndex: batchAttestationIndex,
+            total: batchAttestationQueue.length,
+            onPrev: () => setBatchAttestationIndex((i) => Math.max(0, i - 1)),
+            onNext: () =>
+              setBatchAttestationIndex((i) => Math.min(batchAttestationQueue.length - 1, i + 1)),
+            onFinish: () => setBatchAttestationQueue([]),
+          }}
         />
       )}
 

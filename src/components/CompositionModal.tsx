@@ -34,7 +34,7 @@ import {
   ArrowDown,
   ClipboardCheck
 } from 'lucide-react';
-import { formatJourneeLabel, formatMuzillacClubName } from './RencontresTab';
+import { formatJourneeLabel, formatMuzillacClubName, isComiteMorbihanBye, getComiteByeScore } from './RencontresTab';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility, getRequiredSex } from '../utils/fftEligibility';
@@ -213,6 +213,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   });
 
   const isHome = (rencontre?.clubAccueilNom || '').toLowerCase().includes('muzillac');
+  const isComiteBye = rencontre ? isComiteMorbihanBye(rencontre) : false;
+  const comiteByeScore = isComiteBye && rencontre ? getComiteByeScore(rencontre) : null;
   const adverseAddressInfo = useMemo(() => rencontre ? getAdverseClubFullAddress(rencontre) : { hasAdverseAddress: false, venueLabel: '' }, [rencontre]);
 
   // Logistique TCM (Validation Date, Heure, Courts, Lieu)
@@ -221,6 +223,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   });
   const [matchHourInput, setMatchHourInput] = useState<string>(() => {
     return composition.heureDebut || '14:00';
+  });
+  const [isCustomHourMode, setIsCustomHourMode] = useState<boolean>(() => {
+    const h = composition.heureDebut || '14:00';
+    return h !== '09:00' && h !== '14:00';
   });
   const [matchCourtsInput, setMatchCourtsInput] = useState<number>(() => {
     return composition.nombreCourts || 2;
@@ -256,7 +262,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       valideParCapitaine: false,
     });
     setMatchDateInput(rencontre.composition?.dateRencontreValidee || rencontre.dateRencontre || '15/03/2026');
-    setMatchHourInput(rencontre.composition?.heureDebut || '14:00');
+    const nextHour = rencontre.composition?.heureDebut || '14:00';
+    setMatchHourInput(nextHour);
+    setIsCustomHourMode(nextHour !== '09:00' && nextHour !== '14:00');
     setMatchCourtsInput(rencontre.composition?.nombreCourts || 2);
     
     const isH = (rencontre.clubAccueilNom || '').toLowerCase().includes('muzillac');
@@ -1422,8 +1430,14 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                     )}
                     <span className="text-[11px] sm:text-xs text-orange-400 font-bold flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
-                      {scheduleCheck.dayName} {matchDateInput} à {matchHourInput || '14:00'}
+                      {scheduleCheck.dayName} {matchDateInput}
+                      {!isComiteBye && step1Done ? ` à ${matchHourInput || '14:00'}` : ''}
                     </span>
+                    {isComiteBye && comiteByeScore && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        Victoire {comiteByeScore} (Journée off)
+                      </span>
+                    )}
                   </div>
 
                   <h2 className={`text-xl sm:text-2xl font-heading font-black ${theme.nameText} mt-1.5 leading-snug`}>
@@ -1627,7 +1641,32 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             </div>
           )}
 
+          {/* Bandeau spécifique : Journée Off (COMITÉ MORBIHAN TENNIS / Exempt) */}
+          {isComiteBye && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-950/40 border-2 border-emerald-500/50 text-emerald-100 flex items-start justify-between gap-3 shadow-lg flex-wrap">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <h4 className="font-heading font-black text-white text-xs sm:text-sm">
+                    Journée « off » (Exempt) — Pas de rencontre à disputer
+                  </h4>
+                  <p className="text-[11px] text-emerald-200/90 leading-relaxed">
+                    Face au <strong>COMITÉ MORBIHAN TENNIS</strong> (poule avec un nombre impair de clubs), il n'y a pas de match à jouer : la rencontre est notée comme gagnée <strong>{comiteByeScore}</strong> ({compFormat.numSingles} simple{compFormat.numSingles > 1 ? 's' : ''} + {compFormat.numDoubles} double{compFormat.numDoubles > 1 ? 's' : ''}).
+                  </p>
+                </div>
+              </div>
+              {comiteByeScore && (
+                <span className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-heading font-black text-sm shrink-0">
+                  {comiteByeScore}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* ==================== ÉTAPE 1 : LOGISTIQUE DU MATCH (DATE, HEURE, COURTS, LIEU) ==================== */}
+          {!isComiteBye && (canEdit || step1Done) ? (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
               
@@ -1669,24 +1708,27 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                   <div className="space-y-1">
                     <select
                       value={
-                        matchHourInput === '09:00' || matchHourInput === '14:00'
-                          ? matchHourInput
-                          : 'autre'
+                        isCustomHourMode || (matchHourInput !== '09:00' && matchHourInput !== '14:00')
+                          ? 'autre'
+                          : matchHourInput
                       }
                       onChange={(e) => {
-                        if (e.target.value !== 'autre') {
-                          const newHour = e.target.value;
-                          const nextRot = computeRotationHours(matchOrder, newHour, matchCourtsInput);
-                          setMatchHourInput(newHour);
-                          setRotationHours(nextRot);
-                          setComposition(prev => ({
-                            ...prev,
-                            heureDebut: newHour,
-                            heuresRotations: nextRot,
-                            logistiqueValidee: false,
-                            valideParCapitaine: false,
-                          }));
+                        const val = e.target.value;
+                        if (val === 'autre') {
+                          setIsCustomHourMode(true);
+                          return;
                         }
+                        setIsCustomHourMode(false);
+                        const nextRot = computeRotationHours(matchOrder, val, matchCourtsInput);
+                        setMatchHourInput(val);
+                        setRotationHours(nextRot);
+                        setComposition(prev => ({
+                          ...prev,
+                          heureDebut: val,
+                          heuresRotations: nextRot,
+                          logistiqueValidee: false,
+                          valideParCapitaine: false,
+                        }));
                       }}
                       className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-orange-500 cursor-pointer"
                     >
@@ -1695,26 +1737,29 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                       <option value="autre">⚙️ Autre heure paramétrable...</option>
                     </select>
 
-                    {matchHourInput !== '09:00' && matchHourInput !== '14:00' && (
-                      <div className="flex items-center space-x-1 bg-black/50 border border-orange-500/50 rounded-lg px-2 py-0.5">
-                        <Clock className="w-3 h-3 text-orange-400 shrink-0" />
+                    {(isCustomHourMode || (matchHourInput !== '09:00' && matchHourInput !== '14:00')) && (
+                      <div className="flex items-center space-x-1.5 bg-black/50 border border-orange-500/50 rounded-lg px-2 py-1">
+                        <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
                         <input
                           type="time"
                           value={matchHourInput}
                           onChange={(e) => {
                             const newHour = e.target.value;
-                            const nextRot = computeRotationHours(matchOrder, newHour, matchCourtsInput);
                             setMatchHourInput(newHour);
-                            setRotationHours(nextRot);
-                            setComposition(prev => ({
-                              ...prev,
-                              heureDebut: newHour,
-                              heuresRotations: nextRot,
-                              logistiqueValidee: false,
-                              valideParCapitaine: false,
-                            }));
+                            if (newHour && /^\d{1,2}:\d{2}$/.test(newHour)) {
+                              const nextRot = computeRotationHours(matchOrder, newHour, matchCourtsInput);
+                              setRotationHours(nextRot);
+                              setComposition(prev => ({
+                                ...prev,
+                                heureDebut: newHour,
+                                heuresRotations: nextRot,
+                                logistiqueValidee: false,
+                                valideParCapitaine: false,
+                              }));
+                            }
                           }}
-                          className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark]"
+                          className="w-full bg-transparent text-xs text-orange-300 font-mono font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
+                          title="Saisir une heure personnalisée"
                         />
                       </div>
                     )}
@@ -1850,6 +1895,12 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
               </div>
             )}
           </div>
+          ) : !isComiteBye ? (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] flex items-center gap-2.5 text-xs text-zinc-400">
+              <Clock className="w-4 h-4 text-zinc-500 shrink-0" />
+              <span>Les horaires et le lieu de la rencontre seront affichés dès qu'ils seront validés par le capitaine.</span>
+            </div>
+          ) : null}
 
           {/* ==================== CONTACTS DES CAPITAINES ==================== */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-[#0d1016] border border-[#232934] space-y-2 text-xs">

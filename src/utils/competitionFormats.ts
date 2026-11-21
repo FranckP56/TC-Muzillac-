@@ -120,31 +120,38 @@ export function getCompetitionFormat(
   const div = (rencontre.division || '').toLowerCase();
   const sexe = rencontre.sexeHomologation;
 
-  // 1. Détection Jeunes
-  const isJeunes = 
-    cat.includes('11') || cat.includes('12') || cat.includes('13') || 
-    cat.includes('14') || cat.includes('15') || cat.includes('16') || 
-    cat.includes('17') || cat.includes('18') || cat.includes('jeune') || 
-    cat.includes('galaxie') || cat.includes('8') || cat.includes('9') || cat.includes('10');
+  const youthSearch = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`.toLowerCase();
 
-  const isUnder10 = 
-    cat.includes('galaxie') || cat.includes('rouge') || cat.includes('orange') || 
-    cat.includes('vert') || cat.includes('violet') || cat.includes('8') || 
-    cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
+  // 1. Détection Jeunes
+  const is13To18 =
+    /\b1[3-8]\s*[\/\-]\s*1[4-8]\b/.test(youthSearch) ||
+    /\b(13|14|15|16|17|18)\s*ans\b/.test(youthSearch) ||
+    cat.includes('13') || cat.includes('14') || cat.includes('15') ||
+    cat.includes('16') || cat.includes('17') || cat.includes('18');
+
+  const isJeunes =
+    is13To18 ||
+    /\b1[12]\s*[\/\-]\s*12\b/.test(youthSearch) ||
+    /\b(8|9|10|11|12)\s*ans\b/.test(youthSearch) ||
+    cat.includes('11') || cat.includes('12') || cat.includes('jeune') ||
+    lib.includes('jeune') || cat.includes('galaxie') || lib.includes('galaxie') ||
+    cat.includes('8') || cat.includes('9') || cat.includes('10');
+
+  const isUnder10 =
+    cat.includes('galaxie') || lib.includes('galaxie') ||
+    cat.includes('rouge') || cat.includes('orange') ||
+    cat.includes('vert') || cat.includes('violet') ||
+    /\b(8|9|10)\s*ans\b/.test(youthSearch) || /\b9\s*[\/\-]\s*10\b/.test(youthSearch) ||
+    cat.includes('8') || cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
 
   if (isJeunes) {
     // RÈGLE COMITÉ DU MORBIHAN (56) :
-    // - Les rencontres jeunes se disputent généralement en 2 simples et 1 double (2S + 1D) notamment chez les filles et les plus jeunes (11/12 ans).
-    // - Dans les divisions masculines 13/14 ans et 17/18 ans (selon les engagements de la saison), le format est en 3 simples et 1 double (3S + 1D).
-    // C'est le cas effectif des 2 équipes garçons 13/14 ans et 17/18 ans du Muzillac Tennis Club.
-    const isBoys13To18 = 
-      (cat.includes('13') || cat.includes('14') || cat.includes('15') || cat.includes('16') || cat.includes('17') || cat.includes('18')) &&
-      sexe !== 'Dames' && !lib.includes('fille') && !cat.includes('fille');
-
-    if (isBoys13To18) {
+    // - Les rencontres 11/12 ans et Galaxie se disputent en 2 simples et 1 double (2S + 1D = 3 matchs).
+    // - Les rencontres 13/14 ans et 17/18 ans se disputent en 3 simples et 1 double (3S + 1D = 4 matchs).
+    if (is13To18) {
       return {
         type: 'jeunes',
-        categoryLabel: 'Championnat Jeunes 13/14 & 17/18 Garçons (3S + 1D)',
+        categoryLabel: 'Championnat Jeunes 13/14 & 17/18 ans (3S + 1D)',
         divisionLabel: 'Comité du Morbihan (Départemental)',
         isRegional: false,
         isJeunes: true,
@@ -155,7 +162,7 @@ export function getCompetitionFormat(
         minPlayers: 3,
         maxPlayers: 5,
         pointsSystem: '3 simples (1 pt chacun) + 1 double (1 pt) = 4 points en jeu',
-        matchRules: '13 à 18 ans Garçons : Format 2 (2 sets à 6 jeux, 3e set Super Tie-Break 10 points). Balles dures sur terrain classique.',
+        matchRules: '13/14 & 17/18 ans : Format 2 (2 sets à 6 jeux, 3e set Super Tie-Break 10 points). Balles dures sur terrain classique.',
         doubleRules: 'Double systématiquement en formule simplifiée (point décisif No-Ad et Super Tie-Break 10 points au 3e set). Les joueurs de simple peuvent faire le double.',
         expectedDay: 'Samedi',
         orderOfPlay: 'Simples 1, 2, 3 puis le Double (sur 2 courts : S1 & S2 lancés, puis S3 & Double).',

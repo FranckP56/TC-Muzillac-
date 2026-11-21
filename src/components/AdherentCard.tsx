@@ -54,24 +54,23 @@ export const AdherentCard: React.FC<AdherentCardProps> = ({ adherent, onSelect }
         
         {/* Identité et avatar de classement */}
         <div className="flex items-start space-x-3.5 min-w-0">
-          {/* Badge Classement FFT */}
+          {/* Badge Classement FFT (sans série, avec max classt en dessous) */}
           <div className="flex flex-col items-center shrink-0">
-            <div className={`w-13 h-13 sm:w-14 sm:h-14 rounded-2xl flex flex-col items-center justify-center font-heading font-black text-sm sm:text-base border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-inner transition-transform group-hover:scale-105`}>
-              <span className="leading-none">{adherent.dernierClassTennis || 'NC'}</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider opacity-75 mt-0.5">
-                {meta.serie.replace(' Série', '')}
-              </span>
-            </div>
             {(() => {
-              const maxRank = cleanRanking(adherent.meilleurClassTennis, '');
-              if (maxRank && maxRank !== adherent.dernierClassTennis && isValidTennisRanking(maxRank)) {
-                return (
-                  <span className="text-[9px] text-zinc-500 font-bold block mt-1" title="Meilleur classement FFT">
-                    Max: {maxRank}
+              const currentRank = adherent.dernierClassTennis || 'NC';
+              const rawMax = cleanRanking(adherent.meilleurClassTennis, '');
+              const maxRank =
+                rawMax && isValidTennisRanking(rawMax)
+                  ? rawMax
+                  : cleanRanking(currentRank, '') || currentRank;
+              return (
+                <div className={`min-w-[60px] sm:min-w-[68px] px-2 py-1.5 rounded-2xl flex flex-col items-center justify-center font-heading font-black text-sm sm:text-base border ${meta.badgeBg} ${meta.badgeBorder} ${meta.badgeText} shadow-inner transition-transform group-hover:scale-105 text-center`}>
+                  <span className="leading-none">{currentRank}</span>
+                  <span className="text-[9px] font-bold leading-tight opacity-85 mt-1" title="Meilleur classement FFT (max classt)">
+                    max classt {maxRank}
                   </span>
-                );
-              }
-              return null;
+                </div>
+              );
             })()}
           </div>
 

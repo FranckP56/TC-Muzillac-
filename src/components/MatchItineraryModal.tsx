@@ -218,7 +218,7 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-orange-400" />
                 <span className="text-white font-medium">{rencontre.dateRencontre}</span>
               </div>
-              {rencontre.composition?.heureDebut && (
+              {(rencontre.composition?.logistiqueValidee || rencontre.composition?.valideParCapitaine) && rencontre.composition?.heureDebut && (
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-orange-400" />
                   <span className="text-white font-medium">{rencontre.composition.heureDebut}</span>

@@ -740,6 +740,68 @@ export function computeMatchRotationSchedule(
         playerRank: d1.rank,
       });
 
+    } else if (numSingles >= 3) {
+      // JEUNES 13/14 & 17/18 (3 simples + 1 double) sur 2 courts
+      ordreAppliqueTexte = 'Ordre Jeunes (3S + 1D) : Simples 1 & 2 en simultané, puis Simple 3 & Double';
+      const p1 = getPlayerLabel(composition?.simple1Id);
+      const p2 = getPlayerLabel(composition?.simple2Id);
+      slots.push({
+        id: 's1',
+        rotationNumber: 1,
+        timeSlot: start,
+        courtNumber: 1,
+        courtName: getCourtName(1, 's1').name,
+        matchType: 'simple',
+        slotNumber: 1,
+        matchLabel: 'Simple n°1',
+        orderDescription: 'Match des numéros 1',
+        playerName: p1.name,
+        playerRank: p1.rank,
+      });
+      slots.push({
+        id: 's2',
+        rotationNumber: 1,
+        timeSlot: start,
+        courtNumber: 2,
+        courtName: getCourtName(2, 's2').name,
+        matchType: 'simple',
+        slotNumber: 2,
+        matchLabel: 'Simple n°2',
+        orderDescription: 'Match des numéros 2',
+        playerName: p2.name,
+        playerRank: p2.rank,
+      });
+
+      const timeR2 = addMinutesToTime(start, durationMin);
+      const p3 = getPlayerLabel(composition?.simple3Id);
+      const d1 = getDoubleLabel(composition?.double1Player1Id, composition?.double1Player2Id);
+      slots.push({
+        id: 's3',
+        rotationNumber: 2,
+        timeSlot: timeR2,
+        courtNumber: 1,
+        courtName: getCourtName(1, 's3').name,
+        matchType: 'simple',
+        slotNumber: 3,
+        matchLabel: 'Simple n°3',
+        orderDescription: 'Simple 3 (en parallèle du Double)',
+        playerName: p3.name,
+        playerRank: p3.rank,
+      });
+      slots.push({
+        id: 'd1',
+        rotationNumber: 2,
+        timeSlot: timeR2,
+        courtNumber: 2,
+        courtName: getCourtName(2).name,
+        matchType: 'double',
+        slotNumber: 1,
+        matchLabel: 'Double n°1',
+        orderDescription: 'Double décisif jeunes',
+        playerName: d1.name,
+        playerRank: d1.rank,
+      });
+
     } else {
       // JEUNES (2 simples + 1 double)
       ordreAppliqueTexte = 'Ordre Jeunes : Simples 1 & 2 en simultané, puis Double';

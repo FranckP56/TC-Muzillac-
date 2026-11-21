@@ -47,6 +47,25 @@ interface RencontresTabProps {
   saison?: string;
 }
 
+export const isComiteMorbihanBye = (
+  r: Pick<Rencontre, 'clubAccueilNom' | 'clubVisiteurNom'>
+): boolean => {
+  const a = (r.clubAccueilNom || '').toLowerCase();
+  const v = (r.clubVisiteurNom || '').toLowerCase();
+  const matchesComite = (s: string) =>
+    /comit[eé]\s*(?:du\s*)?morbihan(?:\s*tennis)?/.test(s) || /\bexempt\b/.test(s);
+  return matchesComite(a) || matchesComite(v);
+};
+
+export const getComiteByeScore = (r: Rencontre): string => {
+  const format = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
+  const totalMatches = format.numSingles + format.numDoubles;
+  return `${totalMatches}/0`;
+};
+
+export const isMatchLogisticsValidated = (r: Rencontre): boolean =>
+  Boolean(r.composition?.logistiqueValidee || r.composition?.valideParCapitaine);
+
 export const isMatchFinished = (r: Rencontre): boolean => {
   // 1. Un score officiel chiffré (ex: 4/1, 3/2, 2-3...)
   if (r.score && /\d+\s*[\/\-]\s*\d+/.test(r.score)) {
@@ -120,6 +139,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedItineraryMatch, setSelectedItineraryMatch] = useState<Rencontre | null>(null);
+  const [customHourMatchIds, setCustomHourMatchIds] = useState<Record<string, boolean>>({});
 
   // Compteurs dynamiques des statuts
   const upcomingCount = useMemo(() => rencontres.filter(r => isMatchUpcoming(r)).length, [rencontres]);
@@ -661,22 +681,18 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {dateGroup.matches.map((r) => {
             const isUpcoming = isMatchUpcoming(r);
+            const isComiteBye = isComiteMorbihanBye(r);
+            const comiteByeScore = isComiteBye ? getComiteByeScore(r) : '';
+            const isLogisticsValidated = isMatchLogisticsValidated(r);
             const isHome = r.clubAccueilNom.toLowerCase().includes('muzillac');
-            const formatInfo = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
-            const normalizedDate = normalizeDateString(r.dateRencontre);
             const compStatus = getCompositionStatus(r);
             const adverseAddressInfo = getAdverseClubFullAddress(r);
-            const effectiveVenue = r.composition?.lieuRencontre || (isHome ? 'Clos des Moines (TCM)' : adverseAddressInfo.venueLabel);
             const matchHour = r.composition?.heureDebut || '14:00';
             
-            // Nombre de réponses au sondage
-            const dispoResponses = r.disponibilites || [];
-            const dispoCount = dispoResponses.filter(d => d.statut === 'disponible').length;
-            
-            // Calcul indicatif du score
-            let isWin = false;
+            // Calcul indicatif du score (victoire automatique 3/0, 4/0, 5/0 ou 6/0 contre COMITE MORBIHAN TENNIS / Exempt)
+            let isWin = isComiteBye;
             let isLoss = false;
-            if (!isUpcoming && r.score && r.score.includes('/')) {
+            if (!isComiteBye && !isUpcoming && r.score && r.score.includes('/')) {
               const parts = r.score.split('/');
               const s1 = parseInt(parts[0], 10);
               const s2 = parseInt(parts[1], 10);
@@ -705,10 +721,10 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                 key={r.id}
                 onClick={() => onOpenCompositionModal(r, filteredRencontres)}
                 className={`${cardGenderStyle} rounded-3xl p-4 transition-all flex flex-col justify-between space-y-3 group cursor-pointer hover:border-orange-500/80 hover:scale-[1.01] hover:shadow-xl`}
-                title="Cliquez pour afficher la fiche détaillée de la rencontre et composer l'équipe"
+                title={isComiteBye ? "Journée off (Exempt) — Pas de match, victoire attribuée au TCM" : "Cliquez pour afficher la fiche détaillée de la rencontre et composer l'équipe"}
               >
                 <div className="space-y-3">
-                  {/* Ligne 1 : Journée (avec 'Journée'), Catégorie d'âge, Division & Bulle Domicile / Extérieur bien mise en avant */}
+                  {/* Ligne 1 : Journée, Catégorie d'âge, Division & Bulle Domicile / Extérieur / Exempt */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {r.journee && (
@@ -730,8 +746,12 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         </span>
                       )}
 
-                      {/* Statut de composition de l'équipe (discret dans l'en-tête) */}
-                      {compStatus.isValidated ? (
+                      {/* Statut de composition de l'équipe (masqué si journée off Comité) */}
+                      {isComiteBye ? (
+                        <span className="text-[9px] px-2 py-0.5 rounded font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow-sm">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Journée off
+                        </span>
+                      ) : compStatus.isValidated ? (
                         <span className="text-[9px] px-2 py-0.5 rounded font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shadow-sm">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Équipe validée
                         </span>
@@ -750,14 +770,20 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                       ) : null}
                     </div>
 
-                    {/* Bulle Domicile / Extérieur bien mise en avant */}
-                    <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md border-2 ${
-                      isHome 
-                        ? 'bg-amber-500/25 text-amber-300 border-amber-500/60 shadow-amber-950/40' 
-                        : 'bg-sky-500/25 text-sky-200 border-sky-400/60 shadow-sky-950/40'
-                    }`}>
-                      {isHome ? '🏠 Domicile' : '🚗 Extérieur'}
-                    </span>
+                    {/* Bulle Domicile / Extérieur / Exempt */}
+                    {isComiteBye ? (
+                      <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md border-2 bg-emerald-500/20 text-emerald-300 border-emerald-500/50">
+                        Exempt
+                      </span>
+                    ) : (
+                      <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider shrink-0 shadow-md border-2 ${
+                        isHome 
+                          ? 'bg-amber-500/25 text-amber-300 border-amber-500/60 shadow-amber-950/40' 
+                          : 'bg-sky-500/25 text-sky-200 border-sky-400/60 shadow-sky-950/40'
+                      }`}>
+                        {isHome ? '🏠 Domicile' : '🚗 Extérieur'}
+                      </span>
+                    )}
                   </div>
 
                   {/* Ligne 2 : Confrontation & Score */}
@@ -788,19 +814,27 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     <div className="shrink-0 flex items-center gap-1.5">
                       <div className="text-center">
                         <div className={`px-2.5 py-1 rounded-xl text-xs font-heading font-black border ${
-                          isUpcoming 
-                            ? 'bg-[#1b2029] text-zinc-400 border-zinc-700' 
-                            : isWin 
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40' 
-                              : isLoss 
-                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                          isComiteBye || isWin
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/40'
+                            : isUpcoming
+                              ? 'bg-[#1b2029] text-zinc-400 border-zinc-700'
+                              : isLoss
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                                 : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                         }`}>
-                          {r.score || 'À venir'}
+                          {isComiteBye ? comiteByeScore : (r.score || 'À venir')}
                         </div>
-                        {!isUpcoming && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider block mt-0.5 text-zinc-400">
-                            {r.vainqueur ? r.vainqueur : isWin ? 'Victoire TCM' : isLoss ? 'Défaite' : 'Score'}
+                        {(isComiteBye || !isUpcoming) && (
+                          <span className={`text-[9px] font-bold uppercase tracking-wider block mt-0.5 ${isComiteBye ? 'text-emerald-300' : 'text-zinc-400'}`}>
+                            {isComiteBye
+                              ? 'Victoire (Pas de match)'
+                              : r.vainqueur
+                                ? r.vainqueur
+                                : isWin
+                                  ? 'Victoire TCM'
+                                  : isLoss
+                                    ? 'Défaite'
+                                    : 'Score'}
                           </span>
                         )}
                       </div>
@@ -808,86 +842,112 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Ligne 3 : Logistique du match (Horaire sur X courts & Adresse complète sur 2 lignes avec itinéraire) */}
-                  <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
-                    <div className="flex items-center justify-between gap-1.5 text-zinc-300 text-[11px] flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                        <span className="text-zinc-400">Horaire :</span>
-                        {userRole === 'admin' || userRole === 'bureau' ? (
-                          <div 
-                            className="flex items-center gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <select
-                              value={matchHour === '09:00' || matchHour === '14:00' ? matchHour : 'autre'}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val !== 'autre') {
-                                  onUpdateMatchHour?.(r.id, val);
-                                }
-                              }}
-                              className="bg-black/70 border border-zinc-700 hover:border-orange-500 rounded px-1.5 py-0.5 text-white font-mono font-bold text-[11px] cursor-pointer focus:outline-none"
-                              title="Changer l'horaire de la rencontre"
+                  {/* Ligne 3 : Masquée pour Journée Off et masquée tant que l'horaire/lieu ne sont pas validés */}
+                  {isComiteBye ? (
+                    <div className="flex items-center gap-2 text-[11px] text-emerald-300/95 bg-emerald-950/35 px-3 py-2 rounded-2xl border border-emerald-500/30">
+                      <Trophy className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Journée off (poule impaire) — Victoire {comiteByeScore} attribuée (aucun match)</span>
+                    </div>
+                  ) : isLogisticsValidated ? (
+                    <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
+                      <div className="flex items-center justify-between gap-1.5 text-zinc-300 text-[11px] flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                          <span className="text-zinc-400">Horaire :</span>
+                          {userRole === 'admin' || userRole === 'bureau' ? (
+                            <div 
+                              className="flex items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <option value="09:00">09:00</option>
-                              <option value="14:00">14:00</option>
-                              <option value="autre">⚙️ {matchHour !== '09:00' && matchHour !== '14:00' ? matchHour : 'Autre...'}</option>
-                            </select>
-                            {matchHour !== '09:00' && matchHour !== '14:00' && (
-                              <input
-                                type="time"
-                                value={matchHour}
-                                onChange={(e) => onUpdateMatchHour?.(r.id, e.target.value)}
-                                className="bg-black/70 border border-orange-500/70 rounded px-1 py-0.5 text-white font-mono text-[11px] w-20"
-                                title="Horaire personnalisé"
-                              />
-                            )}
-                          </div>
-                        ) : (
-                          <strong className="text-white font-mono">{matchHour}</strong>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-zinc-500 font-bold">•</span>
-                        <span className="text-zinc-300 font-medium">Sur {r.composition?.nombreCourts || 2} courts</span>
-                      </div>
-                    </div>
-
-                    {/* Lieu & Adresse complète sur 2 lignes (adresse, code postal, ville) avec itinéraire Maps */}
-                    <div className="text-[11px] text-zinc-400 pt-1.5 border-t border-zinc-800/60">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedItineraryMatch(r);
-                        }}
-                        className="w-full flex items-start gap-2 text-left hover:text-white transition group/loc cursor-pointer"
-                        title="Ouvrir l'itinéraire Maps et partager la localisation"
-                      >
-                        <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-zinc-200 group-hover/loc:text-white font-semibold truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
-                              {isHome ? 'Complexe du Clos des Moines (TCM)' : r.clubAccueilNom}
-                            </span>
-                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 shadow-sm ${
-                              !isHome
-                                ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
-                                : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
-                            }`}>
-                              {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-zinc-400 group-hover/loc:text-zinc-300 leading-tight mt-0.5">
-                            {isHome 
-                              ? '12 Rue du Clos des Moines, 56190 Muzillac' 
-                              : ([r.adresse1Installation, [r.codePostalInstallation, r.villeInstallation].filter(Boolean).join(' ')].filter(Boolean).join(', ') || adverseAddressInfo.venueLabel)}
-                          </p>
+                              {(() => {
+                                const isCustomHour = Boolean(customHourMatchIds[r.id]) || (matchHour !== '09:00' && matchHour !== '14:00');
+                                return (
+                                  <>
+                                    <select
+                                      value={isCustomHour ? 'autre' : matchHour}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'autre') {
+                                          setCustomHourMatchIds(prev => ({ ...prev, [r.id]: true }));
+                                        } else {
+                                          setCustomHourMatchIds(prev => ({ ...prev, [r.id]: false }));
+                                          onUpdateMatchHour?.(r.id, val);
+                                        }
+                                      }}
+                                      className="bg-black/70 border border-zinc-700 hover:border-orange-500 rounded px-1.5 py-0.5 text-white font-mono font-bold text-[11px] cursor-pointer focus:outline-none"
+                                      title="Changer l'horaire de la rencontre"
+                                    >
+                                      <option value="09:00">09:00</option>
+                                      <option value="14:00">14:00</option>
+                                      <option value="autre">⚙️ {matchHour !== '09:00' && matchHour !== '14:00' ? matchHour : 'Autre...'}</option>
+                                    </select>
+                                    {isCustomHour && (
+                                      <input
+                                        type="time"
+                                        value={matchHour}
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            onUpdateMatchHour?.(r.id, e.target.value);
+                                          }
+                                        }}
+                                        className="bg-black/70 border border-orange-500/70 rounded px-1 py-0.5 text-white font-mono text-[11px] w-20 [color-scheme:dark]"
+                                        title="Horaire personnalisé"
+                                      />
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            <strong className="text-white font-mono">{matchHour}</strong>
+                          )}
                         </div>
-                      </button>
+                        <div className="flex items-center gap-1">
+                          <span className="text-zinc-500 font-bold">•</span>
+                          <span className="text-zinc-300 font-medium">Sur {r.composition?.nombreCourts || 2} courts</span>
+                        </div>
+                      </div>
+
+                      {/* Lieu & Adresse complète sur 2 lignes (adresse, code postal, ville) avec itinéraire Maps */}
+                      <div className="text-[11px] text-zinc-400 pt-1.5 border-t border-zinc-800/60">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedItineraryMatch(r);
+                          }}
+                          className="w-full flex items-start gap-2 text-left hover:text-white transition group/loc cursor-pointer"
+                          title="Ouvrir l'itinéraire Maps et partager la localisation"
+                        >
+                          <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-zinc-200 group-hover/loc:text-white font-semibold truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
+                                {isHome ? 'Complexe du Clos des Moines (TCM)' : r.clubAccueilNom}
+                              </span>
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 shadow-sm ${
+                                !isHome
+                                  ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
+                                  : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
+                              }`}>
+                                {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-zinc-400 group-hover/loc:text-zinc-300 leading-tight mt-0.5">
+                              {isHome 
+                                ? '12 Rue du Clos des Moines, 56190 Muzillac' 
+                                : ([r.adresse1Installation, [r.codePostalInstallation, r.villeInstallation].filter(Boolean).join(' ')].filter(Boolean).join(', ') || adverseAddressInfo.venueLabel)}
+                            </p>
+                          </div>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 bg-[#12151b]/60 px-3 py-2 rounded-2xl border border-zinc-800/60">
+                      <Clock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                      <span>Horaire et lieu en attente de validation</span>
+                    </div>
+                  )}
                 </div>
 
               </div>

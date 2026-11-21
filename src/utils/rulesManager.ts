@@ -155,21 +155,36 @@ export function findRuleForRencontre(rencontre: Rencontre, rulesList?: Champions
   const isFemme = reqSex === 'F';
   const combined = `${div} ${lib} ${niv}`.toLowerCase();
 
-  // 1. Jeunes
-  const isJeunes = 
-    cat.includes('11') || cat.includes('12') || cat.includes('13') || 
-    cat.includes('14') || cat.includes('15') || cat.includes('16') || 
-    cat.includes('17') || cat.includes('18') || cat.includes('jeune') || 
-    cat.includes('galaxie') || cat.includes('8') || cat.includes('9') || cat.includes('10');
+  const youthText = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`.toLowerCase();
 
-  const isUnder10 = 
-    cat.includes('galaxie') || cat.includes('rouge') || cat.includes('orange') || 
-    cat.includes('vert') || cat.includes('violet') || cat.includes('8') || 
-    cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
+  // 1. Jeunes
+  const is13To18 =
+    /\b1[3-8]\s*[\/\-]\s*1[4-8]\b/.test(youthText) ||
+    /\b(13|14|15|16|17|18)\s*ans\b/.test(youthText) ||
+    cat.includes('13') || cat.includes('14') || cat.includes('15') ||
+    cat.includes('16') || cat.includes('17') || cat.includes('18');
+
+  const isJeunes =
+    is13To18 ||
+    /\b1[12]\s*[\/\-]\s*12\b/.test(youthText) ||
+    /\b(8|9|10|11|12)\s*ans\b/.test(youthText) ||
+    cat.includes('11') || cat.includes('12') || cat.includes('jeune') ||
+    lib.includes('jeune') || cat.includes('galaxie') || lib.includes('galaxie') ||
+    cat.includes('8') || cat.includes('9') || cat.includes('10');
+
+  const isUnder10 =
+    cat.includes('galaxie') || lib.includes('galaxie') ||
+    cat.includes('rouge') || cat.includes('orange') ||
+    cat.includes('vert') || cat.includes('violet') ||
+    /\b(8|9|10)\s*ans\b/.test(youthText) || /\b9\s*[\/\-]\s*10\b/.test(youthText) ||
+    cat.includes('8') || cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
 
   if (isJeunes) {
     if (isUnder10) {
       return rules.find(r => r.id === 'jeunes_galaxie') || null;
+    }
+    if (is13To18) {
+      return rules.find(r => r.id === 'jeunes_13_18_garcons') || null;
     }
     return rules.find(r => r.id === 'jeunes_11_18') || null;
   }

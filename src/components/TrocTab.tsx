@@ -32,6 +32,8 @@ import {
   Check,
   Sparkles,
   Upload,
+  ChevronRight,
+  Info,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -304,8 +306,14 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     Record<string, 'idle' | 'saving' | 'saved' | 'error'>
   >({});
   const [whatsappConfirmData, setWhatsappConfirmData] = useState<WhatsAppConfirmData | null>(null);
+  const [detailGoSportOffreId, setDetailGoSportOffreId] = useState<string | null>(null);
   const goSportOffresRef = useRef<GoSportOffre[]>([]);
   const stockSaveChainRef = useRef<Record<string, Promise<void>>>({});
+
+  const detailGoSportOffre = useMemo(
+    () => goSportOffres.find((o) => o.id === detailGoSportOffreId) || null,
+    [goSportOffres, detailGoSportOffreId]
+  );
 
   useEffect(() => {
     goSportOffresRef.current = goSportOffres;
@@ -1127,78 +1135,84 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     return (
       <article
         key={annonce.id}
-        className={`bg-[#141820] border rounded-3xl overflow-hidden shadow-xl flex flex-col transition ${
+        className={`bg-[#141820] border rounded-3xl p-3.5 sm:p-4 shadow-xl flex flex-col justify-between gap-3 transition ${
           isSold ? 'border-zinc-800/80 opacity-80' : 'border-[#252b37] hover:border-orange-500/40'
         }`}
       >
-        <div className="relative h-48 bg-[#0b0e14] border-b border-zinc-800/80 overflow-hidden">
-          {!photoInvalid ? (
-            <button
-              type="button"
-              onClick={() => setLightboxPhoto({ url: annonce.photoUrl!, titre: annonce.titre })}
-              className="w-full h-full block cursor-zoom-in"
-              title="Agrandir la photo"
-            >
-              <img
-                src={annonce.photoUrl}
-                alt={annonce.titre}
-                referrerPolicy="no-referrer"
-                onError={() => setBrokenPhotos((prev) => ({ ...prev, [annonce.id]: true }))}
-                className="w-full h-full object-cover"
-              />
-            </button>
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
-              <Tag className="w-10 h-10 opacity-40" />
-              <span className="text-[11px] font-semibold">Sans photo</span>
-            </div>
-          )}
+        <div className="flex items-start gap-3">
+          {/* Petite vignette recadrée pour smartphone */}
+          <div className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
+            {!photoInvalid ? (
+              <button
+                type="button"
+                onClick={() => setLightboxPhoto({ url: annonce.photoUrl!, titre: annonce.titre })}
+                className="w-full h-full block cursor-zoom-in"
+                title="Agrandir la photo"
+              >
+                <img
+                  src={annonce.photoUrl}
+                  alt={annonce.titre}
+                  referrerPolicy="no-referrer"
+                  onError={() => setBrokenPhotos((prev) => ({ ...prev, [annonce.id]: true }))}
+                  className="w-full h-full object-cover object-center"
+                />
+              </button>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
+                <Tag className="w-6 h-6 opacity-40" />
+                <span className="text-[10px] font-semibold">Sans photo</span>
+              </div>
+            )}
 
-          {/* Bouton Cœur Favori (localStorage : club_tennis_favoris) */}
-          <button
-            type="button"
-            onClick={() => toggleFavorite(annonce.id)}
-            aria-label={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-            title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-            className={`absolute top-2.5 left-2.5 min-w-[44px] min-h-[44px] rounded-2xl backdrop-blur-md border flex items-center justify-center transition cursor-pointer ${
-              isFavorite
-                ? 'bg-rose-500/20 border-rose-500/60 text-rose-500 shadow-lg shadow-rose-950/50'
-                : 'bg-black/70 border-white/15 text-zinc-200 hover:text-rose-400 hover:border-rose-400/50'
-            }`}
-          >
-            <Heart className={`w-5 h-5 transition-transform ${isFavorite ? 'fill-rose-500 text-rose-500 scale-110' : ''}`} />
-          </button>
-
-          {/* Prix tabulaire */}
-          <div className="absolute top-3 right-3 px-3 py-1.5 rounded-xl bg-black/80 backdrop-blur-sm border border-white/15 font-heading font-black text-white text-base tabular-nums">
-            {annonce.prix === 0 ? 'Gratuit / Don' : `${annonce.prix} €`}
+            {isSold && (
+              <div className="absolute inset-0 bg-black/65 flex items-center justify-center pointer-events-none">
+                <span className="px-2 py-0.5 rounded-lg bg-zinc-900/95 border border-zinc-600 text-zinc-200 font-heading font-black text-[10px] uppercase tracking-wider">
+                  Vendu
+                </span>
+              </div>
+            )}
           </div>
 
-          {isSold && (
-            <div className="absolute inset-0 bg-black/55 flex items-center justify-center pointer-events-none">
-              <span className="px-4 py-1.5 rounded-xl bg-zinc-900/95 border border-zinc-600 text-zinc-200 font-heading font-black text-sm uppercase tracking-wider">
-                Vendu
-              </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[10px] font-bold text-[#FF6D00] uppercase tracking-wide truncate">
+                {annonce.categorie} · {annonce.etat}
+              </p>
+              <button
+                type="button"
+                onClick={() => toggleFavorite(annonce.id)}
+                aria-label={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                className={`w-8 h-8 -mt-1 -mr-1 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                  isFavorite
+                    ? 'bg-rose-500/20 border-rose-500/50 text-rose-500'
+                    : 'bg-[#0b0e14] border-zinc-800 text-zinc-400 hover:text-rose-400'
+                }`}
+              >
+                <Heart className={`w-4 h-4 transition-transform ${isFavorite ? 'fill-rose-500 text-rose-500 scale-110' : ''}`} />
+              </button>
             </div>
-          )}
-        </div>
 
-        <div className="p-4 flex-1 flex flex-col justify-between gap-3.5">
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
-              {annonce.categorie} · {annonce.etat}
-            </p>
-            <h3 className="font-heading font-black text-white text-base sm:text-lg leading-snug">
+            <h3 className="font-heading font-black text-white text-sm sm:text-base leading-snug line-clamp-2">
               {annonce.titre}
             </h3>
-            <p className="text-xs text-zinc-300">
-              Taille / Pointure : <strong className="text-white">{annonce.taillePointure}</strong>
-            </p>
-            <p className="text-[11px] text-zinc-500">
-              Publiée le {annonce.datePublication} · Vendeur :{' '}
-              <span className="text-zinc-300 font-semibold">{annonce.contactNom}</span>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+              <span className="font-heading font-black text-white text-base tabular-nums">
+                {annonce.prix === 0 ? 'Gratuit / Don' : `${annonce.prix} €`}
+              </span>
+              <span className="text-[11px] text-zinc-300 truncate">
+                Taille : <strong className="text-white">{annonce.taillePointure}</strong>
+              </span>
+            </div>
+
+            <p className="text-[11px] text-zinc-500 truncate">
+              {annonce.datePublication} · <span className="text-zinc-300 font-semibold">{annonce.contactNom}</span>
             </p>
           </div>
+        </div>
+
+        <div className="flex-1 flex flex-col justify-end">
 
           <div className="space-y-2 pt-3 border-t border-zinc-800/80">
             {!isSold && !options?.allowOwnerActions && (
@@ -1550,7 +1564,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {filteredGoSportOffres.map((offre) => {
                 const photoInvalid = !offre.photoUrl || goSportBrokenPhotos[offre.id];
                 const hasPromo = offre.prixPromo !== null && offre.prixPromo !== undefined;
@@ -1580,17 +1594,17 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 return (
                   <article
                     key={offre.id}
-                    className="bg-[#141820] border border-[#252b37] hover:border-orange-500/40 rounded-3xl overflow-hidden shadow-xl flex flex-col transition"
+                    className="bg-[#141820] border border-[#252b37] hover:border-orange-500/40 rounded-3xl p-3.5 sm:p-4 shadow-xl flex flex-col justify-between gap-3 transition"
                   >
-                    {/* Photo produit */}
-                    <div className="relative h-52 bg-[#0b0e14] border-b border-zinc-800/80 overflow-hidden">
-                      {!photoInvalid ? (
-                        <button
-                          type="button"
-                          onClick={() => setLightboxPhoto({ url: offre.photoUrl!, titre: offre.nomProduit })}
-                          className="w-full h-full block cursor-zoom-in"
-                          title="Agrandir la photo"
-                        >
+                    {/* En-tête compact smartphone : Petite vignette recadrée + Titre + Tarif + Accès fiche détaillée */}
+                    <button
+                      type="button"
+                      onClick={() => setDetailGoSportOffreId(offre.id)}
+                      className="w-full flex items-start gap-3 text-left group/card cursor-pointer"
+                      title="Ouvrir la fiche détaillée du produit"
+                    >
+                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
+                        {!photoInvalid ? (
                           <img
                             src={offre.photoUrl}
                             alt={offre.nomProduit}
@@ -1598,190 +1612,127 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                             onError={() =>
                               setGoSportBrokenPhotos((prev) => ({ ...prev, [offre.id]: true }))
                             }
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover object-center group-hover/card:scale-105 transition-transform duration-200"
                           />
-                        </button>
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
-                          <ShoppingBag className="w-10 h-10 opacity-40" />
-                          <span className="text-[11px] font-semibold">Visuel produit</span>
-                        </div>
-                      )}
-
-                      {/* Badge doré Exclu Club si Exclu_Club === OUI */}
-                      {offre.excluClub && (
-                        <div className="absolute top-3 left-3 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 text-zinc-950 font-heading font-black text-xs uppercase tracking-wider shadow-lg flex items-center gap-1.5">
-                          <Award className="w-3.5 h-3.5 shrink-0" />
-                          <span>Exclu Club</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Corps carte GO Sport */}
-                    <div className="p-4 flex-1 flex flex-col justify-between gap-4">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-1.5">
-                          <p className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
-                            {offre.categorie}
-                          </p>
-                          {isGoSportUnitaire(offre.reference, offre.nomProduit) && (
-                            <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase tracking-wide">
-                              Vendu à l'unité
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="font-heading font-black text-white text-base sm:text-lg leading-snug">
-                          {offre.nomProduit}
-                        </h3>
-                        {userRole === 'admin' && (offre.reference || offre.referenceFabricantClean) && (
-                          <p className="text-[11px] font-mono text-zinc-400">
-                            {offre.reference ? `Réf. ${offre.reference}` : ''}
-                            {offre.reference &&
-                            offre.referenceFabricantClean &&
-                            offre.referenceFabricantClean !== offre.reference
-                              ? ` · Fournisseur : ${offre.referenceFabricantClean}`
-                              : !offre.reference && offre.referenceFabricantClean
-                                ? `Réf. fournisseur : ${offre.referenceFabricantClean}`
-                                : ''}
-                          </p>
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
+                            <ShoppingBag className="w-6 h-6 opacity-40" />
+                            <span className="text-[10px] font-semibold">Visuel</span>
+                          </div>
                         )}
-                        {offre.description ? (
-                          <p className="text-xs text-zinc-300 leading-relaxed">
-                            {offre.description}
-                          </p>
-                        ) : userRole === 'admin' && (offre.reference || offre.referenceFabricantClean) ? (
-                          <p className="text-[11px] text-amber-300/90 italic">
-                            Cliquez sur « Modifier tarifs / stock » pour rechercher automatiquement photos & description.
-                          </p>
-                        ) : null}
                       </div>
 
-                      <div className="space-y-3 pt-3 border-t border-zinc-800/80">
-                        {/* Bloc des 3 tarifs */}
-                        <div className="p-3 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <span className="text-zinc-400">
-                              Tarif magasin :{' '}
-                              <span className="line-through text-zinc-500 font-mono tabular-nums">
-                                {formatPriceEur(offre.tarifMagasin)}
-                              </span>
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-[#FF6D00] uppercase tracking-wide">
+                            {offre.categorie}
+                          </span>
+                          {offre.excluClub && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-300 to-amber-500 text-zinc-950 font-heading font-black text-[9px] uppercase tracking-wider inline-flex items-center gap-0.5">
+                              <Award className="w-2.5 h-2.5 shrink-0" />
+                              <span>Exclu Club</span>
                             </span>
-
-                            {hasPromo && (
-                              <span className="text-zinc-300">
-                                Prix promo :{' '}
-                                <span
-                                  className={`font-mono font-bold tabular-nums ${
-                                    hasAdherent ? 'line-through text-zinc-500' : 'text-amber-300'
-                                  }`}
-                                >
-                                  {formatPriceEur(offre.prixPromo!)}
-                                </span>
-                              </span>
-                            )}
-                          </div>
-
-                          {hasAdherent && (
-                            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-zinc-800/80">
-                              <span className="text-xs font-black text-orange-300 uppercase tracking-wide">
-                                Tarif Adhérent Club
-                              </span>
-                              <span className="font-heading font-black text-xl text-[#FF6D00] tabular-nums">
-                                {formatPriceEur(offre.tarifAdherent!)}
-                              </span>
-                            </div>
+                          )}
+                          {isGoSportUnitaire(offre.reference, offre.nomProduit) && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[9px] font-black uppercase tracking-wide">
+                              À l'unité
+                            </span>
                           )}
                         </div>
 
-                        {/* Gestion des stocks & tailles interactives */}
-                        {parsedSizes.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
-                              <PackageCheck className="w-3.5 h-3.5 shrink-0" />
-                              <span>
-                                {isAllOutOfStock
-                                  ? 'Stock magasin Muzillac'
-                                  : availableSizes.length > 1
-                                    ? 'En stock à Muzillac · Choisissez votre taille :'
-                                    : 'En stock à Muzillac'}
+                        <h3 className="font-heading font-black text-white text-sm sm:text-base leading-snug line-clamp-2 group-hover/card:text-orange-300 transition">
+                          {offre.nomProduit}
+                        </h3>
+
+                        <div className="flex items-baseline justify-between gap-2 pt-0.5">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="font-heading font-black text-lg text-[#FF6D00] tabular-nums">
+                              {formatPriceEur(clubPriceForMessage)}
+                            </span>
+                            {(hasAdherent || hasPromo) && (
+                              <span className="text-[11px] line-through text-zinc-500 font-mono tabular-nums">
+                                {formatPriceEur(offre.tarifMagasin)}
                               </span>
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {parsedSizes.map((item, idx) => {
-                                const isSelected = validSelectedSize === item.name;
-                                if (item.qty === 0) {
-                                  return (
-                                    <span
-                                      key={`${offre.id}-taille-${idx}`}
-                                      aria-disabled="true"
-                                      className="min-h-[36px] px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-zinc-500 text-xs font-semibold line-through cursor-not-allowed inline-flex items-center"
-                                    >
-                                      {item.name} (Épuisé)
-                                    </span>
-                                  );
-                                }
-
-                                const isLastOne = item.qty === 1;
-                                const labelQty = item.hasExplicitQty
-                                  ? isLastOne
-                                    ? 'Dernier !'
-                                    : `${item.qty} dispo`
-                                  : 'En stock';
-
-                                return (
-                                  <button
-                                    key={`${offre.id}-taille-${idx}`}
-                                    type="button"
-                                    aria-pressed={isSelected}
-                                    onClick={() => {
-                                      setSelectedSizesByOffre((prev) => ({
-                                        ...prev,
-                                        [offre.id]:
-                                          prev[offre.id] === item.name && availableSizes.length > 1
-                                            ? ''
-                                            : item.name,
-                                      }));
-                                      setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: false }));
-                                    }}
-                                    className={`min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer inline-flex items-center gap-1.5 tabular-nums select-none ${
-                                      isLastOne
-                                        ? isSelected
-                                          ? 'bg-orange-500 border-white text-zinc-950 font-black shadow-lg shadow-orange-500/30 ring-2 ring-orange-300'
-                                          : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/50 text-orange-300'
-                                        : isSelected
-                                          ? 'bg-emerald-500 border-white text-zinc-950 font-black shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-300'
-                                          : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-300'
-                                    }`}
-                                  >
-                                    {isSelected && <Check className="w-3.5 h-3.5 shrink-0 stroke-[3]" />}
-                                    <span>
-                                      {item.name} ({labelQty})
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            {validSelectedSize && (
-                              <p className="text-[11px] font-bold text-emerald-300 flex items-center gap-1">
-                                <Check className="w-3.5 h-3.5 shrink-0" />
-                                <span>Taille sélectionnée : {validSelectedSize}</span>
-                              </p>
                             )}
                           </div>
-                        )}
+                          <span className="text-[11px] font-bold text-zinc-400 group-hover/card:text-orange-300 inline-flex items-center gap-0.5 shrink-0 transition">
+                            <span>Détails</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </div>
+                    </button>
 
-                        {/* Message d'invitation si plusieurs tailles et aucune sélectionnée */}
-                        {showSelectSizeHint && (
-                          <p className="text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
-                            Cliquez d'abord sur votre taille ci-dessus pour réserver en magasin.
-                          </p>
-                        )}
+                    {/* Tailles compactes & mise de côté WhatsApp */}
+                    <div className="space-y-2.5 pt-2.5 border-t border-zinc-800/80">
+                      {parsedSizes.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {parsedSizes.map((item, idx) => {
+                            const isSelected = validSelectedSize === item.name;
+                            if (item.qty === 0) {
+                              return (
+                                <span
+                                  key={`${offre.id}-taille-${idx}`}
+                                  aria-disabled="true"
+                                  className="min-h-[32px] px-2 py-1 rounded-xl bg-zinc-900/90 border border-zinc-800 text-zinc-500 text-[11px] font-semibold line-through cursor-not-allowed inline-flex items-center"
+                                >
+                                  {item.name} (Épuisé)
+                                </span>
+                              );
+                            }
 
-                        {/* Bouton WhatsApp (avec confirmation + décrémentation auto) ou Bandeau Rupture */}
+                            const isLastOne = item.qty === 1;
+                            const labelQty = item.hasExplicitQty
+                              ? isLastOne
+                                ? 'Dernier !'
+                                : `${item.qty}`
+                              : 'Dispo';
+
+                            return (
+                              <button
+                                key={`${offre.id}-taille-${idx}`}
+                                type="button"
+                                aria-pressed={isSelected}
+                                onClick={() => {
+                                  setSelectedSizesByOffre((prev) => ({
+                                    ...prev,
+                                    [offre.id]:
+                                      prev[offre.id] === item.name && availableSizes.length > 1
+                                        ? ''
+                                        : item.name,
+                                  }));
+                                  setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: false }));
+                                }}
+                                className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-[11px] font-bold transition active:scale-95 cursor-pointer inline-flex items-center gap-1 tabular-nums select-none ${
+                                  isLastOne
+                                    ? isSelected
+                                      ? 'bg-orange-500 border-white text-zinc-950 font-black ring-2 ring-orange-300'
+                                      : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/50 text-orange-300'
+                                    : isSelected
+                                      ? 'bg-emerald-500 border-white text-zinc-950 font-black ring-2 ring-emerald-300'
+                                      : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-300'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3 h-3 shrink-0 stroke-[3]" />}
+                                <span>
+                                  {item.name} ({labelQty})
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {showSelectSizeHint && (
+                        <p className="text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-2.5 py-1.5">
+                          Sélectionnez d'abord une taille ci-dessus.
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2">
                         {isAllOutOfStock ? (
-                          <div className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-bold flex items-center justify-center text-center">
-                            Temporairement en rupture à Muzillac
+                          <div className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-bold flex items-center justify-center text-center">
+                            Temporairement en rupture
                           </div>
                         ) : effectiveTailleForWhatsApp ? (
                           <button
@@ -1801,10 +1752,10 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                                 whatsappHref,
                               });
                             }}
-                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
+                            className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-950/50 text-center"
                           >
                             <MessageCircle className="w-4 h-4 shrink-0" />
-                            <span>Mettre de côté à GO Sport Muzillac</span>
+                            <span>Mettre de côté</span>
                           </button>
                         ) : (
                           <button
@@ -1812,158 +1763,33 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                             onClick={() =>
                               setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: true }))
                             }
-                            className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
+                            className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-950/50 text-center"
                           >
                             <MessageCircle className="w-4 h-4 shrink-0" />
-                            <span>Mettre de côté à GO Sport Muzillac</span>
+                            <span>Mettre de côté</span>
                           </button>
                         )}
 
-                        {/* Actions rapides Admin / GO Sport directement sur la carte */}
+                        <button
+                          type="button"
+                          onClick={() => setDetailGoSportOffreId(offre.id)}
+                          className="min-h-[40px] px-3 py-2 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition cursor-pointer shrink-0"
+                          title="Voir la fiche détaillée (réf. fournisseur & explication)"
+                        >
+                          <Info className="w-3.5 h-3.5 text-orange-400" />
+                          <span>Fiche</span>
+                        </button>
+
                         {userRole === 'admin' && (
-                          <div className="space-y-2 pt-2 border-t border-zinc-800/70">
-                            {parsedSizes.length > 0 && (
-                              <div className="p-2.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                                    Stock magasin (-1 / +1)
-                                  </span>
-                                  {quickStockStatusByOffre[offre.id] === 'saving' && (
-                                    <span className="text-[10px] font-bold text-amber-300 inline-flex items-center gap-1">
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                      <span>Sync...</span>
-                                    </span>
-                                  )}
-                                  {quickStockStatusByOffre[offre.id] === 'saved' && (
-                                    <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-1">
-                                      <Check className="w-3 h-3" />
-                                      <span>Enregistré</span>
-                                    </span>
-                                  )}
-                                  {quickStockStatusByOffre[offre.id] === 'error' && (
-                                    <span className="text-[10px] font-bold text-rose-400">
-                                      Erreur sync
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  {parsedSizes.map((item, idx) => (
-                                    <div
-                                      key={`${offre.id}-quick-${idx}`}
-                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[#141820] border border-zinc-800/90"
-                                    >
-                                      <div className="min-w-0 flex items-center gap-2">
-                                        <span className="text-xs font-bold text-white truncate">
-                                          {item.name}
-                                        </span>
-                                        {!item.hasExplicitQty && (
-                                          <span className="text-[10px] text-zinc-500">
-                                            (défaut)
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => applyGoSportStockDelta(offre.id, idx, -1)}
-                                          disabled={item.qty <= 0}
-                                          aria-label={`Diminuer le stock de ${item.name}`}
-                                          className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-rose-500/25 hover:text-rose-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
-                                        >
-                                          <Minus className="w-3.5 h-3.5" />
-                                        </button>
-                                        <span
-                                          className={`min-w-[28px] text-center font-mono text-xs font-black tabular-nums ${
-                                            item.qty === 0
-                                              ? 'text-zinc-500'
-                                              : item.qty === 1
-                                                ? 'text-orange-300'
-                                                : 'text-emerald-300'
-                                          }`}
-                                        >
-                                          {item.qty}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => applyGoSportStockDelta(offre.id, idx, 1)}
-                                          aria-label={`Augmenter le stock de ${item.name}`}
-                                          className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-emerald-500/25 hover:text-emerald-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer"
-                                        >
-                                          <Plus className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {confirmDeleteGoSportId === offre.id ? (
-                              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/40 space-y-2">
-                                <p className="text-[11px] font-bold text-rose-200 text-center">
-                                  Supprimer définitivement cet article ?
-                                </p>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteGoSportId(null)}
-                                    disabled={deletingGoSportId === offre.id}
-                                    className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer disabled:opacity-50"
-                                  >
-                                    Annuler
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteGoSport(offre.id)}
-                                    disabled={deletingGoSportId === offre.id}
-                                    className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                  >
-                                    {deletingGoSportId === offre.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>Confirmer</span>
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-2">
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => openGoSportEdit(offre)}
-                                    className="min-h-[44px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5 text-amber-300" />
-                                    <span>Modifier tarifs / stock</span>
-                                  </button>
-                                  {!isAllOutOfStock && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmDeleteGoSportId(offre.id)}
-                                      title="Supprimer cet article"
-                                      aria-label="Supprimer cet article"
-                                      className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 flex items-center justify-center transition cursor-pointer shrink-0"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-                                {isAllOutOfStock && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteGoSportId(offre.id)}
-                                    className="min-h-[44px] w-full px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/45 text-rose-200 text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    <span>Retirer cet article épuisé</span>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openGoSportEdit(offre)}
+                            aria-label="Modifier l'offre"
+                            title="Modifier tarifs / stock"
+                            className="min-w-[40px] min-h-[40px] px-2.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-amber-300 flex items-center justify-center transition cursor-pointer shrink-0"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
                     </div>
@@ -3493,6 +3319,439 @@ export const TrocTab: React.FC<TrocTabProps> = ({
             </div>
           </div>
         </div>,
+        document.body
+      )}
+      {/* ==================== MODALE FICHE DÉTAILLÉE PRODUIT GO SPORT ==================== */}
+      {detailGoSportOffre && typeof document !== 'undefined' && createPortal(
+        (() => {
+          const offre = detailGoSportOffre;
+          const photoInvalid = !offre.photoUrl || goSportBrokenPhotos[offre.id];
+          const hasPromo = offre.prixPromo !== null && offre.prixPromo !== undefined;
+          const hasAdherent = offre.tarifAdherent !== null && offre.tarifAdherent !== undefined;
+          const parsedSizes = parseGoSportTaillesDispo(offre.taillesDispo);
+          const availableSizes = parsedSizes.filter((s) => s.qty > 0);
+          const isAllOutOfStock = parsedSizes.length > 0 && availableSizes.length === 0;
+          const storedSelection = selectedSizesByOffre[offre.id];
+          const validSelectedSize =
+            storedSelection && availableSizes.some((s) => s.name === storedSelection)
+              ? storedSelection
+              : availableSizes.length === 1
+                ? availableSizes[0].name
+                : null;
+          const effectiveTailleForWhatsApp =
+            validSelectedSize || (parsedSizes.length === 0 ? 'Unique' : null);
+          const clubPriceForMessage =
+            offre.tarifAdherent ?? offre.prixPromo ?? offre.tarifMagasin;
+          const whatsappMessage = effectiveTailleForWhatsApp
+            ? `Bonjour, je suis adhérent du Muzillac Tennis Club (TCM). Serait-il possible de me mettre de côté l'article suivant en magasin : ${offre.nomProduit} - Taille : ${effectiveTailleForWhatsApp} (Tarif Club : ${clubPriceForMessage} €) ? Merci !`
+            : '';
+          const whatsappHref = effectiveTailleForWhatsApp
+            ? `https://wa.me/${GOSPORT_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappMessage)}`
+            : '';
+          const showSelectSizeHint = !!sizeHintByOffre[offre.id] && !validSelectedSize;
+
+          return (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Fiche produit : ${offre.nomProduit}`}
+              onClick={() => setDetailGoSportOffreId(null)}
+              className="fixed inset-0 z-[99998] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-0 sm:p-4 animate-fadeIn"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-[#141820] border-t sm:border border-orange-500/40 rounded-t-3xl sm:rounded-3xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl p-4 sm:p-6 space-y-4"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-zinc-800 pb-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
+                        {offre.categorie}
+                      </span>
+                      {offre.excluClub && (
+                        <span className="px-2 py-0.5 rounded-md bg-gradient-to-r from-amber-300 to-amber-500 text-zinc-950 font-heading font-black text-[10px] uppercase tracking-wider inline-flex items-center gap-1">
+                          <Award className="w-3 h-3 shrink-0" />
+                          <span>Exclu Club</span>
+                        </span>
+                      )}
+                      {isGoSportUnitaire(offre.reference, offre.nomProduit) && (
+                        <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase tracking-wide">
+                          Vendu à l'unité
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="font-heading font-black text-white text-lg sm:text-xl leading-snug">
+                      {offre.nomProduit}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetailGoSportOffreId(null)}
+                    aria-label="Fermer la fiche"
+                    className="min-w-[44px] min-h-[44px] rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition cursor-pointer shrink-0"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Image complète recadrée proprement */}
+                <div className="relative h-56 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
+                  {!photoInvalid ? (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxPhoto({ url: offre.photoUrl!, titre: offre.nomProduit })}
+                      className="w-full h-full block cursor-zoom-in"
+                      title="Agrandir la photo"
+                    >
+                      <img
+                        src={offre.photoUrl}
+                        alt={offre.nomProduit}
+                        referrerPolicy="no-referrer"
+                        onError={() =>
+                          setGoSportBrokenPhotos((prev) => ({ ...prev, [offre.id]: true }))
+                        }
+                        className="w-full h-full object-contain p-2 bg-white"
+                      />
+                    </button>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
+                      <ShoppingBag className="w-10 h-10 opacity-40" />
+                      <span className="text-xs font-semibold">Visuel produit indisponible</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Référence fournisseur & Référence magasin */}
+                {(offre.reference || offre.referenceFabricantClean) && (
+                  <div className="p-3 rounded-2xl bg-[#0b0e14] border border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    {offre.referenceFabricantClean && (
+                      <div>
+                        <span className="text-zinc-400">Réf. fournisseur : </span>
+                        <span className="font-mono font-bold text-white">
+                          {offre.referenceFabricantClean}
+                        </span>
+                      </div>
+                    )}
+                    {offre.reference && (
+                      <div>
+                        <span className="text-zinc-400">Réf. magasin : </span>
+                        <span className="font-mono font-semibold text-zinc-200">
+                          {offre.reference}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Explication concise en français */}
+                {offre.description ? (
+                  <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 block">
+                      Présentation du produit
+                    </span>
+                    <p className="text-xs sm:text-sm text-zinc-200 leading-relaxed">
+                      {offre.description}
+                    </p>
+                  </div>
+                ) : userRole === 'admin' && (offre.reference || offre.referenceFabricantClean) ? (
+                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                    Aucune description enregistrée. Cliquez sur « Modifier tarifs / stock » pour rechercher automatiquement la fiche produit.
+                  </div>
+                ) : null}
+
+                {/* Détail des 3 tarifs */}
+                <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-zinc-400">
+                      Tarif magasin :{' '}
+                      <span className="line-through text-zinc-500 font-mono tabular-nums">
+                        {formatPriceEur(offre.tarifMagasin)}
+                      </span>
+                    </span>
+
+                    {hasPromo && (
+                      <span className="text-zinc-300">
+                        Prix promo :{' '}
+                        <span
+                          className={`font-mono font-bold tabular-nums ${
+                            hasAdherent ? 'line-through text-zinc-500' : 'text-amber-300'
+                          }`}
+                        >
+                          {formatPriceEur(offre.prixPromo!)}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+
+                  {hasAdherent && (
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-zinc-800/80">
+                      <span className="text-xs font-black text-orange-300 uppercase tracking-wide">
+                        Tarif Adhérent Club
+                      </span>
+                      <span className="font-heading font-black text-xl text-[#FF6D00] tabular-nums">
+                        {formatPriceEur(offre.tarifAdherent!)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tailles & disponibilité + WhatsApp */}
+                {parsedSizes.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
+                      <PackageCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {isAllOutOfStock
+                          ? 'Stock magasin Muzillac'
+                          : availableSizes.length > 1
+                            ? 'En stock à Muzillac · Choisissez votre taille :'
+                            : 'En stock à Muzillac'}
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {parsedSizes.map((item, idx) => {
+                        const isSelected = validSelectedSize === item.name;
+                        if (item.qty === 0) {
+                          return (
+                            <span
+                              key={`${offre.id}-detail-taille-${idx}`}
+                              aria-disabled="true"
+                              className="min-h-[36px] px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-zinc-500 text-xs font-semibold line-through cursor-not-allowed inline-flex items-center"
+                            >
+                              {item.name} (Épuisé)
+                            </span>
+                          );
+                        }
+
+                        const isLastOne = item.qty === 1;
+                        const labelQty = item.hasExplicitQty
+                          ? isLastOne
+                            ? 'Dernier !'
+                            : `${item.qty} dispo`
+                          : 'En stock';
+
+                        return (
+                          <button
+                            key={`${offre.id}-detail-taille-${idx}`}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              setSelectedSizesByOffre((prev) => ({
+                                ...prev,
+                                [offre.id]:
+                                  prev[offre.id] === item.name && availableSizes.length > 1
+                                    ? ''
+                                    : item.name,
+                              }));
+                              setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: false }));
+                            }}
+                            className={`min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer inline-flex items-center gap-1.5 tabular-nums select-none ${
+                              isLastOne
+                                ? isSelected
+                                  ? 'bg-orange-500 border-white text-zinc-950 font-black ring-2 ring-orange-300'
+                                  : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/50 text-orange-300'
+                                : isSelected
+                                  ? 'bg-emerald-500 border-white text-zinc-950 font-black ring-2 ring-emerald-300'
+                                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-300'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 shrink-0 stroke-[3]" />}
+                            <span>
+                              {item.name} ({labelQty})
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {showSelectSizeHint && (
+                  <p className="text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+                    Cliquez d'abord sur votre taille ci-dessus pour réserver en magasin.
+                  </p>
+                )}
+
+                {isAllOutOfStock ? (
+                  <div className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-bold flex items-center justify-center text-center">
+                    Temporairement en rupture à Muzillac
+                  </div>
+                ) : effectiveTailleForWhatsApp ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const matchedIdx = validSelectedSize
+                        ? parsedSizes.findIndex((s) => s.name === validSelectedSize && s.qty > 0)
+                        : -1;
+                      const matchedItem = matchedIdx >= 0 ? parsedSizes[matchedIdx] : null;
+                      setWhatsappConfirmData({
+                        offre,
+                        tailleName: effectiveTailleForWhatsApp,
+                        sizeIndex: matchedIdx,
+                        hasExplicitQty: !!matchedItem?.hasExplicitQty,
+                        currentQty: matchedItem ? matchedItem.qty : 0,
+                        clubPrice: clubPriceForMessage,
+                        whatsappHref,
+                      });
+                    }}
+                    className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
+                  >
+                    <MessageCircle className="w-4 h-4 shrink-0" />
+                    <span>Mettre de côté à GO Sport Muzillac</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSizeHintByOffre((prev) => ({ ...prev, [offre.id]: true }))
+                    }
+                    className="min-h-[44px] w-full px-3.5 py-2.5 rounded-xl bg-emerald-600/85 hover:bg-emerald-500 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-emerald-950/50 text-center"
+                  >
+                    <MessageCircle className="w-4 h-4 shrink-0" />
+                    <span>Mettre de côté à GO Sport Muzillac</span>
+                  </button>
+                )}
+
+                {/* Outils Admin complets dans la fiche détaillée */}
+                {userRole === 'admin' && (
+                  <div className="space-y-2.5 pt-3 border-t border-zinc-800">
+                    {parsedSizes.length > 0 && (
+                      <div className="p-3 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                            Stock magasin (-1 / +1)
+                          </span>
+                          {quickStockStatusByOffre[offre.id] === 'saving' && (
+                            <span className="text-[10px] font-bold text-amber-300 inline-flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Sync...</span>
+                            </span>
+                          )}
+                          {quickStockStatusByOffre[offre.id] === 'saved' && (
+                            <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-1">
+                              <Check className="w-3 h-3" />
+                              <span>Enregistré</span>
+                            </span>
+                          )}
+                          {quickStockStatusByOffre[offre.id] === 'error' && (
+                            <span className="text-[10px] font-bold text-rose-400">
+                              Erreur sync
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {parsedSizes.map((item, idx) => (
+                            <div
+                              key={`${offre.id}-detail-quick-${idx}`}
+                              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[#141820] border border-zinc-800/90"
+                            >
+                              <div className="min-w-0 flex items-center gap-2">
+                                <span className="text-xs font-bold text-white truncate">
+                                  {item.name}
+                                </span>
+                                {!item.hasExplicitQty && (
+                                  <span className="text-[10px] text-zinc-500">(défaut)</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => applyGoSportStockDelta(offre.id, idx, -1)}
+                                  disabled={item.qty <= 0}
+                                  aria-label={`Diminuer le stock de ${item.name}`}
+                                  className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-rose-500/25 hover:text-rose-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+                                >
+                                  <Minus className="w-3.5 h-3.5" />
+                                </button>
+                                <span
+                                  className={`min-w-[28px] text-center font-mono text-xs font-black tabular-nums ${
+                                    item.qty === 0
+                                      ? 'text-zinc-500'
+                                      : item.qty === 1
+                                        ? 'text-orange-300'
+                                        : 'text-emerald-300'
+                                  }`}
+                                >
+                                  {item.qty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => applyGoSportStockDelta(offre.id, idx, 1)}
+                                  aria-label={`Augmenter le stock de ${item.name}`}
+                                  className="min-w-[36px] min-h-[36px] rounded-lg bg-zinc-800 hover:bg-emerald-500/25 hover:text-emerald-200 border border-zinc-700 text-zinc-200 flex items-center justify-center transition cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {confirmDeleteGoSportId === offre.id ? (
+                      <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/40 space-y-2">
+                        <p className="text-[11px] font-bold text-rose-200 text-center">
+                          Supprimer définitivement cet article ?
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteGoSportId(null)}
+                            disabled={deletingGoSportId === offre.id}
+                            className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await handleDeleteGoSport(offre.id);
+                              setDetailGoSportOffreId(null);
+                            }}
+                            disabled={deletingGoSportId === offre.id}
+                            className="min-h-[40px] flex-1 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {deletingGoSportId === offre.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                            <span>Confirmer</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetailGoSportOffreId(null);
+                            openGoSportEdit(offre);
+                          }}
+                          className="min-h-[44px] flex-1 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Modifier tarifs / stock</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteGoSportId(offre.id)}
+                          title="Supprimer cet article"
+                          aria-label="Supprimer cet article"
+                          className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 flex items-center justify-center transition cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })(),
         document.body
       )}
     </div>

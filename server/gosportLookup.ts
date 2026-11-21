@@ -221,6 +221,83 @@ function decodeHtmlEntities(str: string): string {
     .trim();
 }
 
+function isLikelyFrenchText(text: string): boolean {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  const frSignals =
+    (s.match(/[àâäéèêëîïôöùûüçœ]/gi) || []).length * 2 +
+    (
+      s.match(
+        /\b(le|la|les|des|une|un|pour|avec|sur|dans|par|est|sont|balle|balles|raquette|chaussure|chaussures|cordage|sac|tenue|tennis|idéal|conçu|conçue|vendu|vendue|unité|contrôle|puissance|confort|adhérence|amorti|club|joueur|joueurs)\b/gi
+      ) || []
+    ).length;
+  const enSignals = (
+    s.match(
+      /\b(the|and|with|for|your|you|are|this|that|from|best|buy|shop|shipping|free|features|designed|engineered|players|performance|balls|racket|shoes|strings)\b/gi
+    ) || []
+  ).length;
+  return frSignals >= 2 && frSignals >= enSignals;
+}
+
+function formatConciseFrenchDescription(
+  rawText: string,
+  isUnitaire: boolean,
+  nomProduit: string,
+  categorie: string
+): string {
+  let cleaned = decodeHtmlEntities(String(rawText || ''))
+    .replace(/\s*\|\s*[^|]{2,40}$/g, '')
+    .replace(/^(acheter|achetez|découvrez|livraison gratuite[^.!]*[.!])\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned && !isLikelyFrenchText(cleaned)) {
+    cleaned = '';
+  }
+
+  if (!cleaned) {
+    const label = nomProduit || 'Article de tennis';
+    const catLower = (categorie || '').toLowerCase();
+    if (catLower.includes('balle')) {
+      cleaned = `${label} : balle de tennis adaptée à l'entraînement et au jeu en club.`;
+    } else if (catLower.includes('raquette')) {
+      cleaned = `${label} : raquette offrant un bon équilibre entre maniabilité, contrôle et puissance.`;
+    } else if (catLower.includes('chaussure')) {
+      cleaned = `${label} : chaussure de tennis assurant maintien, stabilité et amorti sur le court.`;
+    } else if (catLower.includes('sac')) {
+      cleaned = `${label} : sac pratique pour transporter raquettes et équipement de tennis.`;
+    } else if (catLower.includes('tenue')) {
+      cleaned = `${label} : textile respirant pensé pour le confort sur les courts.`;
+    } else {
+      cleaned = `${label} : équipement de tennis sélectionné pour les joueurs du club.`;
+    }
+  }
+
+  const maxBodyLen = isUnitaire ? 145 : 165;
+  if (cleaned.length > maxBodyLen) {
+    const slice = cleaned.slice(0, maxBodyLen);
+    const lastSentenceEnd = Math.max(
+      slice.lastIndexOf('. '),
+      slice.lastIndexOf('! '),
+      slice.lastIndexOf('? ')
+    );
+    if (lastSentenceEnd >= 70) {
+      cleaned = slice.slice(0, lastSentenceEnd + 1).trim();
+    } else {
+      const lastSpace = slice.lastIndexOf(' ');
+      cleaned = `${(lastSpace > 40 ? slice.slice(0, lastSpace) : slice).replace(/[,;:\-–]+$/, '').trim()}.`;
+    }
+  } else if (!/[.!?]$/.test(cleaned)) {
+    cleaned = `${cleaned}.`;
+  }
+
+  if (isUnitaire && !/unit[eé]/i.test(cleaned)) {
+    cleaned = `${cleaned} Vendu à l'unité.`;
+  }
+
+  return cleaned;
+}
+
 function isBadImageCandidate(urlStr: string): boolean {
   const lower = urlStr.toLowerCase();
   if (!lower.startsWith('https://') && !lower.startsWith('http://')) return true;
@@ -428,6 +505,7 @@ async function searchSerperWeb(
         q: query,
         gl: 'fr',
         hl: 'fr',
+        lr: 'lang_fr',
         num: 6,
       }),
       signal: AbortSignal.timeout(5000),
@@ -441,8 +519,13 @@ async function searchSerperWeb(
       .map((item: any) => ({
         title: String(item.title || item.link),
         link: String(item.link),
-        snippet: String(item.snippet || '').replace(/\s+/g, ' ').trim(),
-      }));
+        snippet: decodeHtmlEntities(String(item.snippet || '')),
+      }))
+      .sort((a: SearchWebItem, b: SearchWebItem) => {
+        const aFr = (isLikelyFrenchText(a.snippet) ? 2 : 0) + (/\.fr\b|\/fr\b/i.test(a.link) ? 1 : 0);
+        const bFr = (isLikelyFrenchText(b.snippet) ? 2 : 0) + (/\.fr\b|\/fr\b/i.test(b.link) ? 1 : 0);
+        return bFr - aFr;
+      });
   } catch {
     return [];
   }
@@ -737,7 +820,7 @@ ${searchWeb.length > 0 ? 'À partir des résultats ci-dessus (et Google Search s
 {
   "nomProduit": "Nom commercial clair et complet du produit (avec marque et modèle)",
   "categorie": "Exactement l'une des valeurs suivantes : Raquettes, Chaussures, Tenues, Sacs, Balles & Cordages, Accessoires",
-  "description": "Description sommaire en français (2 phrases courtes max, environ 140 à 240 caractères, mettant en avant les caractéristiques clés et l'usage pour un joueur de club).",
+  "description": "Explication très concise OBLIGATOIREMENT en français (1 à 2 phrases courtes max, 160 caractères max, sans mot anglais superflu), résumant les atouts du produit pour un joueur de tennis.",
   "imageSearchQuery": "Requête courte et précise (marque + modèle + référence fournisseur sans /U) pour trouver les photos officielles du produit",
   "productPageUrls": ["URL 1 de fiche produit officielle ou e-commerce", "URL 2", "URL 3"]
 }`;
@@ -869,18 +952,22 @@ ${searchWeb.length > 0 ? 'À partir des résultats ci-dessus (et Google Search s
     }
   }
 
-  // 5. Description : Gemini en priorité, sinon vraie description Web (Serper/CSE snippet ou meta description)
-  let description = String(parsed.description || '').trim();
-  if (!description) {
-    const webMeta = scrapedResults.find((p) => p.metaDescription)?.metaDescription || '';
-    const webSnippet = searchWeb.find((w) => w.snippet)?.snippet || '';
-    const realWebDesc = webMeta || webSnippet;
-    if (realWebDesc) {
-      description = isUnitaire && !/unit[eé]/i.test(realWebDesc)
-        ? `${realWebDesc} Vendu à l'unité.`
-        : realWebDesc;
-    }
+  // 5. Description : concise et strictement en français (Gemini prioritaire, sinon meilleur extrait français, sinon synthèse FR)
+  let rawDescription = String(parsed.description || '').trim();
+  if (!rawDescription || !isLikelyFrenchText(rawDescription)) {
+    const frenchMeta =
+      scrapedResults.find((p) => p.metaDescription && isLikelyFrenchText(p.metaDescription))
+        ?.metaDescription || '';
+    const frenchSnippet =
+      searchWeb.find((w) => w.snippet && isLikelyFrenchText(w.snippet))?.snippet || '';
+    rawDescription = frenchMeta || frenchSnippet || '';
   }
+  const description = formatConciseFrenchDescription(
+    rawDescription,
+    isUnitaire,
+    nomProduit,
+    categorie
+  );
 
   const providerLabel = usedSearchProvider === 'serper' ? 'Serper.dev' : 'Google Custom Search';
 
