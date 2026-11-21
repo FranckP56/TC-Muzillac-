@@ -28,10 +28,12 @@ export const EditRuleModal: React.FC<EditRuleModalProps> = ({
   onReset,
 }) => {
   const [formData, setFormData] = useState<ChampionshipRule | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     if (rule) {
       setFormData({ ...rule });
+      setConfirmReset(false);
     }
   }, [rule]);
 
@@ -46,10 +48,9 @@ export const EditRuleModal: React.FC<EditRuleModalProps> = ({
   };
 
   const handleResetToDefault = () => {
-    if (window.confirm('Voulez-vous rétablir les paramètres officiels FFT par défaut pour ce championnat ?')) {
-      onReset(formData.id);
-      onClose();
-    }
+    onReset(formData.id);
+    setConfirmReset(false);
+    onClose();
   };
 
   return (
@@ -282,16 +283,35 @@ export const EditRuleModal: React.FC<EditRuleModalProps> = ({
           </div>
 
           {/* Pied de formulaire */}
-          <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
-            <button
-              type="button"
-              onClick={handleResetToDefault}
-              className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold transition flex items-center gap-1.5 cursor-pointer text-xs"
-              title="Rétablir le format FFT officiel"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Rétablir FFT 2027</span>
-            </button>
+          <div className="flex items-center justify-between pt-4 border-t border-zinc-800 gap-2 flex-wrap">
+            {confirmReset ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleResetToDefault}
+                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition cursor-pointer text-xs"
+                >
+                  Confirmer FFT 2027
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(false)}
+                  className="px-2.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold transition cursor-pointer text-xs"
+                >
+                  Non
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmReset(true)}
+                className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold transition flex items-center gap-1.5 cursor-pointer text-xs"
+                title="Rétablir le format FFT officiel"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Rétablir FFT 2027</span>
+              </button>
+            )}
 
             <div className="flex items-center space-x-2">
               <button

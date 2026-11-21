@@ -1,37 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Scale, 
-  Search, 
-  Filter, 
-  Edit3, 
-  RotateCcw, 
-  Download, 
-  Upload, 
-  Check, 
-  Calendar, 
-  Clock, 
-  Users, 
-  Shield, 
-  Layers, 
-  AlertTriangle, 
-  Sparkles,
-  Info,
+import {
+  Edit3,
+  RotateCcw,
+  Download,
+  Upload,
+  Check,
   CheckCircle2,
   BookOpen,
   ChevronDown,
   ChevronUp,
-  Award,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Calendar,
+  Scale,
 } from 'lucide-react';
 import { ChampionshipRule } from '../types/rules';
 import { UserRole } from '../types/tennis';
-import { 
-  getStoredChampionshipRules, 
-  saveChampionshipRule, 
-  resetSingleRule, 
+import {
+  getStoredChampionshipRules,
+  saveChampionshipRule,
+  resetSingleRule,
   resetAllChampionshipRules,
   exportRulesToJson,
-  importRulesFromJson
+  importRulesFromJson,
 } from '../utils/rulesManager';
 import { EditRuleModal } from './EditRuleModal';
 
@@ -39,22 +30,105 @@ interface ReglementsTabProps {
   userRole?: UserRole;
 }
 
-export const ReglementsTab: React.FC<ReglementsTabProps> = ({
-  userRole = 'adherent',
-}) => {
-  const [activeSubTab, setActiveSubTab] = useState<'formats' | 'guide'>('formats');
-  const [expandedSection, setExpandedSection] = useState<string | null>('ordre_parties');
+type CategoryTab = 'hommes' | 'femmes' | 'jeunes';
+
+interface LevelRowGroup {
+  key: string;
+  label: string;
+  subtitle: string;
+  rules: ChampionshipRule[];
+  isCombined: boolean;
+}
+
+function getThirdSetSummary(formatText: string): string {
+  const lower = formatText.toLowerCase();
+  if (lower.includes('super tie-break') || lower.includes('10 pt')) {
+    return '3e set Super Tie-Break 10 pts';
+  }
+  if (lower.includes('classique')) {
+    return '3e set classique';
+  }
+  if (lower.includes('réduit') || lower.includes('adapté') || lower.includes('3 ou 4 jeux')) {
+    return 'Sets courts adaptés';
+  }
+  return formatText;
+}
+
+function getPointsShortLabel(rule: ChampionshipRule): string {
+  const match = rule.pointsSystem.match(/=\s*(\d+\s*points?)/i);
+  if (match) {
+    return match[1].replace(/points?/i, 'pts');
+  }
+  if (rule.level === 'Galaxie') {
+    return 'Sans score homologué';
+  }
+  return `${rule.numSingles + rule.numDoubles} matchs`;
+}
+
+function rulesHaveSameFormat(a: ChampionshipRule, b: ChampionshipRule): boolean {
+  return (
+    a.numSingles === b.numSingles &&
+    a.numDoubles === b.numDoubles &&
+    a.singlesGameFormat === b.singlesGameFormat &&
+    a.doublesGameFormat === b.doublesGameFormat &&
+    a.doubleWeightStrict === b.doubleWeightStrict &&
+    a.pointsSystem === b.pointsSystem &&
+    a.expectedDay === b.expectedDay
+  );
+}
+
+const COMMON_RULES_SECTIONS = [
+  {
+    title: 'Hiérarchie & Classement gelé',
+    summary:
+      'Le meilleur classement joue impérativement en Simple 1, le 2e en Simple 2, etc. Le classement retenu pour toute la phase est celui bloqué au premier mardi du mois de lancement.',
+  },
+  {
+    title: 'Ordre type & Repos obligatoire',
+    summary:
+      'Sur 2 courts, 2 simples débutent à l’horaire officiel puis les suivants s’enchaînent avant les doubles. Un repos minimum de 30 min est garanti après un simple (permutation possible d’accord commun).',
+  },
+  {
+    title: 'Qualification & Brûlage',
+    summary:
+      'Licence FFT 2027 validée TCM obligatoire. Un joueur disputant 2 rencontres en équipe supérieure est brûlé et ne peut plus redescendre. 1 seule équipe autorisée par week-end.',
+  },
+  {
+    title: 'Horaires, Retards (W.O.) & Ten’Up',
+    summary:
+      'Forfait (W.O.) prononcé 15 min après l’appel de la partie. Le club recevant fournit les balles neuves ; les capitaines valident la feuille électronique sur Ten’Up avant dimanche 20h.',
+  },
+];
+
+const CATEGORY_COMMON_BASE: Record<CategoryTab, { title: string; points: string }> = {
+  hommes: {
+    title: 'Socle commun Hommes',
+    points:
+      'Rencontres le dimanche · Tous les doubles se jouent en Format 4 (2 sets à 6 jeux avec No-Ad, 3e set Super Tie-Break 10 pts) · Ordre décroissant des classements en simple.',
+  },
+  femmes: {
+    title: 'Socle commun Femmes',
+    points:
+      'Rencontres le dimanche · Tous les doubles se jouent en Format 4 (2 sets à 6 jeux avec No-Ad, 3e set Super Tie-Break 10 pts) · Ordre décroissant des classements en simple.',
+  },
+  jeunes: {
+    title: 'Socle commun Jeunes',
+    points:
+      'Rencontres le samedi · Aucune règle stricte de poids sur le double · Seuls le nombre de simples et le format des jeux évoluent selon la tranche d’âge.',
+  },
+};
+
+export const ReglementsTab: React.FC<ReglementsTabProps> = ({ userRole = 'adherent' }) => {
+  const [activeTab, setActiveTab] = useState<CategoryTab>('hommes');
+  const [isCommonRulesOpen, setIsCommonRulesOpen] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
   const [rules, setRules] = useState<ChampionshipRule[]>(() => getStoredChampionshipRules());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterSexe, setFilterSexe] = useState<string>('all');
-  const [filterLevel, setFilterLevel] = useState<string>('all');
   const [selectedRuleToEdit, setSelectedRuleToEdit] = useState<ChampionshipRule | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const canEdit = userRole === 'admin' || userRole === 'bureau';
 
-  // Synchronisation des événements de mise à jour des règles
   useEffect(() => {
     const handleRulesUpdated = () => {
       setRules(getStoredChampionshipRules());
@@ -63,29 +137,28 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
     return () => window.removeEventListener('tcm_rules_updated', handleRulesUpdated);
   }, []);
 
-  const showNotification = (msg: string) => {
-    setStatusMessage(msg);
-    setTimeout(() => setStatusMessage(null), 3500);
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 3500);
   };
 
   const handleSaveRule = (updatedRule: ChampionshipRule) => {
     const newRules = saveChampionshipRule(updatedRule);
     setRules(newRules);
-    showNotification(`Règlement « ${updatedRule.title} » mis à jour avec succès.`);
+    showToast(`Règlement « ${updatedRule.title} » mis à jour.`);
   };
 
   const handleResetSingle = (ruleId: string) => {
     const newRules = resetSingleRule(ruleId);
     setRules(newRules);
-    showNotification('Règlement rétabli au standard officiel FFT 2027.');
+    showToast('Règlement rétabli aux valeurs FFT 2027.');
   };
 
-  const handleResetAll = () => {
-    if (window.confirm('Voulez-vous réinitialiser TOUS les règlements aux valeurs FFT 2027 d\'origine ?')) {
-      const newRules = resetAllChampionshipRules();
-      setRules(newRules);
-      showNotification('Tous les règlements ont été réinitialisés aux valeurs officielles FFT 2027.');
-    }
+  const handleConfirmResetAll = () => {
+    const newRules = resetAllChampionshipRules();
+    setRules(newRules);
+    setConfirmResetAll(false);
+    showToast('Tous les règlements FFT 2027 ont été rétablis.');
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,9 +171,9 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
         const res = importRulesFromJson(content);
         if (res.success) {
           setRules(getStoredChampionshipRules());
-          showNotification(`${res.count || 0} règlements importés avec succès.`);
+          showToast(`${res.count || 0} règlements importés.`);
         } else {
-          alert('Erreur lors de l\'importation : ' + res.error);
+          showToast(res.error || 'Erreur lors de l’importation JSON.', 'error');
         }
       }
     };
@@ -108,629 +181,501 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
     e.target.value = '';
   };
 
-  // Filtrage multi-critères
-  const filteredRules = useMemo(() => {
-    return rules.filter(r => {
-      // 1. Recherche texte
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matches = 
-          r.title.toLowerCase().includes(q) ||
-          r.division.toLowerCase().includes(q) ||
-          r.singlesGameFormat.toLowerCase().includes(q) ||
-          r.doublesGameFormat.toLowerCase().includes(q) ||
-          r.orderOfPlay.toLowerCase().includes(q) ||
-          (r.notes || '').toLowerCase().includes(q);
-        if (!matches) return false;
-      }
+  const toggleExpand = (key: string) => {
+    setExpandedKeys((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
-      // 2. Filtre Catégorie
-      if (filterCategory !== 'all') {
-        if (filterCategory === 'seniors' && !r.categoryAge.includes('Seniors')) return false;
-        if (filterCategory === 'seniors_plus' && !r.categoryAge.includes('+')) return false;
-        if (filterCategory === 'jeunes' && (!r.categoryAge.includes('Jeunes') && !r.categoryAge.includes('10'))) return false;
-      }
+  // Construction des niveaux regroupés pour la catégorie active
+  const levelGroups = useMemo<LevelRowGroup[]>(() => {
+    const byId = new Map(rules.map((r) => [r.id, r]));
+    const groups: LevelRowGroup[] = [];
 
-      // 3. Filtre Sexe
-      if (filterSexe !== 'all') {
-        if (filterSexe === 'H' && r.sexe !== 'Messieurs' && r.sexe !== 'Tous') return false;
-        if (filterSexe === 'F' && r.sexe !== 'Dames' && r.sexe !== 'Tous') return false;
-      }
+    const pushCombinedOrSplit = (
+      baseKey: string,
+      combinedLabel: string,
+      combinedSubtitle: string,
+      idsWithLabels: Array<{ id: string; label: string; subtitle: string }>
+    ) => {
+      const resolved = idsWithLabels
+        .map((item) => ({ ...item, rule: byId.get(item.id) }))
+        .filter((item): item is { id: string; label: string; subtitle: string; rule: ChampionshipRule } =>
+          Boolean(item.rule)
+        );
+      if (resolved.length === 0) return;
 
-      // 4. Filtre Niveau
-      if (filterLevel !== 'all') {
-        if (r.level !== filterLevel) return false;
-      }
+      const allSame =
+        resolved.length > 1 &&
+        resolved.every((item) => rulesHaveSameFormat(item.rule, resolved[0].rule));
 
-      return true;
-    });
-  }, [rules, searchQuery, filterCategory, filterSexe, filterLevel]);
+      if (allSame || resolved.length === 1) {
+        groups.push({
+          key: baseKey,
+          label: resolved.length === 1 ? resolved[0].label : combinedLabel,
+          subtitle: resolved.length === 1 ? resolved[0].subtitle : combinedSubtitle,
+          rules: resolved.map((r) => r.rule),
+          isCombined: resolved.length > 1,
+        });
+      } else {
+        resolved.forEach((item) => {
+          groups.push({
+            key: `${baseKey}_${item.id}`,
+            label: item.label,
+            subtitle: item.subtitle,
+            rules: [item.rule],
+            isCombined: false,
+          });
+        });
+      }
+    };
+
+    if (activeTab === 'hommes') {
+      pushCombinedOrSplit(
+        'h_reg_pr',
+        'Régional & Pré-Régionale',
+        'Pré-Nationale, R1, R2, R3 et Pré-Régionale',
+        [
+          { id: 'seniors_regional', label: 'Régional (PN, R1, R2, R3)', subtitle: 'Ligue de Bretagne' },
+          { id: 'seniors_preregionale', label: 'Pré-Régionale (PR)', subtitle: 'Division qualificative Morbihan' },
+        ]
+      );
+      pushCombinedOrSplit('h_d1', 'Départemental Division 1 (D1)', 'Comité du Morbihan', [
+        { id: 'seniors_d1_m', label: 'Départemental Division 1 (D1)', subtitle: 'Nouveauté 2027 : 2 doubles obligatoires' },
+      ]);
+      pushCombinedOrSplit(
+        'h_d2_d3',
+        'Départemental Divisions 2 & 3 (D2 / D3)',
+        'Format standard masculin Comité 56',
+        [
+          { id: 'seniors_d2_m', label: 'Départemental Division 2 (D2)', subtitle: 'Comité du Morbihan' },
+          { id: 'seniors_d3_m', label: 'Départemental Division 3 (D3)', subtitle: 'Comité du Morbihan' },
+        ]
+      );
+      pushCombinedOrSplit('h_sp', 'Seniors+ (+35, +45, +55, +65 ans)', 'Régional & Départemental Vétérans', [
+        { id: 'seniors_plus', label: 'Seniors+ (+35, +45, +55, +65 ans)', subtitle: 'Toutes divisions Vétérans' },
+      ]);
+    } else if (activeTab === 'femmes') {
+      pushCombinedOrSplit(
+        'f_reg_pr',
+        'Régional & Pré-Régionale',
+        'Pré-Nationale, R1, R2, R3 et Pré-Régionale',
+        [
+          { id: 'seniors_regional', label: 'Régional (PN, R1, R2, R3)', subtitle: 'Ligue de Bretagne' },
+          { id: 'seniors_preregionale', label: 'Pré-Régionale (PR)', subtitle: 'Division qualificative Morbihan' },
+        ]
+      );
+      pushCombinedOrSplit('f_d1', 'Départemental Division 1 (D1)', 'Comité du Morbihan', [
+        { id: 'seniors_d1_f', label: 'Départemental Division 1 (D1)', subtitle: '1 double décisif à 2 points' },
+      ]);
+      pushCombinedOrSplit(
+        'f_d2_d3',
+        'Départemental Divisions 2 & 3 (D2 / D3)',
+        'Format féminin Comité 56',
+        [
+          { id: 'seniors_d2_f', label: 'Départemental Division 2 (D2)', subtitle: 'Comité du Morbihan' },
+          { id: 'seniors_d3_f', label: 'Départemental Division 3 (D3)', subtitle: 'Comité du Morbihan' },
+        ]
+      );
+      pushCombinedOrSplit('f_sp', 'Seniors+ (+35, +45, +55, +65 ans)', 'Régional & Départemental Vétérans', [
+        { id: 'seniors_plus', label: 'Seniors+ (+35, +45, +55, +65 ans)', subtitle: 'Toutes divisions Vétérans' },
+      ]);
+    } else {
+      pushCombinedOrSplit('j_13_18', 'Jeunes 13/14 ans & 17/18 ans', 'Comité du Morbihan', [
+        { id: 'jeunes_13_18_garcons', label: 'Jeunes 13/14 ans & 17/18 ans', subtitle: 'Garçons & Filles · Comité 56' },
+      ]);
+      pushCombinedOrSplit('j_11_12', 'Jeunes 11/12 ans', 'Comité du Morbihan / Ligue de Bretagne', [
+        { id: 'jeunes_11_18', label: 'Jeunes 11/12 ans', subtitle: 'Formule 2 simples + 1 double' },
+      ]);
+      pushCombinedOrSplit('j_galaxie', 'Galaxie Tennis (< 10 ans : Rouge, Orange, Vert)', 'Plateaux & championnats adaptés', [
+        { id: 'jeunes_galaxie', label: 'Galaxie Tennis (< 10 ans)', subtitle: 'Terrains et balles évolutives' },
+      ]);
+    }
+
+    return groups;
+  }, [rules, activeTab]);
+
+  const commonBase = CATEGORY_COMMON_BASE[activeTab];
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      
-      {/* Notification Toast */}
-      {statusMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-emerald-500 text-zinc-950 font-black px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-2 border-2 border-emerald-300 animate-slideUp">
-          <CheckCircle2 className="w-5 h-5 text-zinc-950 shrink-0" />
-          <span>{statusMessage}</span>
+    <div className="space-y-4 sm:space-y-5 animate-fadeIn">
+      {/* Notification discrète */}
+      {toast && (
+        <div
+          className={`fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2 border text-xs font-bold animate-slideUp ${
+            toast.type === 'error'
+              ? 'bg-rose-950/95 text-rose-100 border-rose-500/60'
+              : 'bg-emerald-500 text-zinc-950 border-emerald-300'
+          }`}
+        >
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-zinc-950 shrink-0" />
+          )}
+          <span>{toast.text}</span>
         </div>
       )}
 
-      {/* En-tête de section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* ==================== EN-TÊTE SOBRE + OUTILS ADMIN ==================== */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
-              Règlements & Formats des Championnats
-            </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-orange-500/20 text-[#FF6D00] border border-orange-500/30">
-              FFT & Bretagne 2027
-            </span>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Consultez et ajustez le nombre de simples, de doubles, les formats de jeu et les ordres de passage pour chaque catégorie.
-            {canEdit && (
-              <strong className="text-orange-400 block mt-0.5">
-                Mode Administrateur : Vous pouvez modifier chaque format sans modifier le code pour les prochaines saisons.
-              </strong>
-            )}
+          <h1 className="text-xl sm:text-2xl font-black font-heading text-white text-balance">
+            Règlements des Championnats
+          </h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            FFT &amp; Bretagne 2027 · Règles communes regroupées et différences par niveau
           </p>
         </div>
 
-        {/* Toolbar Administrateur */}
         {canEdit && (
-          <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-            <label className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-zinc-700 shadow-sm">
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#141820] hover:bg-[#1c222e] text-zinc-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-[#252b37] whitespace-nowrap shrink-0">
               <Upload className="w-3.5 h-3.5 text-sky-400" />
-              <span>Importer JSON</span>
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImportFile}
-                className="hidden"
-              />
+              <span>Importer</span>
+              <input type="file" accept=".json" onChange={handleImportFile} className="hidden" />
             </label>
 
             <button
+              type="button"
               onClick={exportRulesToJson}
-              className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-zinc-700 shadow-sm"
-              title="Exporter les règles au format JSON pour sauvegarde"
+              className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#141820] hover:bg-[#1c222e] text-zinc-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-[#252b37] whitespace-nowrap shrink-0"
+              title="Exporter les règlements au format JSON"
             >
               <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Exporter JSON</span>
+              <span>Exporter</span>
             </button>
 
-            <button
-              onClick={handleResetAll}
-              className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-rose-950/40 text-zinc-300 hover:text-rose-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-zinc-700"
-              title="Rétablir les règles d'origine FFT 2027"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-              <span>Rétablir tout FFT</span>
-            </button>
+            {confirmResetAll ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleConfirmResetAll}
+                  className="min-h-[40px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  Confirmer FFT 2027
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmResetAll(false)}
+                  className="min-h-[40px] px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  Annuler
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmResetAll(true)}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#141820] hover:bg-rose-950/40 text-zinc-300 hover:text-rose-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-[#252b37] whitespace-nowrap shrink-0"
+                title="Rétablir tous les règlements officiels FFT 2027"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
+                <span>Rétablir tout</span>
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Onglets de sous-navigation : Formats vs Guide Officiel */}
-      <div className="flex items-center space-x-2 p-1.5 bg-[#10141c] rounded-2xl border border-zinc-800 w-fit">
+      {/* ==================== BLOC 1 : RÈGLES COMMUNES (DÉPLIABLE EN HAUT) ==================== */}
+      <div className="bg-[#141820] rounded-2xl border border-[#252b37] overflow-hidden">
         <button
-          onClick={() => setActiveSubTab('formats')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
-            activeSubTab === 'formats'
-              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-          }`}
+          type="button"
+          onClick={() => setIsCommonRulesOpen((prev) => !prev)}
+          aria-expanded={isCommonRulesOpen}
+          className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[#191f2a] transition-colors cursor-pointer"
         >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Formats par Championnat ({rules.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('guide')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer ${
-            activeSubTab === 'guide'
-              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Guide &amp; Règles des Rencontres (FFT 2027)</span>
-        </button>
-      </div>
-
-      {/* ==================== VUE 1 : GUIDE COMPLET DES RÈGLES ==================== */}
-      {activeSubTab === 'guide' && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-950/40 via-[#18131c] to-[#0f141f] border border-orange-500/30 text-xs flex items-start gap-3">
-            <BookOpen className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#1b2230] border border-[#2b3446] flex items-center justify-center text-orange-400 shrink-0">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
               <h2 className="font-heading font-black text-white text-sm sm:text-base">
-                Directives &amp; Règlements Officiels des Rencontres par Équipes (FFT 2027)
+                Règles communes à tous les championnats
               </h2>
-              <p className="text-zinc-300 leading-relaxed text-xs">
-                Ce guide rassemble toutes les règles officielles régissant le déroulement des championnats par équipes (Comité du Morbihan &amp; Ligue de Bretagne).
-                Toute non-conformité constatée sur une feuille de match déclenche une <strong>bulle de rappel</strong> dans la fiche de rencontre.
+              <p className="text-[11px] sm:text-xs text-zinc-400 truncate mt-0.5">
+                Classement gelé · Hiérarchie simples · Brûlage (2 matchs) · W.O. 15 min · Feuille Ten&apos;Up
               </p>
             </div>
           </div>
 
-          {/* Section 1 : Ordre des parties & Déroulement */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 font-black">
-                  1
-                </div>
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Ordre Officiel des Matchs &amp; Déroulement sur 2 Courts
+          <div className="flex items-center gap-1.5 text-xs font-bold text-orange-400 shrink-0 whitespace-nowrap">
+            <span className="hidden sm:inline">{isCommonRulesOpen ? 'Masquer' : 'Consulter'}</span>
+            {isCommonRulesOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </div>
+        </button>
+
+        {isCommonRulesOpen && (
+          <div className="px-4 pb-4 pt-3 border-t border-[#212733] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            {COMMON_RULES_SECTIONS.map((sec) => (
+              <div
+                key={sec.title}
+                className="p-3.5 rounded-xl bg-[#0e1118] border border-[#1f2532] space-y-1"
+              >
+                <h3 className="font-heading font-bold text-zinc-100 text-xs sm:text-sm">
+                  {sec.title}
                 </h3>
-              </div>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-zinc-800 text-zinc-300 border border-zinc-700">
-                Organisation
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-orange-400 tracking-wider">
-                  Rotation 1 (Horaire officiel)
-                </span>
-                <p className="font-bold text-white">Simples N°4 et N°2</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Sur 2 courts, la rencontre débute impérativement par les simples 4 et 2 (ou 3 et 2 pour 3 simples). Début précis à l'horaire de convocation (09h00 ou 14h00).
+                <p className="text-[11px] sm:text-xs text-zinc-400 leading-relaxed">
+                  {sec.summary}
                 </p>
               </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-sky-400 tracking-wider">
-                  Rotation 2 (Estimée +90 min)
-                </span>
-                <p className="font-bold text-white">Simples N°3 et N°1</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Dès libération d'un court par la 1ère rotation, entrée en lice des simples 3 et 1 (le leader de l'équipe).
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider">
-                  Rotation 3 (Épreuves de Doubles)
-                </span>
-                <p className="font-bold text-white">Double 1 et Double 2</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Les doubles se jouent après achèvement des simples. <strong>30 minutes de repos minimum garanti</strong> pour tout joueur ayant disputé un simple.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-[11px] text-amber-200 flex items-start space-x-2">
-              <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <strong className="text-amber-100">Règle de Permutation d'Accord Mutuel : </strong>
-                Les capitaines peuvent convenir d'intervertir l'ordre des parties directement dans la fiche de match (via les flèches ▲ et ▼), notamment en cas de contrainte horaire ou d'accord préalable entre clubs.
-              </div>
-            </div>
+            ))}
           </div>
-
-          {/* Section 2 : Hiérarchie des Simples & Classements Gelés */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 font-black">
-                  2
-                </div>
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Hiérarchie des Simples &amp; Classements Officiellement Gelés
-                </h3>
-              </div>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                Règle Stricte FFT
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2">
-                <div className="flex items-center gap-1.5 text-orange-400 font-black text-[11px] uppercase">
-                  <Shield className="w-3.5 h-3.5" />
-                  <span>Ordre de Force Obligatoire</span>
-                </div>
-                <p className="text-zinc-300 text-[11px] leading-relaxed">
-                  Le joueur ayant le <strong>meilleur classement officiel</strong> doit impérativement figurer en Simple 1, le deuxième en Simple 2, etc.
-                  <br />
-                  À classement identique (ex: deux 15/4), le capitaine est libre de positionner les joueurs dans l'ordre de son choix.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2">
-                <div className="flex items-center gap-1.5 text-blue-400 font-black text-[11px] uppercase">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>Classement de Blocage FFT</span>
-                </div>
-                <p className="text-zinc-300 text-[11px] leading-relaxed">
-                  Le classement pris en compte pour toute la durée du championnat est celui <strong>en vigueur au premier mardi du mois de lancement de l'épreuve</strong>.
-                  <br />
-                  Une éventuelle montée ou descente lors des calculs mensuels intermédiaires n'impacte pas l'ordre figé pour cette phase.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3 : Règle du Poids des Doubles */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 font-black">
-                  3
-                </div>
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Règle Impérative du Poids des Doubles (Régionale &amp; PR)
-                </h3>
-              </div>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                Poids D1 ≤ Poids D2
-              </span>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-2 text-xs">
-              <p className="text-zinc-300 text-[11px] leading-relaxed">
-                En division Régionale et Pré-Régionale, la somme des barèmes de classement de la paire N°1 doit être <strong>inférieure ou égale</strong> à celle de la paire N°2 (les classements les plus forts ayant les plus petits barèmes : ex. 15/1 = 15 pts, 30 = 24 pts, NC = 40 pts).
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px]">
-                <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-purple-200">
-                  <strong>Paire Double 1 :</strong> Total des points P1 + P2 doit être <strong>égal ou plus fort</strong> que Double 2.
-                </div>
-                <div className="p-2.5 rounded-xl bg-sky-950/20 border border-sky-500/30 text-sky-200">
-                  <strong>Bris d'égalité :</strong> Si les deux paires ont le même poids total, le joueur au <strong>meilleur classement individuel</strong> doit obligatoirement être dans le Double 1.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4 : Qualification & Brûlage des joueurs */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black">
-                  4
-                </div>
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Qualification, Licences &amp; Règle du Brûlage (Équipes N-1)
-                </h3>
-              </div>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                Circulation Joueurs
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">
-                  Licence FFT 2027
-                </span>
-                <p className="font-bold text-white">Licence Club Validée</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Le joueur doit être titulaire de la licence FFT 2027 validée au TCM (ou mutation autorisée) avec statut certificat médical / attestation QS en règle.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider">
-                  Brûlage Équipe Supérieure
-                </span>
-                <p className="font-bold text-white">2 Rencontres Max</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Un joueur ayant disputé <strong>2 rencontres</strong> dans une équipe supérieure (ex: TCM 1) ne peut plus redescendre en équipe inférieure (ex: TCM 2) pour la même saison.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">
-                  Même Journée
-                </span>
-                <p className="font-bold text-white">1 Seule Équipe / Week-end</p>
-                <p className="text-zinc-400 text-[11px] leading-relaxed">
-                  Il est formellement interdit de disputer deux rencontres dans deux équipes différentes au cours du même week-end ou de la même journée de championnat.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 5 : Horaires, Retards, Forfaits et Feuille numérique */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-[#141820] border border-[#252b37] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 font-black">
-                  5
-                </div>
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Horaires, Retards (W.O. à 15 min), Balles &amp; Signature
-                </h3>
-              </div>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300 border border-sky-500/40">
-                Logistique
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">
-                  Forfait pour Retard (W.O.)
-                </span>
-                <p className="text-zinc-300 text-[11px] leading-relaxed">
-                  Tout joueur non présent sur le terrain <strong>15 minutes après l'appel de sa partie</strong> est déclaré forfait (W.O.) pour le match en question.
-                  En cas d'intempéries ou d'imprévu, le capitaine doit impérativement joindre le capitaine adverse avant l'horaire.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-[#0d1016] border border-zinc-800 space-y-1.5">
-                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">
-                  Balles &amp; Feuille Ten'Up
-                </span>
-                <p className="text-zinc-300 text-[11px] leading-relaxed">
-                  Le club recevant fournit les boîtes de balles neuves homologuées FFT. À l'issue des matchs, les deux capitaines vérifient et signent électroniquement la feuille de match dans Ten'Up avant le dimanche soir 20h00.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== VUE 2 : LISTE DES FORMATS PAR CHAMPIONNAT ==================== */}
-      {activeSubTab === 'formats' && (
-        <>
-          {/* Barre de recherche et filtres */}
-          <div className="bg-[#141820] p-4 rounded-2xl border border-[#252b37] space-y-3 text-xs">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="search"
-              inputMode="search"
-              enterKeyHint="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher par titre, division, format, simples..."
-              className="w-full min-h-[44px] bg-[#0d1016] border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-base sm:text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
-            {/* Filtre Catégorie */}
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
-            >
-              <option value="all">Toutes catégories</option>
-              <option value="seniors">Seniors</option>
-              <option value="seniors_plus">Seniors+ (+35, +45...)</option>
-              <option value="jeunes">Jeunes (Galaxie & 11-18)</option>
-            </select>
-
-            {/* Filtre Sexe */}
-            <select
-              value={filterSexe}
-              onChange={(e) => setFilterSexe(e.target.value)}
-              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
-            >
-              <option value="all">Tous sexes</option>
-              <option value="H">Messieurs</option>
-              <option value="F">Dames</option>
-            </select>
-
-            {/* Filtre Niveau */}
-            <select
-              value={filterLevel}
-              onChange={(e) => setFilterLevel(e.target.value)}
-              className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d1016] border border-zinc-800 text-white text-base sm:text-xs focus:border-[#FF6D00] outline-none cursor-pointer"
-            >
-              <option value="all">Tous niveaux</option>
-              <option value="Régional">Régional & PR</option>
-              <option value="Départemental">Départemental</option>
-              <option value="Galaxie">Galaxie</option>
-            </select>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Grille des formats de championnats */}
-      {filteredRules.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {filteredRules.map((r) => {
-            const isFemme = r.sexe === 'Dames';
-            const isRegional = r.level === 'Régional';
-            const isJeunes = r.categoryAge.toLowerCase().includes('jeune') || r.categoryAge.toLowerCase().includes('10');
+      {/* ==================== SÉLECTEUR PRINCIPAL : HOMMES / FEMMES / JEUNES ==================== */}
+      <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-[#10141c] rounded-2xl border border-[#252b37]">
+        <button
+          type="button"
+          onClick={() => setActiveTab('hommes')}
+          className={`min-h-[44px] px-3 py-2 rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
+            activeTab === 'hommes'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-950/50'
+              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <span>Hommes</span>
+        </button>
 
-            const cardHeaderBorder = isFemme 
-              ? 'border-pink-500/40 bg-[#1f1022]' 
-              : isRegional
-                ? 'border-orange-500/40 bg-[#1f1610]'
-                : isJeunes
-                  ? 'border-emerald-500/40 bg-[#101f18]'
-                  : 'border-blue-500/40 bg-[#101822]';
+        <button
+          type="button"
+          onClick={() => setActiveTab('femmes')}
+          className={`min-h-[44px] px-3 py-2 rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
+            activeTab === 'femmes'
+              ? 'bg-pink-600 text-white shadow-md shadow-pink-950/50'
+              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <span>Femmes</span>
+        </button>
 
-            return (
-              <div
-                key={r.id}
-                className="bg-[#141820] rounded-3xl border border-[#252b37] overflow-hidden flex flex-col justify-between shadow-lg hover:border-zinc-700 transition"
+        <button
+          type="button"
+          onClick={() => setActiveTab('jeunes')}
+          className={`min-h-[44px] px-3 py-2 rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap ${
+            activeTab === 'jeunes'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
+              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <span>Jeunes</span>
+        </button>
+      </div>
+
+      {/* ==================== SOCLE COMMUN PROPRE À LA CATÉGORIE ==================== */}
+      <div className="px-4 py-3 rounded-2xl bg-[#11151e] border border-[#222836] text-xs space-y-1">
+        <span className="font-bold text-zinc-200 block">{commonBase.title}</span>
+        <p className="text-[11px] sm:text-xs text-zinc-400 leading-relaxed">{commonBase.points}</p>
+      </div>
+
+      {/* ==================== LIGNES COMPACTES PAR NIVEAU (DIFFÉRENCES UNIQUEMENT) ==================== */}
+      <div className="space-y-2.5">
+        {levelGroups.map((group) => {
+          const primaryRule = group.rules[0];
+          if (!primaryRule) return null;
+
+          const isExpanded = Boolean(expandedKeys[group.key]);
+          const hasAnyCustomized = group.rules.some((r) => r.isCustomized);
+          const thirdSetStr = getThirdSetSummary(primaryRule.singlesGameFormat);
+          const pointsStr = getPointsShortLabel(primaryRule);
+          const doubleDetail =
+            primaryRule.numDoubles === 2
+              ? '2 Doubles'
+              : primaryRule.numDoubles === 1 && primaryRule.pointsSystem.includes('(2 pt')
+                ? '1 Double (2 pts)'
+                : `${primaryRule.numDoubles} Double${primaryRule.numDoubles > 1 ? 's' : ''}`;
+
+          return (
+            <div
+              key={group.key}
+              className="bg-[#141820] rounded-2xl border border-[#252b37] overflow-hidden transition-colors"
+            >
+              {/* En-tête cliquable de la ligne de niveau */}
+              <button
+                type="button"
+                onClick={() => toggleExpand(group.key)}
+                aria-expanded={isExpanded}
+                className="w-full min-h-[64px] px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#191f2a] transition-colors cursor-pointer"
               >
-                {/* En-tête de carte */}
-                <div className={`p-4 border-b ${cardHeaderBorder}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                          r.level === 'Régional'
-                            ? 'bg-orange-500/20 text-[#FF6D00] border border-orange-500/40'
-                            : r.level === 'Galaxie'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                        }`}>
-                          {r.level}
-                        </span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-white text-sm sm:text-base">
+                      {group.label}
+                    </h3>
+                    {hasAnyCustomized && (
+                      <span className="text-[11px] font-bold text-amber-400">
+                        · Personnalisé
+                      </span>
+                    )}
+                  </div>
 
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                          r.sexe === 'Dames'
-                            ? 'bg-pink-500/20 text-pink-300 border border-pink-500/40'
-                            : r.sexe === 'Messieurs'
-                              ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                              : 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-                        }`}>
-                          {r.sexe}
-                        </span>
-
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/40 text-zinc-300 border border-zinc-700">
-                          {r.categoryAge}
-                        </span>
-
-                        {r.isCustomized && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3 text-amber-400" />
-                            Personnalisé
-                          </span>
-                        )}
-                      </div>
-
-                      <h3 className="font-heading font-black text-white text-base">
-                        {r.title}
-                      </h3>
-                      <p className="text-[11px] text-zinc-400">
-                        Division : <strong className="text-zinc-200">{r.division}</strong>
-                      </p>
-                    </div>
-
-                    <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-black/50 text-orange-300 border border-orange-500/30 shrink-0">
-                      📅 {r.expectedDay}
+                  {/* Différences clés uniquement (sans capsules) */}
+                  <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs text-zinc-300">
+                    <span className="font-semibold text-orange-300 tabular-nums">
+                      {primaryRule.numSingles} Simple{primaryRule.numSingles > 1 ? 's' : ''}
                     </span>
+                    <span className="text-zinc-600" aria-hidden="true">·</span>
+                    <span className="font-semibold text-zinc-200 tabular-nums">{doubleDetail}</span>
+                    <span className="text-zinc-600" aria-hidden="true">·</span>
+                    <span className="text-zinc-300">{thirdSetStr}</span>
+                    {primaryRule.doubleWeightStrict && (
+                      <>
+                        <span className="text-zinc-600" aria-hidden="true">·</span>
+                        <span className="text-amber-300 font-semibold">Poids D1 ≤ D2</span>
+                      </>
+                    )}
+                    <span className="text-zinc-600" aria-hidden="true">·</span>
+                    <span className="text-zinc-400 tabular-nums">{pointsStr}</span>
                   </div>
                 </div>
 
-                {/* Corps de carte */}
-                <div className="p-4 space-y-3.5 text-xs">
-                  
-                  {/* Grille Simples / Doubles */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    
-                    {/* Bloc Simples */}
-                    <div className="p-3 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-orange-400 tracking-wider">
-                          Épreuve de Simples
-                        </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-orange-500/15 text-[#FF6D00] border border-orange-500/30 font-black font-mono text-xs">
-                          {r.numSingles} Simples
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-300 leading-tight">
-                        {r.singlesGameFormat}
-                      </p>
-                    </div>
-
-                    {/* Bloc Doubles */}
-                    <div className="p-3 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider">
-                          Épreuve de Doubles
-                        </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30 font-black font-mono text-xs">
-                          {r.numDoubles} Double{r.numDoubles > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-300 leading-tight">
-                        {r.doublesGameFormat}
-                      </p>
-                      {r.doubleWeightStrict && (
-                        <p className="text-[10px] font-bold text-amber-300 flex items-center gap-1 pt-0.5">
-                          <span>⚖️ Règle Poids D1 ≥ D2 obligatoire</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Logistique, Déroulement & Points */}
-                  <div className="bg-[#0e121a] p-3 rounded-2xl border border-zinc-800/80 space-y-2 text-[11px]">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-zinc-400 flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-zinc-500" />
-                        <span>Composition d'équipe :</span>
-                        <strong className="text-white">{r.minPlayers} à {r.maxPlayers} joueurs</strong>
-                      </span>
-                      <span className="text-zinc-300 font-bold bg-black/40 px-2 py-0.5 rounded border border-zinc-800">
-                        {r.pointsSystem}
-                      </span>
-                    </div>
-
-                    <div className="pt-1.5 border-t border-zinc-800/60">
-                      <span className="text-zinc-400 block text-[10px] uppercase font-bold">Ordre officiel des parties :</span>
-                      <p className="text-zinc-200 mt-0.5 font-medium">{r.orderOfPlay}</p>
-                    </div>
-
-                    {r.notes && (
-                      <div className="pt-1.5 border-t border-zinc-800/60 text-zinc-400 text-[10px] italic">
-                        📌 {r.notes}
-                      </div>
-                    )}
-
-                    {r.updatedAt && (
-                      <p className="text-[9px] text-zinc-500 text-right">
-                        Modifié le {r.updatedAt}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Pied de carte avec actions Admin */}
-                <div className="p-3 bg-[#0d1016] border-t border-zinc-800/80 flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-zinc-500">
-                    ID : <code className="font-mono">{r.id}</code>
+                {/* Synthèse numérique alignée à droite + chevron */}
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-mono font-black text-xs sm:text-sm text-zinc-200 tabular-nums whitespace-nowrap">
+                    {primaryRule.numSingles}S + {primaryRule.numDoubles}D
                   </span>
-
-                  {canEdit ? (
-                    <div className="flex items-center space-x-2">
-                      {r.isCustomized && (
-                        <button
-                          onClick={() => handleResetSingle(r.id)}
-                          className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                          title="Rétablir ce championnat aux règles officielles FFT 2027"
-                        >
-                          <RotateCcw className="w-3 h-3 text-rose-400" />
-                          <span>Rétablir</span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => setSelectedRuleToEdit(r)}
-                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Modifier ce format</span>
-                      </button>
-                    </div>
+                  {isExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-zinc-400" />
                   ) : (
-                    <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      <span>Règlement officiel en vigueur</span>
-                    </span>
+                    <ChevronDown className="w-4 h-4 text-zinc-400" />
                   )}
                 </div>
+              </button>
 
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="p-12 text-center bg-[#141820] rounded-3xl border border-[#252b37] max-w-md mx-auto">
-          <Scale className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
-          <h3 className="font-heading font-black text-white text-base">Aucun règlement trouvé</h3>
-          <p className="text-xs text-zinc-400 mt-1">
-            Aucun championnat ne correspond à votre recherche.
-          </p>
-        </div>
-      )}
-      </>
-      )}
+              {/* Détails dépliés au clic */}
+              {isExpanded && (
+                <div className="px-4 pb-4 pt-3 border-t border-[#212733] space-y-3 text-xs">
+                  <p className="text-[11px] text-zinc-400">{group.subtitle}</p>
+
+                  {/* Précisions de format Simples / Doubles */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="p-3 rounded-xl bg-[#0e1118] border border-[#1f2532] space-y-1">
+                      <span className="text-[11px] font-bold text-orange-400 block">
+                        Format des simples ({primaryRule.numSingles})
+                      </span>
+                      <p className="text-zinc-300 text-xs leading-relaxed">
+                        {primaryRule.singlesGameFormat}
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#0e1118] border border-[#1f2532] space-y-1">
+                      <span className="text-[11px] font-bold text-purple-300 block">
+                        Format des doubles ({primaryRule.numDoubles})
+                      </span>
+                      <p className="text-zinc-300 text-xs leading-relaxed">
+                        {primaryRule.doublesGameFormat}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Ordre des parties, effectif et points */}
+                  <div className="p-3 rounded-xl bg-[#0e1118] border border-[#1f2532] space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap text-zinc-300">
+                      <span className="flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-zinc-500" />
+                        <span>
+                          Équipe : <strong className="text-white tabular-nums">{primaryRule.minPlayers} à {primaryRule.maxPlayers} joueurs</strong>
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-zinc-500" />
+                        <strong className="text-white">{primaryRule.expectedDay}</strong>
+                      </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#1c222e] space-y-1">
+                      <span className="text-[11px] font-bold text-zinc-400 block">
+                        Ordre officiel des parties
+                      </span>
+                      <p className="text-zinc-200 leading-relaxed">{primaryRule.orderOfPlay}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-[#1c222e] space-y-1">
+                      <span className="text-[11px] font-bold text-zinc-400 block">
+                        Décompte des points
+                      </span>
+                      <p className="text-zinc-300">{primaryRule.pointsSystem}</p>
+                    </div>
+
+                    {primaryRule.notes && (
+                      <p className="pt-2 border-t border-[#1c222e] text-[11px] text-zinc-400 leading-relaxed">
+                        {primaryRule.notes}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Boutons discrets de modification pour Bureau / Admin */}
+                  {canEdit ? (
+                    <div className="pt-1 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {group.rules.map((r) => {
+                          const shortEditName =
+                            r.id === 'seniors_regional'
+                              ? 'Régional'
+                              : r.id === 'seniors_preregionale'
+                                ? 'Pré-Régionale'
+                                : r.division.includes('Division 2')
+                                  ? 'D2'
+                                  : r.division.includes('Division 3')
+                                    ? 'D3'
+                                    : null;
+
+                          return (
+                            <div key={r.id} className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedRuleToEdit(r)}
+                                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#1a202c] hover:bg-[#232b3b] text-zinc-200 hover:text-white border border-[#2d3648] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-orange-400" />
+                                <span>
+                                  {group.isCombined && shortEditName
+                                    ? `Modifier ${shortEditName}`
+                                    : 'Modifier ce format'}
+                                </span>
+                              </button>
+
+                              {r.isCustomized && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetSingle(r.id)}
+                                  className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-rose-300 border border-zinc-800 text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                                  title="Rétablir aux valeurs FFT 2027"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-rose-400" />
+                                  <span>Rétablir</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {primaryRule.updatedAt && (
+                        <span className="text-[11px] text-zinc-500">
+                          Modifié le {primaryRule.updatedAt}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 pt-1">
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Règlement officiel FFT en vigueur</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {levelGroups.length === 0 && (
+          <div className="p-10 text-center bg-[#141820] rounded-2xl border border-[#252b37]">
+            <Scale className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+            <p className="text-sm font-bold text-white">Aucun règlement configuré</p>
+          </div>
+        )}
+      </div>
 
       {/* Modale d'édition d'une règle (Admin / Bureau) */}
       {selectedRuleToEdit && (
@@ -742,7 +687,6 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({
           onReset={handleResetSingle}
         />
       )}
-
     </div>
   );
 };
