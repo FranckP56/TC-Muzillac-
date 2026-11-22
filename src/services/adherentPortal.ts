@@ -1,6 +1,54 @@
 import { APPS_SCRIPT_WEB_APP_URL } from './googleSheets';
 import { AdherentSession } from '../types/tennis';
 
+const ADHERENT_SESSION_STORAGE_KEY = 'tcm_adherent_session_v1';
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours
+
+export function saveStoredAdherentSession(session: AdherentSession): void {
+  try {
+    const payload = JSON.stringify(session);
+    if (session.rememberDevice !== false) {
+      localStorage.setItem(ADHERENT_SESSION_STORAGE_KEY, payload);
+      sessionStorage.removeItem(ADHERENT_SESSION_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(ADHERENT_SESSION_STORAGE_KEY, payload);
+      localStorage.removeItem(ADHERENT_SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // Ignorer si stockage bloqué
+  }
+}
+
+export function loadStoredAdherentSession(): AdherentSession | null {
+  try {
+    const raw =
+      localStorage.getItem(ADHERENT_SESSION_STORAGE_KEY) ||
+      sessionStorage.getItem(ADHERENT_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AdherentSession;
+    if (!parsed || !parsed.sessionToken || !parsed.verifiedLicence) {
+      clearStoredAdherentSession();
+      return null;
+    }
+    if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+      clearStoredAdherentSession();
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearStoredAdherentSession(): void {
+  try {
+    localStorage.removeItem(ADHERENT_SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(ADHERENT_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignorer
+  }
+}
+
 export function normalizeLicenceKey(raw: string): string {
   return String(raw || '')
     .trim()
@@ -202,6 +250,12 @@ export async function verifyAdherentOtp(
     };
   }
 
+  const verifiedAt = Date.now();
+  const expiresAt =
+    typeof res.data.expiresAt === 'number' && res.data.expiresAt > verifiedAt
+      ? res.data.expiresAt
+      : verifiedAt + SESSION_DURATION_MS;
+
   return {
     success: true,
     session: {
@@ -210,9 +264,32 @@ export async function verifyAdherentOtp(
       verifiedEmail,
       maskedEmail: String(res.data.maskedEmail || verifiedEmail),
       familyLicences,
-      verifiedAt: Date.now(),
+      verifiedAt,
+      expiresAt,
+      rememberDevice: true,
     },
   };
+}
+
+/**
+ * Révoque le jeton de session côté Google Apps Script lors de la déconnexion manuelle.
+ */
+export async function logoutAdherentSessionRemote(
+  sessionToken: string,
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<void> {
+  if (!sessionToken) return;
+  try {
+    await postAppsScriptJson(
+      {
+        action: 'logoutAdherentSession',
+        sessionToken,
+      },
+      appsScriptUrl
+    );
+  } catch {
+    // Déconnexion locale déjà garantie
+  }
 }
 
 export interface UpdateMinorParentResult {

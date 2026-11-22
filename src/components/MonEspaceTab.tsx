@@ -28,6 +28,7 @@ import {
 import { Adherent, AdherentSession, ClubInfo, Rencontre } from '../types/tennis';
 import {
   licencesMatch,
+  logoutAdherentSessionRemote,
   normalizeEmailKey,
   normalizeLicenceKey,
   requestAdherentOtp,
@@ -92,6 +93,7 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
   const [otpCode, setOtpCode] = useState<string>('');
   const [maskedEmail, setMaskedEmail] = useState<string>('');
   const [cooldownSec, setCooldownSec] = useState<number>(0);
+  const [rememberDevice, setRememberDevice] = useState<boolean>(true);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
@@ -422,7 +424,10 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
         setAuthError(res.error || 'Code de vérification invalide ou expiré.');
         return;
       }
-      onSessionChange(res.session);
+      onSessionChange({
+        ...res.session,
+        rememberDevice,
+      });
       setSelectedLicence(res.session.verifiedLicence);
       setActiveSubTab('fiche');
     } finally {
@@ -431,6 +436,9 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
   };
 
   const handleLogout = () => {
+    if (session?.sessionToken) {
+      void logoutAdherentSessionRemote(session.sessionToken, gasUrl);
+    }
     onSessionChange(null);
     setOtpStep('licence');
     setOtpCode('');
@@ -608,6 +616,18 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
                   />
                 </div>
 
+                <label className="min-h-[44px] flex items-center gap-3 px-3.5 py-2 rounded-2xl bg-[#0b0e14] border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberDevice}
+                    onChange={(e) => setRememberDevice(e.target.checked)}
+                    className="w-4 h-4 accent-[#FF6D00] rounded cursor-pointer shrink-0"
+                  />
+                  <span className="text-xs text-zinc-300 leading-snug">
+                    Rester connecté sur cet appareil <span className="text-zinc-500">(30 jours)</span>
+                  </span>
+                </label>
+
                 {authError && (
                   <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2.5">
                     <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
@@ -692,6 +712,18 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
                     className="w-full min-h-[54px] bg-[#0b0e14] border border-zinc-700 focus:border-[#FF6D00] rounded-2xl px-4 py-3 text-white font-mono tabular-nums text-center text-2xl tracking-[0.4em] outline-none transition"
                   />
                 </div>
+
+                <label className="min-h-[44px] flex items-center gap-3 px-3.5 py-2 rounded-2xl bg-[#0b0e14] border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberDevice}
+                    onChange={(e) => setRememberDevice(e.target.checked)}
+                    className="w-4 h-4 accent-[#FF6D00] rounded cursor-pointer shrink-0"
+                  />
+                  <span className="text-xs text-zinc-300 leading-snug">
+                    Rester connecté sur cet appareil <span className="text-zinc-500">(30 jours)</span>
+                  </span>
+                </label>
 
                 {authError && (
                   <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2.5">
@@ -801,9 +833,12 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
       <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-5 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1 min-w-0">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-emerald-400">
               <ShieldCheck className="w-4 h-4 shrink-0" />
               <span>Espace vérifié · {session.maskedEmail}</span>
+              <span className="text-zinc-500 font-medium">
+                · {session.rememberDevice !== false ? 'Appareil mémorisé (30 j)' : 'Session temporaire'}
+              </span>
             </div>
             <h1 className="font-heading font-black text-white text-xl sm:text-2xl tracking-tight truncate">
               {activeProfile.nomPrenom}

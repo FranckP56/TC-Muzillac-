@@ -45,6 +45,11 @@ import {
   saveLocalComposition
 } from './services/googleSheets';
 import { Adherent, AdherentSession, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
+import {
+  clearStoredAdherentSession,
+  loadStoredAdherentSession,
+  saveStoredAdherentSession,
+} from './services/adherentPortal';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc, cleanRanking, isValidTennisRanking } from './utils/ranking';
@@ -114,7 +119,18 @@ export default function App() {
     }
   };
 
-  const [adherentSession, setAdherentSession] = useState<AdherentSession | null>(null);
+  const [adherentSession, setAdherentSession] = useState<AdherentSession | null>(() =>
+    loadStoredAdherentSession()
+  );
+
+  const handleAdherentSessionChange = useCallback((nextSession: AdherentSession | null) => {
+    setAdherentSession(nextSession);
+    if (nextSession) {
+      saveStoredAdherentSession(nextSession);
+    } else {
+      clearStoredAdherentSession();
+    }
+  }, []);
 
   const handleUpdateRole = (newRole: UserRole) => {
     setUserRole(newRole);
@@ -821,7 +837,7 @@ export default function App() {
             saison={saison}
             gasUrl={gasUrl}
             session={adherentSession}
-            onSessionChange={setAdherentSession}
+            onSessionChange={handleAdherentSessionChange}
             onUpdateMinorParentLocal={handleUpdateMinorParentLocal}
             onRefreshData={() => handleLoadFromRealFile(false)}
             isLoadingData={isLoadingFile}

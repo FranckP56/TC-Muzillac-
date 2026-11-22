@@ -95,6 +95,8 @@ function doPost(e) {
       return handleVerifyAdherentOtp(json);
     } else if (action === 'updateMinorParent') {
       return handleUpdateMinorParent(json);
+    } else if (action === 'logoutAdherentSession') {
+      return handleLogoutAdherentSession(json);
     } else {
       return createJsonResponse({ success: false, error: 'Action inconnue : ' + action });
     }
@@ -777,15 +779,26 @@ function handleVerifyAdherentOtp(payload) {
     familyLicences.unshift(canonicalLic);
   }
 
+  var PORTAL_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  var now = Date.now();
+  var expiresAt = now + PORTAL_SESSION_TTL_MS;
   var sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid().slice(0, 8);
   var sessionData = {
     verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     familyLicences: familyLicences,
-    createdAt: Date.now()
+    createdAt: now,
+    expiresAt: expiresAt
   };
+  var sessionJson = JSON.stringify(sessionData);
 
-  cache.put('tcm_adh_sess_' + sessionToken, JSON.stringify(sessionData), 7200);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    pruneExpiredPortalSessions(props);
+    props.setProperty('tcm_sess_' + sessionToken, sessionJson);
+  } catch (e) {}
+
+  cache.put('tcm_adh_sess_' + sessionToken, sessionJson, 21600);
 
   return createJsonResponse({
     success: true,
@@ -793,8 +806,47 @@ function handleVerifyAdherentOtp(payload) {
     verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     maskedEmail: maskPortalEmail(record.email),
-    familyLicences: familyLicences
+    familyLicences: familyLicences,
+    expiresAt: expiresAt
   });
+}
+
+function pruneExpiredPortalSessions(props) {
+  try {
+    var keys = props.getKeys();
+    var now = Date.now();
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k.indexOf('tcm_sess_') !== 0) continue;
+      var raw = props.getProperty(k);
+      if (!raw) {
+        props.deleteProperty(k);
+        continue;
+      }
+      try {
+        var parsed = JSON.parse(raw);
+        if (!parsed || (parsed.expiresAt && now > Number(parsed.expiresAt))) {
+          props.deleteProperty(k);
+        }
+      } catch (err) {
+        props.deleteProperty(k);
+      }
+    }
+  } catch (e) {}
+}
+
+function handleLogoutAdherentSession(payload) {
+  var sessionToken = String((payload && payload.sessionToken) || '').trim();
+  if (!sessionToken) {
+    return createJsonResponse({ success: true });
+  }
+  try {
+    PropertiesService.getScriptProperties().deleteProperty('tcm_sess_' + sessionToken);
+  } catch (e) {}
+  try {
+    CacheService.getScriptCache().remove('tcm_adh_sess_' + sessionToken);
+  } catch (e) {}
+  return createJsonResponse({ success: true });
 }
 
 function handleUpdateMinorParent(payload) {
@@ -812,8 +864,17 @@ function handleUpdateMinorParent(payload) {
     return createJsonResponse({ success: false, error: 'Numéro de licence ou nom du parent manquant.' });
   }
 
+  var rawSession = null;
+  var props = null;
+  try {
+    props = PropertiesService.getScriptProperties();
+    rawSession = props.getProperty('tcm_sess_' + sessionToken);
+  } catch (e) {}
+
   var cache = CacheService.getScriptCache();
-  var rawSession = cache.get('tcm_adh_sess_' + sessionToken);
+  if (!rawSession) {
+    rawSession = cache.get('tcm_adh_sess_' + sessionToken);
+  }
   if (!rawSession) {
     return createJsonResponse({ success: false, error: 'Votre session a expiré. Veuillez vous reconnecter.' });
   }
@@ -823,6 +884,12 @@ function handleUpdateMinorParent(payload) {
     session = JSON.parse(rawSession);
   } catch (e) {
     return createJsonResponse({ success: false, error: 'Session invalide.' });
+  }
+
+  if (session && session.expiresAt && Date.now() > Number(session.expiresAt)) {
+    try { if (props) props.deleteProperty('tcm_sess_' + sessionToken); } catch (e) {}
+    try { cache.remove('tcm_adh_sess_' + sessionToken); } catch (e) {}
+    return createJsonResponse({ success: false, error: 'Votre session a expiré. Veuillez vous reconnecter.' });
   }
 
   var allowed = Array.isArray(session.familyLicences) ? session.familyLicences : [];

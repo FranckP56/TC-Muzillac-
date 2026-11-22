@@ -273,6 +273,8 @@ export interface AdherentSession {
   maskedEmail: string;
   familyLicences: string[];
   verifiedAt: number;
+  expiresAt?: number;
+  rememberDevice?: boolean;
 }
 
 export type TrocCategorie =

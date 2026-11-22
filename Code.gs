@@ -71,6 +71,8 @@ function doPost(e) {
       result = verifyAdherentOtp(payload);
     } else if (action === 'updateMinorParent') {
       result = updateMinorParent(payload);
+    } else if (action === 'logoutAdherentSession') {
+      result = logoutAdherentSession(payload);
     } else {
       result = { success: false, error: 'Action inconnue : ' + action };
     }
@@ -1408,15 +1410,26 @@ function verifyAdherentOtp(payload) {
     familyLicences.unshift(canonicalLic);
   }
 
+  const PORTAL_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const expiresAt = now + PORTAL_SESSION_TTL_MS;
   const sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid().slice(0, 8);
   const sessionData = {
     verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     familyLicences: familyLicences,
-    createdAt: Date.now()
+    createdAt: now,
+    expiresAt: expiresAt
   };
+  const sessionJson = JSON.stringify(sessionData);
 
-  cache.put('tcm_adh_sess_' + sessionToken, JSON.stringify(sessionData), 7200);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    pruneExpiredPortalSessions(props);
+    props.setProperty('tcm_sess_' + sessionToken, sessionJson);
+  } catch (e) {}
+
+  cache.put('tcm_adh_sess_' + sessionToken, sessionJson, 21600);
 
   return {
     success: true,
@@ -1424,8 +1437,47 @@ function verifyAdherentOtp(payload) {
     verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     maskedEmail: maskPortalEmail(record.email),
-    familyLicences: familyLicences
+    familyLicences: familyLicences,
+    expiresAt: expiresAt
   };
+}
+
+function pruneExpiredPortalSessions(props) {
+  try {
+    const keys = props.getKeys();
+    const now = Date.now();
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k.indexOf('tcm_sess_') !== 0) continue;
+      const raw = props.getProperty(k);
+      if (!raw) {
+        props.deleteProperty(k);
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || (parsed.expiresAt && now > Number(parsed.expiresAt))) {
+          props.deleteProperty(k);
+        }
+      } catch (err) {
+        props.deleteProperty(k);
+      }
+    }
+  } catch (e) {}
+}
+
+function logoutAdherentSession(payload) {
+  const sessionToken = String((payload && payload.sessionToken) || '').trim();
+  if (!sessionToken) {
+    return { success: true };
+  }
+  try {
+    PropertiesService.getScriptProperties().deleteProperty('tcm_sess_' + sessionToken);
+  } catch (e) {}
+  try {
+    CacheService.getScriptCache().remove('tcm_adh_sess_' + sessionToken);
+  } catch (e) {}
+  return { success: true };
 }
 
 function updateMinorParent(payload) {
@@ -1443,8 +1495,17 @@ function updateMinorParent(payload) {
     return { success: false, error: "Numéro de licence ou nom du parent manquant." };
   }
 
+  let rawSession = null;
+  let props = null;
+  try {
+    props = PropertiesService.getScriptProperties();
+    rawSession = props.getProperty('tcm_sess_' + sessionToken);
+  } catch (e) {}
+
   const cache = CacheService.getScriptCache();
-  const rawSession = cache.get('tcm_adh_sess_' + sessionToken);
+  if (!rawSession) {
+    rawSession = cache.get('tcm_adh_sess_' + sessionToken);
+  }
   if (!rawSession) {
     return { success: false, error: "Votre session a expiré. Veuillez vous reconnecter." };
   }
@@ -1454,6 +1515,12 @@ function updateMinorParent(payload) {
     session = JSON.parse(rawSession);
   } catch (e) {
     return { success: false, error: "Session invalide." };
+  }
+
+  if (session && session.expiresAt && Date.now() > Number(session.expiresAt)) {
+    try { if (props) props.deleteProperty('tcm_sess_' + sessionToken); } catch (e) {}
+    try { cache.remove('tcm_adh_sess_' + sessionToken); } catch (e) {}
+    return { success: false, error: "Votre session a expiré. Veuillez vous reconnecter." };
   }
 
   const allowed = Array.isArray(session.familyLicences) ? session.familyLicences : [];
