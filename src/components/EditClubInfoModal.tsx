@@ -238,15 +238,61 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
     }));
   };
 
-  const handleImageUpload = (field: 'logoUrl' | 'signatureUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressClubImage = (file: File, maxWidth = 350, maxHeight = 350, quality = 0.82): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(ev.target?.result as string);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const png = canvas.toDataURL('image/png');
+          if (png.length < 32000) {
+            resolve(png);
+          } else {
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          }
+        };
+        img.onerror = () => resolve(ev.target?.result as string);
+        img.src = ev.target?.result as string;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (field: 'logoUrl' | 'signatureUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setFormData(prev => ({ ...prev, [field]: base64 }));
-    };
-    reader.readAsDataURL(file);
+    const compressed = await compressClubImage(
+      file,
+      350,
+      field === 'signatureUrl' ? 200 : 350,
+      field === 'signatureUrl' ? 0.85 : 0.82
+    );
+    if (compressed) {
+      setFormData(prev => ({ ...prev, [field]: compressed }));
+    }
   };
 
   const handleSave = () => {
@@ -1230,13 +1276,18 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
 
               {/* Images officielles pour attestations et documents */}
               <div className="sm:col-span-2 pt-2 border-t border-zinc-800 space-y-3">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Visuels & Certifications (Logo, Signature, Tampon)
-                </h4>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Visuels & Certifications partagés (onglet Club_Info / Club_infos)
+                  </h4>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Le logo, le tampon et la signature du Président sont enregistrés dans le Google Sheet pour les attestations. (Les Secrétaires et Trésoriers peuvent enregistrer leur propre signature en local depuis la fenêtre Attestation.)
+                  </p>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="text-[10px] text-zinc-400 block mb-1">Logo du Club</label>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Logo du Club (GSheet)</label>
                     <div className="flex items-center gap-2">
                       <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
                         <Upload className="w-3.5 h-3.5 text-orange-400" />
@@ -1244,13 +1295,23 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('logoUrl', e)} />
                       </label>
                       {formData.logoUrl && (
-                        <img src={formData.logoUrl} alt="Logo" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                        <div className="flex items-center gap-1 bg-white rounded-lg px-1 py-0.5 border border-zinc-700">
+                          <img src={formData.logoUrl} alt="Logo" className="w-7 h-7 object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, logoUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer le logo"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[10px] text-zinc-400 block mb-1">Signature officielle</label>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Signature du Président (GSheet)</label>
                     <div className="flex items-center gap-2">
                       <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
                         <Upload className="w-3.5 h-3.5 text-orange-400" />
@@ -1258,13 +1319,23 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('signatureUrl', e)} />
                       </label>
                       {formData.signatureUrl && (
-                        <img src={formData.signatureUrl} alt="Signature" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                        <div className="flex items-center gap-1 bg-white rounded-lg px-1 py-0.5 border border-zinc-700">
+                          <img src={formData.signatureUrl} alt="Signature Président" className="h-7 max-w-[60px] object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, signatureUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer la signature"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[10px] text-zinc-400 block mb-1">Cachet / Tampon du Club</label>
+                    <label className="text-[10px] text-zinc-400 block mb-1">Cachet / Tampon du Club (GSheet)</label>
                     <div className="flex items-center gap-2">
                       <label className="flex-1 cursor-pointer bg-[#171b23] hover:bg-zinc-800 border border-zinc-700 rounded-xl px-2.5 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
                         <Upload className="w-3.5 h-3.5 text-orange-400" />
@@ -1272,7 +1343,17 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload('tamponUrl', e)} />
                       </label>
                       {formData.tamponUrl && (
-                        <img src={formData.tamponUrl} alt="Tampon" className="w-8 h-8 rounded object-contain bg-white/10 p-0.5 border border-zinc-700" />
+                        <div className="flex items-center gap-1 bg-white rounded-lg px-1 py-0.5 border border-zinc-700">
+                          <img src={formData.tamponUrl} alt="Tampon" className="w-7 h-7 object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, tamponUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer le tampon"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

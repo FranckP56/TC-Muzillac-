@@ -3808,20 +3808,17 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       {detailGoSportOffre && typeof document !== 'undefined' && createPortal(
         (() => {
           const offre = detailGoSportOffre;
-          const detailSlotLabels = getGoSportPhotoSlotLabels(offre.categorie);
-          const detailPhotoList: Array<{ key: string; url: string; label: string }> = [];
+          const detailPhotoList: Array<{ key: string; url: string }> = [];
           if (offre.photoUrl && !goSportBrokenPhotos[`${offre.id}:1`]) {
             detailPhotoList.push({
               key: `${offre.id}:1`,
               url: offre.photoUrl,
-              label: detailSlotLabels.slot1,
             });
           }
           if (offre.photoUrl2 && !goSportBrokenPhotos[`${offre.id}:2`]) {
             detailPhotoList.push({
               key: `${offre.id}:2`,
               url: offre.photoUrl2,
-              label: detailSlotLabels.slot2,
             });
           }
           const safePhotoIdx =
@@ -3895,124 +3892,92 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   </button>
                 </div>
 
-                {/* Galerie multi-angles tactile + miniatures */}
-                <div className="space-y-2">
-                  <div
-                    onTouchStart={(e) => {
-                      detailTouchStartXRef.current = e.touches[0]?.clientX ?? null;
-                    }}
-                    onTouchEnd={(e) => {
-                      if (detailPhotoList.length <= 1 || detailTouchStartXRef.current === null) return;
-                      const endX = e.changedTouches[0]?.clientX;
-                      if (typeof endX === 'number') {
-                        const dx = endX - detailTouchStartXRef.current;
-                        if (Math.abs(dx) > 40) {
-                          setDetailPhotoIndex((prev) =>
-                            dx < 0
-                              ? (prev + 1) % detailPhotoList.length
-                              : (prev - 1 + detailPhotoList.length) % detailPhotoList.length
-                          );
-                        }
+                {/* Galerie photo tactile avec flèches et indicateur 1/2 - 2/2 */}
+                <div
+                  onTouchStart={(e) => {
+                    detailTouchStartXRef.current = e.touches[0]?.clientX ?? null;
+                  }}
+                  onTouchEnd={(e) => {
+                    if (detailPhotoList.length <= 1 || detailTouchStartXRef.current === null) return;
+                    const endX = e.changedTouches[0]?.clientX;
+                    if (typeof endX === 'number') {
+                      const dx = endX - detailTouchStartXRef.current;
+                      if (Math.abs(dx) > 40) {
+                        setDetailPhotoIndex((prev) =>
+                          dx < 0
+                            ? (prev + 1) % detailPhotoList.length
+                            : (prev - 1 + detailPhotoList.length) % detailPhotoList.length
+                        );
                       }
-                      detailTouchStartXRef.current = null;
-                    }}
-                    className="relative h-56 sm:h-60 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden"
-                  >
-                    {activeDetailPhoto ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setLightboxPhoto({
-                              photos: detailPhotoList.map((p) => p.url),
-                              index: safePhotoIdx,
-                              titre: offre.nomProduit,
-                            })
+                    }
+                    detailTouchStartXRef.current = null;
+                  }}
+                  className="relative h-56 sm:h-60 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden"
+                >
+                  {activeDetailPhoto ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLightboxPhoto({
+                            photos: detailPhotoList.map((p) => p.url),
+                            index: safePhotoIdx,
+                            titre: offre.nomProduit,
+                          })
+                        }
+                        className="w-full h-full block cursor-zoom-in"
+                        title="Agrandir la photo"
+                      >
+                        <img
+                          src={activeDetailPhoto.url}
+                          alt={offre.nomProduit}
+                          referrerPolicy="no-referrer"
+                          onError={() =>
+                            setGoSportBrokenPhotos((prev) => ({
+                              ...prev,
+                              [activeDetailPhoto.key]: true,
+                            }))
                           }
-                          className="w-full h-full block cursor-zoom-in"
-                          title="Agrandir la photo"
-                        >
-                          <img
-                            src={activeDetailPhoto.url}
-                            alt={`${offre.nomProduit} - ${activeDetailPhoto.label}`}
-                            referrerPolicy="no-referrer"
-                            onError={() =>
-                              setGoSportBrokenPhotos((prev) => ({
-                                ...prev,
-                                [activeDetailPhoto.key]: true,
-                              }))
-                            }
-                            className="w-full h-full object-contain p-2 bg-white"
-                          />
-                        </button>
+                          className="w-full h-full object-contain p-2 bg-white"
+                        />
+                      </button>
 
-                        {detailPhotoList.length > 1 && (
-                          <>
-                            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/75 border border-white/15 text-white text-[10px] font-bold pointer-events-none">
-                              {activeDetailPhoto.label}
-                            </span>
-                            <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/75 border border-white/15 text-zinc-200 text-[10px] font-mono font-bold pointer-events-none">
-                              {safePhotoIdx + 1}/{detailPhotoList.length}
-                            </span>
-                            <button
-                              type="button"
-                              aria-label="Vue précédente"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDetailPhotoIndex(
-                                  (safePhotoIdx - 1 + detailPhotoList.length) % detailPhotoList.length
-                                );
-                              }}
-                              className="min-w-[38px] min-h-[38px] absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
-                            >
-                              <ChevronLeft className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Vue suivante"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDetailPhotoIndex((safePhotoIdx + 1) % detailPhotoList.length);
-                              }}
-                              className="min-w-[38px] min-h-[38px] absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
-                            >
-                              <ChevronRight className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
-                        <ShoppingBag className="w-10 h-10 opacity-40" />
-                        <span className="text-xs font-semibold">Visuel produit indisponible</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {detailPhotoList.length > 1 && (
-                    <div className="grid grid-cols-2 gap-2">
-                      {detailPhotoList.map((item, idx) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          onClick={() => setDetailPhotoIndex(idx)}
-                          className={`flex items-center gap-2 p-1.5 rounded-xl border text-left transition cursor-pointer ${
-                            idx === safePhotoIdx
-                              ? 'bg-orange-500/15 border-[#FF6D00] text-white'
-                              : 'bg-[#0b0e14] border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                          }`}
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-white overflow-hidden shrink-0 border border-zinc-700">
-                            <img
-                              src={item.url}
-                              alt={item.label}
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-contain p-0.5"
-                            />
-                          </div>
-                          <span className="text-[11px] font-bold truncate">{item.label}</span>
-                        </button>
-                      ))}
+                      {detailPhotoList.length > 1 && (
+                        <>
+                          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/75 border border-white/15 text-zinc-200 text-[10px] font-mono font-bold pointer-events-none">
+                            {safePhotoIdx + 1}/{detailPhotoList.length}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label="Vue précédente"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailPhotoIndex(
+                                (safePhotoIdx - 1 + detailPhotoList.length) % detailPhotoList.length
+                              );
+                            }}
+                            className="min-w-[38px] min-h-[38px] absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Vue suivante"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDetailPhotoIndex((safePhotoIdx + 1) % detailPhotoList.length);
+                            }}
+                            className="min-w-[38px] min-h-[38px] absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
+                      <ShoppingBag className="w-10 h-10 opacity-40" />
+                      <span className="text-xs font-semibold">Visuel produit indisponible</span>
                     </div>
                   )}
                 </div>

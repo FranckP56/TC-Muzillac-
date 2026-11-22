@@ -277,8 +277,9 @@ export default function App() {
     try {
       const activeUrl = gasUrl || TCM_APPS_SCRIPT_URL;
 
-      // Requête directe sans cache vers le Web App Apps Script
-      const data = await fetchAllDataFromAppsScript(activeUrl);
+      // Requête directe sans cache vers le Web App Apps Script (avec fallback Club_Info / Club_infos)
+      const token = await getAccessToken().catch(() => null);
+      const data = await fetchAllDataFromAppsScript(activeUrl, selectedSpreadsheetId, token);
 
       if (data.success && ((data.adherents && data.adherents.length > 0) || (data.rencontres && data.rencontres.length > 0))) {
         // 1. Mise à jour des Adhérents réels
@@ -325,19 +326,30 @@ export default function App() {
             if (data.tarifs && data.tarifs.length > 0) {
               updated.tarifs = data.tarifs;
             }
-            // Conserver également l'adresse réelle ou les coordonnées locales personnalisées si le Sheet n'a pas encore l'onglet Club_Info
+            // Conserver les valeurs locales uniquement pour les champs non renseignés dans l'onglet Club_Info / Club_infos
             const localCustom = loadClubInfoFromLocal();
             if (localCustom) {
-              if (localCustom.adresse && (!data.clubInfo || !data.clubInfo.adresse)) updated.adresse = localCustom.adresse;
-              if (localCustom.telephone && (!data.clubInfo || !data.clubInfo.telephone)) updated.telephone = localCustom.telephone;
-              if (localCustom.email && (!data.clubInfo || !data.clubInfo.email)) updated.email = localCustom.email;
-              if (localCustom.siteWeb && (!data.clubInfo || !data.clubInfo.siteWeb)) updated.siteWeb = localCustom.siteWeb;
-              if (localCustom.permanencePedagogiqueLibelle && (!data.clubInfo || !data.clubInfo.permanencePedagogiqueLibelle)) updated.permanencePedagogiqueLibelle = localCustom.permanencePedagogiqueLibelle;
-              if (localCustom.permanencePedagogiqueVisible !== undefined && (!data.clubInfo || data.clubInfo.permanencePedagogiqueVisible === undefined)) updated.permanencePedagogiqueVisible = localCustom.permanencePedagogiqueVisible;
-              if (localCustom.horairesPermanence && (!data.clubInfo || !data.clubInfo.horairesPermanence)) updated.horairesPermanence = localCustom.horairesPermanence;
-              if (localCustom.badgeAccesMessage && (!data.clubInfo || !data.clubInfo.badgeAccesMessage)) updated.badgeAccesMessage = localCustom.badgeAccesMessage;
-              if (localCustom.ouvertureCourtsMessage && (!data.clubInfo || !data.clubInfo.ouvertureCourtsMessage)) updated.ouvertureCourtsMessage = localCustom.ouvertureCourtsMessage;
-              if (localCustom.badgeAccesVisible !== undefined && (!data.clubInfo || data.clubInfo.badgeAccesVisible === undefined)) updated.badgeAccesVisible = localCustom.badgeAccesVisible;
+              if (localCustom.adresse && !data.clubInfo?.adresse) updated.adresse = localCustom.adresse;
+              if (localCustom.codePostal && !data.clubInfo?.codePostal) updated.codePostal = localCustom.codePostal;
+              if (localCustom.ville && !data.clubInfo?.ville) updated.ville = localCustom.ville;
+              if (localCustom.codeClub && !data.clubInfo?.codeClub) updated.codeClub = localCustom.codeClub;
+              if (localCustom.telephone && !data.clubInfo?.telephone) updated.telephone = localCustom.telephone;
+              if (localCustom.email && !data.clubInfo?.email) updated.email = localCustom.email;
+              if (localCustom.siteWeb && !data.clubInfo?.siteWeb) updated.siteWeb = localCustom.siteWeb;
+              if (localCustom.permanencePedagogiqueLibelle && !data.clubInfo?.permanencePedagogiqueLibelle) updated.permanencePedagogiqueLibelle = localCustom.permanencePedagogiqueLibelle;
+              if (localCustom.permanencePedagogiqueVisible !== undefined && data.clubInfo?.permanencePedagogiqueVisible === undefined) updated.permanencePedagogiqueVisible = localCustom.permanencePedagogiqueVisible;
+              if (localCustom.horairesPermanence && !data.clubInfo?.horairesPermanence) updated.horairesPermanence = localCustom.horairesPermanence;
+              if (localCustom.badgeAccesMessage && !data.clubInfo?.badgeAccesMessage) updated.badgeAccesMessage = localCustom.badgeAccesMessage;
+              if (localCustom.ouvertureCourtsMessage && !data.clubInfo?.ouvertureCourtsMessage) updated.ouvertureCourtsMessage = localCustom.ouvertureCourtsMessage;
+              if (localCustom.badgeAccesVisible !== undefined && data.clubInfo?.badgeAccesVisible === undefined) updated.badgeAccesVisible = localCustom.badgeAccesVisible;
+              if (localCustom.logoUrl && !data.clubInfo?.logoUrl) updated.logoUrl = localCustom.logoUrl;
+              if (localCustom.signatureUrl && !data.clubInfo?.signatureUrl) updated.signatureUrl = localCustom.signatureUrl;
+              if (localCustom.tamponUrl && !data.clubInfo?.tamponUrl) updated.tamponUrl = localCustom.tamponUrl;
+              if (localCustom.rna && !data.clubInfo?.rna) updated.rna = localCustom.rna;
+              if (localCustom.siret && !data.clubInfo?.siret) updated.siret = localCustom.siret;
+              if (localCustom.signataireNom && !data.clubInfo?.signataireNom) updated.signataireNom = localCustom.signataireNom;
+              if (localCustom.signataireFonction && !data.clubInfo?.signataireFonction) updated.signataireFonction = localCustom.signataireFonction;
+              if (localCustom.ribIban && !data.clubInfo?.ribIban) updated.ribIban = localCustom.ribIban;
             }
             return sanitizeLoadedTarifs(updated);
           });
@@ -370,7 +382,7 @@ export default function App() {
     } finally {
       setIsLoadingFile(false);
     }
-  }, [gasUrl, adherents.length, rencontres.length]);
+  }, [gasUrl, selectedSpreadsheetId, adherents.length, rencontres.length]);
 
   // Chargement systématique au montage + relecture automatique quand la fenêtre reprend le focus
   useEffect(() => {
@@ -402,7 +414,8 @@ export default function App() {
 
     try {
       const trimmedUrl = url.trim() || TCM_APPS_SCRIPT_URL;
-      const data = await fetchAllDataFromAppsScript(trimmedUrl);
+      const token = await getAccessToken().catch(() => null);
+      const data = await fetchAllDataFromAppsScript(trimmedUrl, selectedSpreadsheetId, token);
 
       try {
         localStorage.setItem('tcm_gas_url', trimmedUrl);
@@ -421,6 +434,16 @@ export default function App() {
         setRencontres(data.rencontres);
       } else {
         setRencontres([]);
+      }
+
+      if (data.clubInfo || data.bureau || data.installations || data.tarifs) {
+        setClubInfo(prev => {
+          const updated = { ...prev };
+          if (data.clubInfo) Object.assign(updated, data.clubInfo);
+          if (data.installations && data.installations.length > 0) updated.installations = data.installations;
+          if (data.tarifs && data.tarifs.length > 0) updated.tarifs = data.tarifs;
+          return sanitizeLoadedTarifs(updated);
+        });
       }
 
       const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });

@@ -47,7 +47,8 @@ function doGet(e) {
         installations: getSheetRawValues('Installations'),
         tarifs: getSheetRawValues('Cotisations_Tarifs'),
         troc: getSheetRawValues('Troc_Annonces'),
-        gosport: getSheetRawValues('Partenaire_GOSport')
+        gosport: getSheetRawValues('Partenaire_GOSport'),
+        clubInfo: getClubInfoSheetValues()
       };
     } else if (action === 'getAdherents' || action === 'adherents') {
       result = { success: true, data: getSheetRawValues('Adhérents') };
@@ -57,6 +58,8 @@ function doGet(e) {
       result = { success: true, data: getSheetRawValues('Troc_Annonces') };
     } else if (action === 'getGoSport' || action === 'gosport') {
       result = { success: true, data: getSheetRawValues('Partenaire_GOSport') };
+    } else if (action === 'getClubInfo' || action === 'clubinfo') {
+      result = { success: true, data: getClubInfoSheetValues() };
     } else {
       result = { success: false, error: "Action inconnue : " + action };
     }
@@ -102,6 +105,22 @@ function createJsonResponse(obj) {
 function getSheetRawValues(sheetName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  return sheet.getDataRange().getValues();
+}
+
+function getClubInfoSheet(ss) {
+  var names = ['Club_Info', 'Club_infos', 'Club_Infos'];
+  for (var i = 0; i < names.length; i++) {
+    var s = ss.getSheetByName(names[i]);
+    if (s) return s;
+  }
+  return null;
+}
+
+function getClubInfoSheetValues() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = getClubInfoSheet(ss);
   if (!sheet) return [];
   return sheet.getDataRange().getValues();
 }
@@ -227,8 +246,8 @@ function handleSaveClubInfo(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var info = payload.clubInfo || payload || {};
 
-  // 1. Mise à jour ou création de l'onglet Club_Info
-  var cSheet = ss.getSheetByName('Club_Info');
+  // 1. Mise à jour ou création de l'onglet Club_Info / Club_infos
+  var cSheet = getClubInfoSheet(ss);
   if (!cSheet) {
     cSheet = ss.insertSheet('Club_Info');
     cSheet.setTabColor('#0284C7');

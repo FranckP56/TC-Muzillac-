@@ -16,6 +16,7 @@ export const BUREAU_PROFS_SHEET_TITLE = 'Bureau_Profs';
 export const INSTALLATIONS_SHEET_TITLE = 'Installations';
 export const COTISATIONS_SHEET_TITLE = 'Cotisations_Tarifs';
 export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
+export const CLUB_INFO_SHEET_ALIASES = ['Club_Info', 'Club_infos', 'Club_Infos'];
 export const TROC_SHEET_TITLE = 'Troc_Annonces';
 export const GOSPORT_SHEET_TITLE = 'Partenaire_GOSport';
 
@@ -558,44 +559,56 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
       const row = rawClubInfo[i];
       if (!Array.isArray(row) || row.length < 2) continue;
       const key = String(row[0] || '').trim().toLowerCase();
-      const val = String(row[1] || '').trim();
-      if (!key || key === 'paramètre' || key === 'clé' || key === 'cle' || key === 'propriété') continue;
+      const normKey = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const val = String(row[1] ?? '').trim();
+      if (!normKey || normKey === 'parametre' || normKey === 'cle' || normKey === 'propriete' || normKey === 'param') continue;
 
-      if (key.includes('adress') || key.includes('adresse')) result.adresse = val;
-      else if (key.includes('nom du club') || key === 'nom') result.nom = val;
-      else if (key === 'telephone' || key === 'tel' || key === 'téléphone' || key.includes('téléphone club')) result.telephone = formatFrenchPhoneNumber(val);
-      else if (key === 'email' || key === 'mail' || key.includes('courriel')) result.email = val;
-      else if (key.includes('site') || key.includes('web')) result.siteWeb = val;
-      else if (key.includes('helloasso')) result.helloAssoUrl = val;
-      else if (key.includes('modalite') || key.includes('paiement')) result.modalitesPaiement = val;
-      else if (key.includes('code postal') || key === 'cp') result.codePostal = val;
-      else if (key.includes('ville')) result.ville = val;
-      else if (key.includes('sigle')) result.sigle = val;
-      else if (key.includes('ligue')) result.ligue = val;
-      else if (key.includes('comité') || key.includes('comite')) result.comite = val;
-      else if (key.includes('libellé permanence') || key.includes('titre permanence')) result.permanencePedagogiqueLibelle = val;
-      else if (key.includes('permanence visible') || key.includes('afficher permanence')) result.permanencePedagogiqueVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
-      else if (key.includes('permanence') || key.includes('horaire')) result.horairesPermanence = val;
-      else if (key.includes('badge') && (key.includes('message') || key.includes('texte') || key.includes('accès') || key.includes('acces'))) result.badgeAccesMessage = val;
-      else if (key.includes('badge visible') || key.includes('afficher badge')) result.badgeAccesVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
-      else if (key.includes('ouverture') || key.includes('7/7') || key.includes('7j/7') || key.includes('court ouvert')) result.ouvertureCourtsMessage = val;
-      else if (key.includes('president') && (key.includes('tel') || key.includes('portable'))) result.presidentTelephone = formatFrenchPhoneNumber(val);
-      else if (key.includes('president') && key.includes('mail')) result.presidentEmail = val;
-      else if (key.includes('president') || key.includes('président')) result.president = val;
-      else if (key.includes('secretaire') && (key.includes('tel') || key.includes('portable'))) result.secretaireTelephone = formatFrenchPhoneNumber(val);
-      else if (key.includes('secretaire') && key.includes('mail')) result.secretaireEmail = val;
-      else if (key.includes('secretaire') || key.includes('secrétaire')) result.secretaire = val;
-      else if (key.includes('tresorier') && (key.includes('tel') || key.includes('portable'))) result.tresorierTelephone = formatFrenchPhoneNumber(val);
-      else if (key.includes('tresorier') && key.includes('mail')) result.tresorierEmail = val;
-      else if (key.includes('tresorier') || key.includes('trésorier')) result.tresorier = val;
-      else if (key.includes('logo')) result.logoUrl = val;
-      else if (key.includes('signature')) result.signatureUrl = val;
-      else if (key.includes('tampon') || key.includes('cachet')) result.tamponUrl = val;
-      else if (key.includes('siret')) result.siret = val;
-      else if (key.includes('rna')) result.rna = val;
-      else if (key.includes('signataire') && key.includes('fonction')) result.signataireFonction = val;
-      else if (key.includes('signataire')) result.signataireNom = val;
-      else if (key.includes('rib') || key.includes('iban')) result.ribIban = val;
+      if (normKey.includes('permanence visible') || normKey.includes('afficher permanence')) {
+        result.permanencePedagogiqueVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+        continue;
+      }
+      if (normKey.includes('badge visible') || normKey.includes('afficher badge')) {
+        result.badgeAccesVisible = !val.toLowerCase().includes('non') && !val.toLowerCase().includes('faux') && val !== 'false';
+        continue;
+      }
+
+      if (!val) continue;
+
+      // Priorité aux visuels & champs administratifs officiels pour éviter toute collision avec "président" (ex: "Signature du Président")
+      if (normKey.includes('logo')) result.logoUrl = val;
+      else if (normKey.includes('tampon') || normKey.includes('cachet')) result.tamponUrl = val;
+      else if (normKey.includes('signature')) result.signatureUrl = val;
+      else if (normKey.includes('signataire') && normKey.includes('fonction')) result.signataireFonction = val;
+      else if (normKey.includes('signataire')) result.signataireNom = val;
+      else if (normKey.includes('siret')) result.siret = val;
+      else if (normKey.includes('rna')) result.rna = val;
+      else if (normKey.includes('rib') || normKey.includes('iban')) result.ribIban = val;
+      else if (normKey.includes('code club') || normKey === 'codeclub' || normKey.includes('affiliation fft')) result.codeClub = val;
+      else if (normKey.includes('president') && (normKey.includes('tel') || normKey.includes('portable'))) result.presidentTelephone = formatFrenchPhoneNumber(val);
+      else if (normKey.includes('president') && normKey.includes('mail')) result.presidentEmail = val;
+      else if (normKey === 'president' || normKey.includes('nom president')) result.president = val;
+      else if (normKey.includes('secretaire') && (normKey.includes('tel') || normKey.includes('portable'))) result.secretaireTelephone = formatFrenchPhoneNumber(val);
+      else if (normKey.includes('secretaire') && normKey.includes('mail')) result.secretaireEmail = val;
+      else if (normKey === 'secretaire' || normKey.includes('nom secretaire')) result.secretaire = val;
+      else if (normKey.includes('tresorier') && (normKey.includes('tel') || normKey.includes('portable'))) result.tresorierTelephone = formatFrenchPhoneNumber(val);
+      else if (normKey.includes('tresorier') && normKey.includes('mail')) result.tresorierEmail = val;
+      else if (normKey === 'tresorier' || normKey.includes('nom tresorier')) result.tresorier = val;
+      else if (normKey.includes('adress')) result.adresse = val;
+      else if (normKey.includes('nom du club') || normKey === 'nom') result.nom = val;
+      else if (normKey === 'telephone' || normKey === 'tel' || normKey.includes('telephone club')) result.telephone = formatFrenchPhoneNumber(val);
+      else if (normKey === 'email' || normKey === 'mail' || normKey.includes('courriel') || normKey.includes('email club')) result.email = val;
+      else if (normKey.includes('site') || normKey.includes('web')) result.siteWeb = val;
+      else if (normKey.includes('helloasso')) result.helloAssoUrl = val;
+      else if (normKey.includes('modalite') || normKey.includes('paiement')) result.modalitesPaiement = val;
+      else if (normKey.includes('code postal') || normKey === 'cp') result.codePostal = val;
+      else if (normKey.includes('ville')) result.ville = val;
+      else if (normKey.includes('sigle')) result.sigle = val;
+      else if (normKey.includes('ligue')) result.ligue = val;
+      else if (normKey.includes('comite')) result.comite = val;
+      else if (normKey.includes('libelle permanence') || normKey.includes('titre permanence')) result.permanencePedagogiqueLibelle = val;
+      else if (normKey.includes('permanence') || normKey.includes('horaire')) result.horairesPermanence = val;
+      else if (normKey.includes('badge') && (normKey.includes('message') || normKey.includes('texte') || normKey.includes('acces'))) result.badgeAccesMessage = val;
+      else if (normKey.includes('ouverture') || normKey.includes('7/7') || normKey.includes('7j/7') || normKey.includes('court ouvert')) result.ouvertureCourtsMessage = val;
     }
   } else if (typeof rawClubInfo === 'object') {
     if (rawClubInfo.adresse) result.adresse = rawClubInfo.adresse;
@@ -640,10 +653,142 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
 }
 
 /**
+ * Invalide le cache mémoire Apps Script (à appeler après une écriture Club_Info)
+ */
+export function invalidateAppsScriptCache(): void {
+  cachedRawData = null;
+  lastFetchTime = 0;
+}
+
+/**
+ * Parse la réponse texte JSONP Google Visualization (gviz/tq?tqx=out:json&headers=1&sheet=...)
+ * en vérifiant strictement qu'il s'agit bien d'un onglet clé-valeur Club_Info / Club_infos
+ * (Google Sheets renvoie sinon le 1er onglet Adhérents si le nom demandé n'existe pas).
+ */
+function parseClubInfoGvizResponse(rawText: string): Partial<ClubInfo> | undefined {
+  if (!rawText) return undefined;
+  const startIdx = rawText.indexOf('{');
+  const endIdx = rawText.lastIndexOf('}');
+  if (startIdx < 0 || endIdx <= startIdx) return undefined;
+
+  let json: any;
+  try {
+    json = JSON.parse(rawText.slice(startIdx, endIdx + 1));
+  } catch {
+    return undefined;
+  }
+
+  const cols: any[] = json?.table?.cols || [];
+  const rows: any[] = json?.table?.rows || [];
+  // Club_Info / Club_infos est un tableau clé/valeur (2 colonnes, parfois 3). Adhérents en a > 10.
+  if (cols.length < 2 || cols.length > 4 || rows.length === 0) return undefined;
+
+  const col0Label = String(cols[0]?.label || '').toLowerCase();
+  if (col0Label.includes('licence') || col0Label.includes('prénom') || col0Label.includes('prenom')) {
+    return undefined;
+  }
+
+  const pairs: Array<[string, string]> = [];
+  for (const r of rows) {
+    const c = r?.c;
+    if (!Array.isArray(c) || c.length < 2) continue;
+    const k = String(c[0]?.v ?? c[0]?.f ?? '').trim();
+    const v = String(c[1]?.v ?? c[1]?.f ?? '').trim();
+    if (k) pairs.push([k, v]);
+  }
+  if (pairs.length === 0) return undefined;
+
+  const matchedKnownKeys = pairs.filter(([k]) => {
+    const nk = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return (
+      nk.includes('nom du club') ||
+      nk.includes('logo') ||
+      nk.includes('tampon') ||
+      nk.includes('cachet') ||
+      nk.includes('signature') ||
+      nk.includes('siret') ||
+      nk.includes('rna') ||
+      nk.includes('code club') ||
+      nk.includes('signataire')
+    );
+  }).length;
+
+  if (matchedKnownKeys < 2) return undefined;
+  return parseClubInfoData(pairs);
+}
+
+/**
+ * Fallback fiable de lecture de l'onglet Club_Info / Club_infos (Google Sheets API v4 ou gviz)
+ * lorsque le Web App Apps Script déployé ne retourne pas encore l'attribut clubInfo dans action=getAll.
+ */
+export async function fetchClubInfoFallback(
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<Partial<ClubInfo> | undefined> {
+  const sheetId = spreadsheetId || TCM_DEFAULT_SHEET_ID;
+
+  // 1. Google Sheets API directe si un jeton OAuth valide est déjà disponible
+  if (sheetId && accessToken) {
+    for (const alias of CLUB_INFO_SHEET_ALIASES) {
+      try {
+        const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(alias)}?valueRenderOption=UNFORMATTED_VALUE`;
+        const res = await fetch(apiUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const parsed = parseClubInfoData(json?.values || []);
+          if (parsed && Object.keys(parsed).length > 0) {
+            return parsed;
+          }
+        }
+      } catch {
+        // Essayer l'alias suivant
+      }
+    }
+  }
+
+  // 2. Endpoint public Google Visualization (lecture seule, avec &headers=1) via proxy puis direct
+  if (sheetId) {
+    const ts = Date.now();
+    for (const alias of CLUB_INFO_SHEET_ALIASES) {
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&headers=1&sheet=${encodeURIComponent(alias)}&_t=${ts}`;
+      try {
+        const pRes = await fetch(`/api/gas-proxy?url=${encodeURIComponent(gvizUrl)}`);
+        if (pRes.ok) {
+          const text = await pRes.text();
+          const parsed = parseClubInfoGvizResponse(text);
+          if (parsed) return parsed;
+        }
+      } catch {
+        // Fallback direct
+      }
+
+      try {
+        const dRes = await fetch(gvizUrl, { method: 'GET', redirect: 'follow' });
+        if (dRes.ok) {
+          const text = await dRes.text();
+          const parsed = parseClubInfoGvizResponse(text);
+          if (parsed) return parsed;
+        }
+      } catch {
+        // Essayer l'alias suivant
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Récupère l'intégralité des onglets en un seul appel anti-cache vers l'Apps Script
  * et retourne les données déjà typées et prêtes à l'emploi.
  */
-export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promise<AppsScriptDataResult> {
+export async function fetchAllDataFromAppsScript(
+  appsScriptUrl?: string,
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<AppsScriptDataResult> {
   const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
   const now = Date.now();
 
@@ -804,9 +949,12 @@ export async function fetchAllDataFromAppsScript(appsScriptUrl?: string): Promis
   const rawTarifs = rawJson?.tarifs || [];
   const tarifs = parseTarifsRows(rawTarifs);
 
-  // 7. Parser Club Info (s'il provient de l'onglet Club_Info ou de l'objet clubInfo de l'Apps Script)
-  const rawClubInfo = rawJson?.clubInfo || rawJson?.club_info || rawJson?.clubInfoRows;
-  const clubInfo = parseClubInfoData(rawClubInfo);
+  // 7. Parser Club Info (depuis Apps Script si disponible, sinon fallback direct Google Sheets Club_Info / Club_infos)
+  const rawClubInfo = rawJson?.clubInfo || rawJson?.club_info || rawJson?.clubInfos || rawJson?.clubInfoRows;
+  let clubInfo = parseClubInfoData(rawClubInfo);
+  if (!clubInfo) {
+    clubInfo = await fetchClubInfoFallback(spreadsheetId || TCM_DEFAULT_SHEET_ID, accessToken);
+  }
 
   return {
     success: true,
@@ -1111,7 +1259,8 @@ export async function saveClubInfoViaAppsScript(
   clubInfo: ClubInfo,
   appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
 ): Promise<{ success: boolean; savedLocally?: boolean; error?: string }> {
-  // Sauvegarde locale immédiate
+  // Sauvegarde locale immédiate et invalidation du cache mémoire
+  invalidateAppsScriptCache();
   saveClubInfoToLocal(clubInfo);
 
   try {
@@ -1344,7 +1493,7 @@ export async function saveClubInfoToSheet(
         }
       ).catch(e => console.warn("Mise à jour Bureau_Profs:", e));
 
-      // 2. Mise à jour ou création de l'onglet Club_Info si disponible
+      // 2. Mise à jour ou création de l'onglet Club_Info / Club_infos si disponible
       const infoRows = [
         ["Paramètre", "Valeur"],
         ["Nom du Club", clubInfo.nom || "Muzillac Tennis Club"],
@@ -1365,6 +1514,15 @@ export async function saveClubInfoToSheet(
         ["Message Ouverture Courts", clubInfo.ouvertureCourtsMessage || "Courts ouverts 7j/7"],
         ["Afficher Accès Badge", clubInfo.badgeAccesVisible !== false ? "OUI" : "NON"],
         ["Modalités Paiement", clubInfo.modalitesPaiement || ""],
+        ["Président", clubInfo.president || ""],
+        ["Téléphone Président", formatFrenchPhoneNumber(clubInfo.presidentTelephone) || ""],
+        ["Email Président", clubInfo.presidentEmail || ""],
+        ["Secrétaire", clubInfo.secretaire || ""],
+        ["Téléphone Secrétaire", formatFrenchPhoneNumber(clubInfo.secretaireTelephone) || ""],
+        ["Email Secrétaire", clubInfo.secretaireEmail || ""],
+        ["Trésorier", clubInfo.tresorier || ""],
+        ["Téléphone Trésorier", formatFrenchPhoneNumber(clubInfo.tresorierTelephone) || ""],
+        ["Email Trésorier", clubInfo.tresorierEmail || ""],
         ["Logo URL", clubInfo.logoUrl || ""],
         ["Signature URL", clubInfo.signatureUrl || ""],
         ["Tampon Cachet URL", clubInfo.tamponUrl || ""],
@@ -1375,8 +1533,32 @@ export async function saveClubInfoToSheet(
         ["IBAN / RIB", clubInfo.ribIban || ""],
       ];
 
+      let targetClubTab = CLUB_INFO_SHEET_TITLE;
+      try {
+        const tabs = await getSpreadsheetTabs(spreadsheetId, accessToken);
+        const existingTab = CLUB_INFO_SHEET_ALIASES.find(alias =>
+          tabs.some(t => t.toLowerCase() === alias.toLowerCase())
+        );
+        if (existingTab) {
+          targetClubTab = tabs.find(t => t.toLowerCase() === existingTab.toLowerCase()) || existingTab;
+        } else if (tabs.length > 0) {
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [{ addSheet: { properties: { title: CLUB_INFO_SHEET_TITLE } } }],
+            }),
+          });
+        }
+      } catch {
+        // Continuer avec CLUB_INFO_SHEET_TITLE
+      }
+
       await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(CLUB_INFO_SHEET_TITLE)}!A1:B${infoRows.length}?valueInputOption=USER_ENTERED`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(targetClubTab)}!A1:B${infoRows.length}?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
           headers: {
@@ -1386,7 +1568,7 @@ export async function saveClubInfoToSheet(
           body: JSON.stringify({ values: infoRows }),
         }
       ).catch(() => {
-        // L'onglet Club_Info n'existe pas encore sur le GSheet, ignoré sans bloquer
+        // Ignoré sans bloquer si la création/écriture échoue
       });
 
       // 3. Mise à jour ou création de l'onglet Cotisations_Tarifs si disponible

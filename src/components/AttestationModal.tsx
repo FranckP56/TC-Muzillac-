@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -126,8 +126,8 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
 
-  // Formulaire Club_Info (stocké de façon partagée dans l'onglet Club_Info de Données_appli)
-  const [editClub, setEditClub] = useState<ClubInfo>({
+  // Formulaire Club_Info (stocké de façon partagée dans l'onglet Club_Info / Club_infos de Données_appli)
+  const [editClub, setEditClub] = useState<ClubInfo>(() => ({
     ...clubInfo,
     nom: clubInfo.nom || 'Tennis Club de Muzillac',
     codeClub: clubInfo.codeClub || '52 56 0212',
@@ -140,9 +140,29 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     siret: clubInfo.siret || '439 123 456 00012',
     signataireNom: clubInfo.signataireNom || clubInfo.president || 'Raphaël EVAIN',
     signataireFonction: clubInfo.signataireFonction || 'Président',
-  });
+  }));
 
-  // Profil du signataire spécifique à ce poste / appareil (ex: secrétaire, trésorier, etc.)
+  // Synchronisation automatique si clubInfo est actualisé depuis Google Sheets (Club_Info / Club_infos)
+  useEffect(() => {
+    if (!isEditingClubInfo) {
+      setEditClub({
+        ...clubInfo,
+        nom: clubInfo.nom || 'Tennis Club de Muzillac',
+        codeClub: clubInfo.codeClub || '52 56 0212',
+        adresse: clubInfo.adresse || 'Complexe du Clos des Moines, Rue du Stade',
+        codePostal: clubInfo.codePostal || '56190',
+        ville: clubInfo.ville || 'Muzillac',
+        telephone: clubInfo.telephone || '02 97 41 67 80',
+        email: clubInfo.email || 'tennisclubmuzillac@gmail.com',
+        rna: clubInfo.rna || 'W563001859',
+        siret: clubInfo.siret || '439 123 456 00012',
+        signataireNom: clubInfo.signataireNom || clubInfo.president || 'Raphaël EVAIN',
+        signataireFonction: clubInfo.signataireFonction || 'Président',
+      });
+    }
+  }, [clubInfo, isEditingClubInfo]);
+
+  // Profil du signataire local (strictement réservé à cet appareil : Secrétaire, Trésorier, etc.)
   const [localSignataire, setLocalSignataire] = useState<{
     nom: string;
     fonction: string;
@@ -154,7 +174,7 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
       const raw = localStorage.getItem(LOCAL_SIGNATAIRE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && (parsed.nom || parsed.signatureUrl)) {
+        if (parsed && parsed.isCustom !== false && (parsed.nom || parsed.signatureUrl)) {
           return {
             nom: parsed.nom || '',
             fonction: parsed.fonction || 'Secrétaire du TCM',
@@ -168,12 +188,28 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
       // Ignorer
     }
     return {
-      nom: clubInfo.signataireNom || clubInfo.president || 'Raphaël EVAIN',
-      fonction: clubInfo.signataireFonction || 'Président du TCM',
+      nom: clubInfo.secretaire || '',
+      fonction: 'Secrétaire du TCM',
       civilite: 'Je soussigné',
-      signatureUrl: clubInfo.signatureUrl || '',
+      signatureUrl: '',
       isCustom: false,
     };
+  });
+
+  // Mode actif : 'president_gsheet' (données & signature GSheet Club_infos) ou 'local' (Secrétaire / Trésorier en local)
+  const [signataireMode, setSignataireMode] = useState<'president_gsheet' | 'local'>(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_SIGNATAIRE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.active !== false && parsed.isCustom !== false && (parsed.nom || parsed.signatureUrl)) {
+          return 'local';
+        }
+      }
+    } catch {
+      // Ignorer
+    }
+    return 'president_gsheet';
   });
 
   const birthYear = extractBirthYear(adherent.dateNaissance);
@@ -288,37 +324,49 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
   const totalReglementsSaisis = reglements.reduce((acc, r) => acc + (parseFloat(r.montant || '') || 0), 0);
   const hasAnyReglementMontant = reglements.some((r) => (r.montant || '').trim() !== '');
 
-  // Définition du signataire effectif pour le document
-  const effectiveSignataireNom = localSignataire.nom || editClub.signataireNom || editClub.president || 'Raphaël EVAIN';
-  const effectiveSignataireFonction = localSignataire.fonction || editClub.signataireFonction || 'Président du TCM';
-  const effectiveSignataireFormule = localSignataire.civilite || 'Je soussigné';
-  const effectiveSignatureUrl = localSignataire.signatureUrl || editClub.signatureUrl || '';
+  // Définition du signataire effectif pour le document :
+  // - Mode 'president_gsheet' : données et signature du Président issues du Google Sheet (Club_Info / Club_infos)
+  // - Mode 'local' : données et signature personnelles du Secrétaire / Trésorier enregistrées en local uniquement
+  const isUsingLocalSignataire = signataireMode === 'local';
+  const effectiveSignataireNom = isUsingLocalSignataire
+    ? (localSignataire.nom || editClub.secretaire || editClub.signataireNom || editClub.president || 'Signataire TCM')
+    : (editClub.signataireNom || editClub.president || 'Raphaël EVAIN');
+  const effectiveSignataireFonction = isUsingLocalSignataire
+    ? (localSignataire.fonction || 'Secrétaire du TCM')
+    : (editClub.signataireFonction || 'Président du TCM');
+  const effectiveSignataireFormule = isUsingLocalSignataire
+    ? (localSignataire.civilite || 'Je soussigné')
+    : 'Je soussigné';
+  const effectiveSignatureUrl = isUsingLocalSignataire
+    ? (localSignataire.signatureUrl || '')
+    : (editClub.signatureUrl || '');
 
-  // Gestion du téléversement d'image du Club (Logo, Tampon) avec compression automatique
-  const handleFileUpload = async (field: 'logoUrl' | 'tamponUrl', e: React.ChangeEvent<HTMLInputElement>) => {
+  // Gestion du téléversement d'image officielle du Club (Logo, Tampon, Signature du Président -> Google Sheet)
+  const handleFileUpload = async (field: 'logoUrl' | 'tamponUrl' | 'signatureUrl', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const compressed = await compressImageFile(file, 350, 350, 0.82);
+      const compressed = await compressImageFile(file, 350, field === 'signatureUrl' ? 200 : 350, field === 'signatureUrl' ? 0.85 : 0.82);
       setEditClub((prev: ClubInfo) => ({ ...prev, [field]: compressed }));
     } catch (err) {
       console.warn("Erreur compression image club:", err);
     }
   };
 
-  // Téléversement de la signature du signataire local
+  // Téléversement de la signature personnelle du Secrétaire / Trésorier (strictement local)
   const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const compressed = await compressImageFile(file, 350, 200, 0.85);
       setLocalSignataire(prev => ({ ...prev, signatureUrl: compressed, isCustom: true }));
+      setSignataireMode('local');
     } catch (err) {
-      console.warn("Erreur compression signature:", err);
+      console.warn("Erreur compression signature locale:", err);
     }
   };
 
-  // Sauvegarde des données officielles du club dans Club_Info (GSheet Données_appli)
+  // Sauvegarde des données officielles du club (et signature du Président) dans Club_Info / Club_infos (GSheet)
   const handleSaveClubInfo = async () => {
     setIsSaving(true);
     try {
@@ -336,10 +384,13 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     }
   };
 
-  // Sauvegarde du signataire local (spécifique à l'appareil de l'utilisateur)
+  // Sauvegarde du signataire local (Secrétaire / Trésorier uniquement sur cet appareil, jamais dans GSheet)
   const handleSaveLocalSignataire = () => {
+    const payload = { ...localSignataire, isCustom: true, active: true };
     try {
-      localStorage.setItem(LOCAL_SIGNATAIRE_KEY, JSON.stringify(localSignataire));
+      localStorage.setItem(LOCAL_SIGNATAIRE_KEY, JSON.stringify(payload));
+      setLocalSignataire(payload);
+      setSignataireMode('local');
       setSignataireSaveSuccess(true);
       setTimeout(() => setSignataireSaveSuccess(false), 2000);
     } catch (e) {
@@ -347,7 +398,24 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
     }
   };
 
-  // Rétablissement du signataire par défaut (Président Raphaël EVAIN)
+  // Basculer le mode actif (Président GSheet vs profil local enregistré) en conservant le profil local
+  const handleSwitchSignataireMode = (nextMode: 'president_gsheet' | 'local') => {
+    setSignataireMode(nextMode);
+    try {
+      const raw = localStorage.getItem(LOCAL_SIGNATAIRE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        localStorage.setItem(
+          LOCAL_SIGNATAIRE_KEY,
+          JSON.stringify({ ...parsed, active: nextMode === 'local' })
+        );
+      }
+    } catch {
+      // Ignorer
+    }
+  };
+
+  // Suppression du profil local pour revenir à la signature officielle du Président (GSheet)
   const handleResetLocalSignataire = () => {
     try {
       localStorage.removeItem(LOCAL_SIGNATAIRE_KEY);
@@ -355,12 +423,13 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
       // Ignorer
     }
     setLocalSignataire({
-      nom: editClub.president || 'Raphaël EVAIN',
-      fonction: 'Président du TCM',
+      nom: editClub.secretaire || '',
+      fonction: 'Secrétaire du TCM',
       civilite: 'Je soussigné',
-      signatureUrl: editClub.signatureUrl || '',
+      signatureUrl: '',
       isCustom: false,
     });
+    setSignataireMode('president_gsheet');
     setSignataireSaveSuccess(true);
     setTimeout(() => setSignataireSaveSuccess(false), 2000);
   };
@@ -743,11 +812,11 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
               </button>
             </div>
 
-            {/* SECTION 1 : DONNÉES DU CLUB (GOOGLE SHEETS CLUB_INFO) */}
+            {/* SECTION 1 : DONNÉES DU CLUB + SIGNATURE PRÉSIDENT (GOOGLE SHEETS CLUB_INFO / CLUB_INFOS) */}
             {editSection === 'club' && (
               <div className="space-y-3">
                 <div className="p-2.5 bg-orange-500/10 border border-orange-500/25 rounded-xl text-[11px] text-orange-200 leading-snug">
-                  ℹ️ Ces données (RNA, SIRET, logo, tampon) sont <strong>partagées avec tous les membres</strong> et synchronisées directement dans l'onglet <strong>Club_Info</strong> de votre Google Sheet <em>Données_appli</em>.
+                  ℹ️ Ces données (coordonnées, RNA, SIRET, logo, tampon et <strong>signature du Président</strong>) sont <strong>partagées avec tous les membres</strong> et synchronisées dans l'onglet <strong>Club_Info / Club_infos</strong> de votre Google Sheet <em>Données_appli</em>.
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -846,9 +915,29 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Téléversements d'images avec compression automatique pour GSheet */}
                   <div>
-                    <label className="block text-zinc-400 mb-1 font-semibold">Logo officiel du Club</label>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Président / Signataire principal (GSheet)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editClub.signataireNom || editClub.president || ''}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, signataireNom: e.target.value }))}
+                        className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
+                        placeholder="Raphaël EVAIN"
+                      />
+                      <input
+                        type="text"
+                        value={editClub.signataireFonction || 'Président'}
+                        onChange={(e) => setEditClub((prev: ClubInfo) => ({ ...prev, signataireFonction: e.target.value }))}
+                        className="w-1/2 bg-[#10131a] border border-zinc-700 rounded-xl px-2.5 py-2 text-white focus:border-orange-500 outline-none"
+                        placeholder="Président du TCM"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Téléversements d'images officielles (GSheet Club_Info) */}
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Logo officiel du Club (GSheet)</label>
                     <div className="flex items-center gap-2">
                       <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
                         <Upload className="w-3.5 h-3.5 text-orange-400" />
@@ -856,13 +945,23 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('logoUrl', e)} />
                       </label>
                       {editClub.logoUrl && (
-                        <img src={editClub.logoUrl} alt="Logo" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
+                        <div className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-lg border border-zinc-700">
+                          <img src={editClub.logoUrl} alt="Logo" className="w-7 h-7 object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setEditClub((prev: ClubInfo) => ({ ...prev, logoUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer le logo"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-zinc-400 mb-1 font-semibold">Cachet / Tampon officiel du Club</label>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Cachet / Tampon du Club (GSheet)</label>
                     <div className="flex items-center gap-2">
                       <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
                         <Upload className="w-3.5 h-3.5 text-orange-400" />
@@ -870,7 +969,41 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('tamponUrl', e)} />
                       </label>
                       {editClub.tamponUrl && (
-                        <img src={editClub.tamponUrl} alt="Tampon" className="w-8 h-8 rounded object-contain bg-white p-0.5 border border-zinc-700" />
+                        <div className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-lg border border-zinc-700">
+                          <img src={editClub.tamponUrl} alt="Tampon" className="w-7 h-7 object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setEditClub((prev: ClubInfo) => ({ ...prev, tamponUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer le tampon"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Signature du Président (GSheet)</label>
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-3 py-1.5 text-zinc-300 text-xs flex items-center justify-center gap-1.5">
+                        <Upload className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{editClub.signatureUrl ? 'Changer signature' : 'Téléverser signature'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload('signatureUrl', e)} />
+                      </label>
+                      {editClub.signatureUrl && (
+                        <div className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-lg border border-zinc-700">
+                          <img src={editClub.signatureUrl} alt="Signature Président" className="h-7 max-w-[80px] object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => setEditClub((prev: ClubInfo) => ({ ...prev, signatureUrl: '' }))}
+                            className="text-zinc-500 hover:text-rose-500 cursor-pointer"
+                            title="Retirer la signature du Président"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -900,74 +1033,71 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
               </div>
             )}
 
-            {/* SECTION 2 : SIGNATAIRE LOCAL (PRÉSIDENT / SECRÉTAIRE / TRÉSORIER) */}
+            {/* SECTION 2 : SIGNATURE PERSONNELLE EN LOCAL (SECRÉTAIRE / TRÉSORIER) */}
             {editSection === 'signataire' && (
               <div className="space-y-3">
                 <div className="p-2.5 bg-purple-500/10 border border-purple-500/25 rounded-xl text-[11px] text-purple-200 leading-snug">
-                  ✍️ <strong>Signataire habilité du club :</strong> Sélectionnez votre fonction au sein du Bureau (Président, Secrétaire, Trésorier) et ajoutez votre signature. Ce profil reste enregistré <strong>uniquement sur votre appareil</strong>.
+                  ✍️ <strong>Signature personnelle (Secrétaire / Trésorier — locale uniquement) :</strong> Enregistrez votre nom, fonction et signature pour vos propres envois. Ce profil est stocké <strong>strictement en local sur cet appareil</strong> et ne modifie jamais les données ni la signature du Président dans Google Sheets.
                 </div>
 
-                {(editClub.president || editClub.secretaire || editClub.tresorier) && (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-[11px] text-zinc-400 font-semibold">Sélection rapide (Bureau) :</span>
-                    {editClub.president && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setLocalSignataire((prev) => ({
-                            ...prev,
-                            nom: editClub.president,
-                            fonction: 'Président du TCM',
-                            civilite: 'Je soussigné',
-                            isCustom: true,
-                          }))
-                        }
-                        className="px-2.5 py-1 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/35 text-orange-200 font-bold transition cursor-pointer whitespace-nowrap"
-                      >
-                        Président ({editClub.president})
-                      </button>
-                    )}
-                    {editClub.secretaire && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setLocalSignataire((prev) => ({
-                            ...prev,
-                            nom: editClub.secretaire,
-                            fonction: 'Secrétaire du TCM',
-                            isCustom: true,
-                          }))
-                        }
-                        className="px-2.5 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-200 font-bold transition cursor-pointer whitespace-nowrap"
-                      >
-                        Secrétaire ({editClub.secretaire})
-                      </button>
-                    )}
-                    {editClub.tresorier && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setLocalSignataire((prev) => ({
-                            ...prev,
-                            nom: editClub.tresorier,
-                            fonction: 'Trésorier du TCM',
-                            isCustom: true,
-                          }))
-                        }
-                        className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-200 font-bold transition cursor-pointer whitespace-nowrap"
-                      >
-                        Trésorier ({editClub.tresorier})
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[11px] text-zinc-400 font-semibold">Pré-remplir :</span>
+                  {editClub.secretaire && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalSignataire((prev) => ({
+                          ...prev,
+                          nom: editClub.secretaire,
+                          fonction: 'Secrétaire du TCM',
+                          isCustom: true,
+                        }));
+                        setSignataireMode('local');
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-200 font-bold transition cursor-pointer whitespace-nowrap"
+                    >
+                      Secrétaire ({editClub.secretaire})
+                    </button>
+                  )}
+                  {editClub.tresorier && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalSignataire((prev) => ({
+                          ...prev,
+                          nom: editClub.tresorier,
+                          fonction: 'Trésorier du TCM',
+                          isCustom: true,
+                        }));
+                        setSignataireMode('local');
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-200 font-bold transition cursor-pointer whitespace-nowrap"
+                    >
+                      Trésorier ({editClub.tresorier})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchSignataireMode('president_gsheet')}
+                    className={`px-2.5 py-1 rounded-xl border font-bold transition cursor-pointer whitespace-nowrap ${
+                      signataireMode === 'president_gsheet'
+                        ? 'bg-orange-500/25 border-orange-500/50 text-orange-200'
+                        : 'bg-zinc-800/70 hover:bg-zinc-700 border-zinc-700 text-zinc-300'
+                    }`}
+                  >
+                    Utiliser le Président (GSheet : {editClub.signataireNom || editClub.president || 'Président'})
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div>
                     <label className="block text-zinc-400 mb-1 font-semibold">Formule d'accord</label>
                     <select
                       value={localSignataire.civilite}
-                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, civilite: e.target.value as any, isCustom: true }))}
+                      onChange={(e) => {
+                        setLocalSignataire(prev => ({ ...prev, civilite: e.target.value as any, isCustom: true }));
+                        setSignataireMode('local');
+                      }}
                       className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none cursor-pointer"
                     >
                       <option value="Je soussigné">Je soussigné (Masculin)</option>
@@ -976,13 +1106,16 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-zinc-400 mb-1 font-semibold">Nom & Prénom du Signataire</label>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Nom & Prénom (Secrétaire / Trésorier)</label>
                     <input
                       type="text"
                       value={localSignataire.nom}
-                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, nom: e.target.value, isCustom: true }))}
+                      onChange={(e) => {
+                        setLocalSignataire(prev => ({ ...prev, nom: e.target.value, isCustom: true }));
+                        setSignataireMode('local');
+                      }}
                       className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none"
-                      placeholder="Ex: Raphaël EVAIN ou Marie DUPONT"
+                      placeholder="Ex: Marie DUPONT"
                     />
                   </div>
 
@@ -991,28 +1124,31 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                     <input
                       type="text"
                       value={localSignataire.fonction}
-                      onChange={(e) => setLocalSignataire(prev => ({ ...prev, fonction: e.target.value, isCustom: true }))}
+                      onChange={(e) => {
+                        setLocalSignataire(prev => ({ ...prev, fonction: e.target.value, isCustom: true }));
+                        setSignataireMode('local');
+                      }}
                       className="w-full bg-[#10131a] border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-purple-500 outline-none"
-                      placeholder="Ex: Secrétaire du TCM, Présidente, etc."
+                      placeholder="Ex: Secrétaire du TCM, Trésorier..."
                     />
                   </div>
 
                   <div className="sm:col-span-3">
-                    <label className="block text-zinc-400 mb-1 font-semibold">Signature du signataire (image)</label>
+                    <label className="block text-zinc-400 mb-1 font-semibold">Ma signature personnelle (stockée uniquement sur cet appareil)</label>
                     <div className="flex items-center gap-3">
                       <label className="flex-1 cursor-pointer bg-[#10131a] hover:bg-[#1a202c] border border-zinc-700 rounded-xl px-4 py-2 text-zinc-300 text-xs flex items-center justify-center gap-2">
                         <Upload className="w-4 h-4 text-purple-400" />
-                        <span>{localSignataire.signatureUrl ? 'Changer ma signature' : 'Téléverser ma signature'}</span>
+                        <span>{localSignataire.signatureUrl ? 'Changer ma signature locale' : 'Téléverser ma signature (local)'}</span>
                         <input type="file" accept="image/*" className="hidden" onChange={handleSignatureUpload} />
                       </label>
                       {localSignataire.signatureUrl && (
                         <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-zinc-700">
-                          <img src={localSignataire.signatureUrl} alt="Signature" className="h-8 max-w-[120px] object-contain" />
+                          <img src={localSignataire.signatureUrl} alt="Signature locale" className="h-8 max-w-[120px] object-contain" />
                           <button
                             type="button"
                             onClick={() => setLocalSignataire(prev => ({ ...prev, signatureUrl: '', isCustom: true }))}
-                            className="text-zinc-500 hover:text-rose-500 text-xs ml-1"
-                            title="Supprimer la signature"
+                            className="text-zinc-500 hover:text-rose-500 text-xs ml-1 cursor-pointer"
+                            title="Supprimer ma signature locale"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -1022,15 +1158,15 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center justify-between pt-2 gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={handleResetLocalSignataire}
                     className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                    title="Revenir au Président par défaut (Raphaël EVAIN)"
+                    title="Effacer le profil local et revenir au Président (GSheet)"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>Rétablir le Président par défaut</span>
+                    <span>Revenir au Président (GSheet)</span>
                   </button>
 
                   <button
@@ -1041,12 +1177,12 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
                     {signataireSaveSuccess ? (
                       <>
                         <Check className="w-4 h-4 text-white" />
-                        <span>Signataire enregistré sur cet appareil !</span>
+                        <span>Signature enregistrée en local !</span>
                       </>
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
-                        <span>Enregistrer mon profil de signataire (local)</span>
+                        <span>Enregistrer ma signature (local uniquement)</span>
                       </>
                     )}
                   </button>
@@ -1062,6 +1198,62 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({
         {/* =================================================================== */}
         <div className="no-print p-3 sm:px-5 bg-[#10131a] border-b border-[#212734] space-y-2.5 text-xs">
           
+          {/* Ligne 0 : Sélecteur rapide du signataire (Président GSheet vs Signature locale Secrétaire/Trésorier) */}
+          <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-zinc-800/80">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-zinc-400 font-bold uppercase tracking-wider text-[11px]">Signataire :</span>
+              <button
+                type="button"
+                onClick={() => handleSwitchSignataireMode('president_gsheet')}
+                className={`px-2.5 py-1 rounded-xl font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                  signataireMode === 'president_gsheet'
+                    ? 'bg-orange-500/20 text-orange-200 border-orange-500/50'
+                    : 'bg-black/40 text-zinc-400 border-zinc-700 hover:text-white'
+                }`}
+              >
+                <span>Président ({editClub.signataireNom || editClub.president || 'GSheet'})</span>
+                <span className="text-[10px] opacity-75">• GSheet</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (localSignataire.nom || localSignataire.signatureUrl) {
+                    handleSwitchSignataireMode('local');
+                  } else {
+                    setEditSection('signataire');
+                    setIsEditingClubInfo(true);
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-xl font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                  signataireMode === 'local'
+                    ? 'bg-purple-500/20 text-purple-200 border-purple-500/50'
+                    : 'bg-black/40 text-zinc-400 border-zinc-700 hover:text-white'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                <span>
+                  {localSignataire.nom || localSignataire.signatureUrl
+                    ? `${localSignataire.nom || 'Mon profil'} (Local)`
+                    : 'Secrétaire / Trésorier (Signer en local)'}
+                </span>
+              </button>
+            </div>
+
+            {signataireMode === 'local' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditSection('signataire');
+                  setIsEditingClubInfo(true);
+                }}
+                className="text-[11px] text-purple-300 hover:text-purple-200 font-semibold underline cursor-pointer"
+              >
+                Modifier ma signature locale
+              </button>
+            )}
+          </div>
+
           {/* Ligne 1 : Choix de la formule (Règle TCM : Le prix des cours comprend l'adhésion) */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
