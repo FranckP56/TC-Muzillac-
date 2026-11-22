@@ -132,7 +132,7 @@ export const Header: React.FC<HeaderProps> = ({
     {
       id: 'adherent',
       label: 'Adhérent',
-      sublabel: 'Matchs & Infos du club (lecture seule)',
+      sublabel: 'Matchs, Infos club & Mon Espace personnel',
       badgeColor: 'bg-zinc-800 text-zinc-300 border-zinc-700',
       icon: <User className="w-3.5 h-3.5 text-zinc-400" />,
     },
@@ -452,6 +452,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <ShoppingBag className="w-4 h-4 shrink-0 mb-0.5 text-sky-400" />
               <span className="text-[11px] leading-tight tracking-tight truncate">ProShop</span>
+            </button>
+
+            {/* 9. Mon Espace Adhérent (Tous) */}
+            <button
+              onClick={() => setActiveTab('mon_espace')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'mon_espace'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <UserCheck className={`w-4 h-4 shrink-0 mb-0.5 ${activeTab === 'mon_espace' ? 'text-white' : 'text-orange-400'}`} />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Mon Espace</span>
             </button>
 
           </nav>

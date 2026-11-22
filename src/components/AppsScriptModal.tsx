@@ -89,6 +89,12 @@ function doPost(e) {
       return handleSaveGoSportOffre(json);
     } else if (action === 'deleteGoSportOffre') {
       return handleDeleteGoSportOffre(json);
+    } else if (action === 'requestAdherentOtp') {
+      return handleRequestAdherentOtp(json);
+    } else if (action === 'verifyAdherentOtp') {
+      return handleVerifyAdherentOtp(json);
+    } else if (action === 'updateMinorParent') {
+      return handleUpdateMinorParent(json);
     } else {
       return createJsonResponse({ success: false, error: 'Action inconnue : ' + action });
     }
@@ -488,6 +494,336 @@ function handleDeleteGoSportOffre(payload) {
     }
   }
   return createJsonResponse({ success: false, error: 'Produit GO Sport introuvable.' });
+}
+
+function normalizePortalLicence(val) {
+  return String(val || '').trim().replace(/\\s+/g, '').toUpperCase();
+}
+
+function normalizePortalEmail(val) {
+  return String(val || '').trim().toLowerCase();
+}
+
+function maskPortalEmail(email) {
+  var parts = normalizePortalEmail(email).split('@');
+  if (parts.length !== 2) return '***';
+  var local = parts[0];
+  var domain = parts[1];
+  var visible = local.length <= 2 ? local.charAt(0) : local.slice(0, 2);
+  return visible + '***@' + domain;
+}
+
+function findAdherentsPortalCols(headersRow) {
+  var norm = headersRow.map(function(h) {
+    return String(h || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\\u0300-\\u036f]/g, '')
+      .trim();
+  });
+  function findIdx(candidates, fallbackIdx) {
+    for (var c = 0; c < candidates.length; c++) {
+      for (var i = 0; i < norm.length; i++) {
+        if (norm[i] === candidates[c]) return i;
+      }
+    }
+    for (var c2 = 0; c2 < candidates.length; c2++) {
+      for (var j = 0; j < norm.length; j++) {
+        if (norm[j].indexOf(candidates[c2]) !== -1) return j;
+      }
+    }
+    return fallbackIdx;
+  }
+  return {
+    nomPrenom: findIdx(['nom prenom', 'nom et prenom', 'adherent'], 0),
+    dateNaiss: findIdx(['date naiss.', 'date naissance', 'naissance'], 6),
+    representantLegal: findIdx(['statut representant legal', 'representant legal'], 8),
+    email: findIdx(['email', 'mail'], 20),
+    email2: findIdx(['2eme email', 'email 2'], -1),
+    licence: findIdx(['licence', 'n° licence'], 22)
+  };
+}
+
+function extractBirthYearForPortal(rawDate) {
+  if (!rawDate) return null;
+  if (Object.prototype.toString.call(rawDate) === '[object Date]' && !isNaN(rawDate.getTime())) {
+    return rawDate.getFullYear();
+  }
+  var s = String(rawDate).trim();
+  if (/^\\d{4}$/.test(s)) return parseInt(s, 10);
+  var frMatch = s.match(/\\b\\d{1,2}[\\/\\-\\.]\\d{1,2}[\\/\\-\\.](\\d{4})\\b/);
+  if (frMatch && frMatch[1]) return parseInt(frMatch[1], 10);
+  var isoMatch = s.match(/\\b(\\d{4})[\\/\\-\\.]\\d{1,2}[\\/\\-\\.]\\d{1,2}\\b/);
+  if (isoMatch && isoMatch[1]) return parseInt(isoMatch[1], 10);
+  return null;
+}
+
+function handleRequestAdherentOtp(payload) {
+  var normLic = normalizePortalLicence(payload && payload.licence);
+  if (!normLic || normLic.length < 4) {
+    return createJsonResponse({ success: false, error: 'Veuillez saisir un numéro de licence valide.' });
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Adhérents');
+  if (!sheet) {
+    return createJsonResponse({ success: false, error: 'Onglet Adhérents introuvable.' });
+  }
+
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) {
+    return createJsonResponse({ success: false, error: 'Aucun adhérent enregistré.' });
+  }
+
+  var cols = findAdherentsPortalCols(rows[0]);
+  var foundEmail = '';
+  var foundName = '';
+  var foundLic = '';
+
+  for (var i = 1; i < rows.length; i++) {
+    var rowLic = normalizePortalLicence(rows[i][cols.licence]);
+    if (rowLic && rowLic === normLic) {
+      foundLic = rowLic;
+      foundName = String(rows[i][cols.nomPrenom] || '').trim();
+      var mainEmail = normalizePortalEmail(rows[i][cols.email]);
+      var altEmail = cols.email2 >= 0 ? normalizePortalEmail(rows[i][cols.email2]) : '';
+      foundEmail = mainEmail || altEmail;
+      break;
+    }
+  }
+
+  if (!foundLic) {
+    return createJsonResponse({ success: false, error: 'Numéro de licence introuvable dans la base du club.' });
+  }
+  if (!foundEmail || foundEmail.indexOf('@') === -1) {
+    return createJsonResponse({
+      success: false,
+      error: "Aucune adresse e-mail valide n'est associée à cette licence. Contactez le bureau du club."
+    });
+  }
+
+  var cache = CacheService.getScriptCache();
+  var cooldownKey = 'tcm_otp_cd_' + foundLic;
+  if (cache.get(cooldownKey)) {
+    return createJsonResponse({
+      success: false,
+      error: "Un code vient déjà d'être envoyé. Veuillez patienter 60 secondes avant de réessayer."
+    });
+  }
+
+  var code = String(Math.floor(100000 + Math.random() * 900000));
+  var record = {
+    code: code,
+    licence: foundLic,
+    email: foundEmail,
+    attempts: 0,
+    expiresAt: Date.now() + 600000
+  };
+
+  cache.put('tcm_otp_' + foundLic, JSON.stringify(record), 600);
+  cache.put(cooldownKey, '1', 60);
+
+  var clubName = 'Muzillac Tennis Club';
+  var cRows = getClubInfoSheetValues();
+  for (var k = 1; k < cRows.length; k++) {
+    var kStr = String(cRows[k][0] || '').toLowerCase();
+    if (kStr === 'nom du club' || kStr === 'nom') {
+      if (String(cRows[k][1] || '').trim()) clubName = String(cRows[k][1]).trim();
+      break;
+    }
+  }
+
+  MailApp.sendEmail({
+    to: foundEmail,
+    subject: '[' + clubName + '] Votre code de connexion Espace Adhérent',
+    body:
+      'Bonjour' + (foundName ? ' ' + foundName : '') + ',\\n\\n' +
+      'Voici votre code unique pour accéder à votre Espace Adhérent (' + clubName + ') :\\n\\n' +
+      '    CODE : ' + code + '\\n\\n' +
+      'Ce code est valable pendant 10 minutes pour la licence n° ' + foundLic + '.\\n' +
+      'Si vous n\\'êtes pas à l\\'origine de cette demande, ignorez ce message.\\n\\n' +
+      'Bien sportivement,\\n' +
+      clubName
+  });
+
+  return createJsonResponse({
+    success: true,
+    maskedEmail: maskPortalEmail(foundEmail),
+    expiresInSeconds: 600
+  });
+}
+
+function handleVerifyAdherentOtp(payload) {
+  var normLic = normalizePortalLicence(payload && payload.licence);
+  var cleanCode = String((payload && payload.code) || '').replace(/\\D/g, '').trim();
+
+  if (!normLic || !/^\\d{6}$/.test(cleanCode)) {
+    return createJsonResponse({ success: false, error: 'Numéro de licence ou code à 6 chiffres invalide.' });
+  }
+
+  var cache = CacheService.getScriptCache();
+  var otpKey = 'tcm_otp_' + normLic;
+  var rawRecord = cache.get(otpKey);
+  if (!rawRecord) {
+    return createJsonResponse({ success: false, error: 'Code expiré ou introuvable. Veuillez demander un nouveau code.' });
+  }
+
+  var record = null;
+  try {
+    record = JSON.parse(rawRecord);
+  } catch (e) {
+    cache.remove(otpKey);
+    return createJsonResponse({ success: false, error: 'Session OTP invalide. Demandez un nouveau code.' });
+  }
+
+  if (!record || Date.now() > Number(record.expiresAt || 0)) {
+    cache.remove(otpKey);
+    return createJsonResponse({ success: false, error: 'Ce code a expiré. Veuillez en demander un nouveau.' });
+  }
+
+  var attempts = Number(record.attempts || 0);
+  if (attempts >= 5) {
+    cache.remove(otpKey);
+    return createJsonResponse({ success: false, error: 'Trop de tentatives erronées. Veuillez demander un nouveau code.' });
+  }
+
+  if (String(record.code) !== cleanCode) {
+    record.attempts = attempts + 1;
+    var remainingSec = Math.max(30, Math.floor((Number(record.expiresAt) - Date.now()) / 1000));
+    if (record.attempts >= 5) {
+      cache.remove(otpKey);
+      return createJsonResponse({
+        success: false,
+        attemptsRemaining: 0,
+        error: "Code incorrect. Nombre maximal d'essais atteint, veuillez demander un nouveau code."
+      });
+    }
+    cache.put(otpKey, JSON.stringify(record), remainingSec);
+    return createJsonResponse({
+      success: false,
+      attemptsRemaining: 5 - record.attempts,
+      error: 'Code incorrect. Il vous reste ' + (5 - record.attempts) + ' essai(s).'
+    });
+  }
+
+  cache.remove(otpKey);
+  cache.remove('tcm_otp_cd_' + normLic);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Adhérents');
+  var familyLicences = [];
+
+  if (sheet) {
+    var rows = sheet.getDataRange().getValues();
+    if (rows.length > 1) {
+      var cols = findAdherentsPortalCols(rows[0]);
+      for (var i = 1; i < rows.length; i++) {
+        var rowLic = normalizePortalLicence(rows[i][cols.licence]);
+        var rowEmail = normalizePortalEmail(rows[i][cols.email]);
+        var rowEmail2 = cols.email2 >= 0 ? normalizePortalEmail(rows[i][cols.email2]) : '';
+        if (rowLic && (rowEmail === record.email || (rowEmail2 && rowEmail2 === record.email))) {
+          if (familyLicences.indexOf(rowLic) === -1) {
+            familyLicences.push(rowLic);
+          }
+        }
+      }
+    }
+  }
+
+  if (familyLicences.indexOf(normLic) === -1) {
+    familyLicences.unshift(normLic);
+  }
+
+  var sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid().slice(0, 8);
+  var sessionData = {
+    verifiedLicence: normLic,
+    verifiedEmail: record.email,
+    familyLicences: familyLicences,
+    createdAt: Date.now()
+  };
+
+  cache.put('tcm_adh_sess_' + sessionToken, JSON.stringify(sessionData), 7200);
+
+  return createJsonResponse({
+    success: true,
+    sessionToken: sessionToken,
+    verifiedLicence: normLic,
+    verifiedEmail: record.email,
+    maskedEmail: maskPortalEmail(record.email),
+    familyLicences: familyLicences
+  });
+}
+
+function handleUpdateMinorParent(payload) {
+  var sessionToken = String((payload && payload.sessionToken) || '').trim();
+  var normLic = normalizePortalLicence(payload && payload.licence);
+  var rawParent = String((payload && payload.representantLegal) || '')
+    .trim()
+    .replace(/^[=+\\-@]+/, '')
+    .slice(0, 120);
+
+  if (!sessionToken) {
+    return createJsonResponse({ success: false, error: 'Session expirée ou non authentifiée.' });
+  }
+  if (!normLic || !rawParent) {
+    return createJsonResponse({ success: false, error: 'Numéro de licence ou nom du parent manquant.' });
+  }
+
+  var cache = CacheService.getScriptCache();
+  var rawSession = cache.get('tcm_adh_sess_' + sessionToken);
+  if (!rawSession) {
+    return createJsonResponse({ success: false, error: 'Votre session a expiré. Veuillez vous reconnecter.' });
+  }
+
+  var session = null;
+  try {
+    session = JSON.parse(rawSession);
+  } catch (e) {
+    return createJsonResponse({ success: false, error: 'Session invalide.' });
+  }
+
+  var allowed = Array.isArray(session.familyLicences) ? session.familyLicences : [];
+  if (allowed.indexOf(normLic) === -1) {
+    return createJsonResponse({ success: false, error: 'Accès non autorisé pour ce numéro de licence.' });
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Adhérents');
+  if (!sheet) {
+    return createJsonResponse({ success: false, error: 'Onglet Adhérents introuvable.' });
+  }
+
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) {
+    return createJsonResponse({ success: false, error: 'Base adhérents vide.' });
+  }
+
+  var cols = findAdherentsPortalCols(rows[0]);
+  if (cols.representantLegal < 0) {
+    return createJsonResponse({ success: false, error: 'Colonne Représentant légal introuvable.' });
+  }
+
+  for (var i = 1; i < rows.length; i++) {
+    var rowLic = normalizePortalLicence(rows[i][cols.licence]);
+    if (rowLic === normLic) {
+      var birthYear = extractBirthYearForPortal(rows[i][cols.dateNaiss]);
+      var currentSeasonYear = Math.max(2027, new Date().getFullYear());
+      if (birthYear && (currentSeasonYear - birthYear) >= 18) {
+        return createJsonResponse({
+          success: false,
+          error: 'La modification du représentant légal est réservée aux adhérents mineurs.'
+        });
+      }
+      sheet.getRange(i + 1, cols.representantLegal + 1).setValue(rawParent);
+      return createJsonResponse({
+        success: true,
+        licence: normLic,
+        representantLegal: rawParent
+      });
+    }
+  }
+
+  return createJsonResponse({ success: false, error: 'Adhérent introuvable.' });
 }`;
 
   const handleCopy = (content: string) => {

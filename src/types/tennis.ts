@@ -263,7 +263,17 @@ export type ActiveTab =
   | 'enseignants'
   | 'reglements'
   | 'tutos'
-  | 'troc';
+  | 'troc'
+  | 'mon_espace';
+
+export interface AdherentSession {
+  sessionToken: string;
+  verifiedLicence: string;
+  verifiedEmail: string;
+  maskedEmail: string;
+  familyLicences: string[];
+  verifiedAt: number;
+}
 
 export type TrocCategorie =
   | 'Raquettes'

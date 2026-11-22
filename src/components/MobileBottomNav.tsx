@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   RefreshCw,
+  UserCheck,
 } from 'lucide-react';
 import { ActiveTab, UserRole } from '../types/tennis';
 
@@ -40,16 +41,23 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   const canSeeEnseignants = userRole === 'admin' || userRole === 'bureau' || userRole === 'prof';
   const canSeeLicencies = userRole !== 'adherent';
 
-  // 4e raccourci dynamique selon le rôle (Adhérents pour Bureau/Admin, Enseignants pour Prof, Licenciés pour Capitaine, Infos Club pour Adhérent)
+  // 4e raccourci dynamique selon le rôle (Adhérents pour Bureau/Admin, Enseignants pour Prof, Licenciés pour Capitaine, Mon Espace pour Adhérent)
   const directoryTab: { id: ActiveTab; label: string; icon: React.ReactNode } = canSeeAdherents
     ? { id: 'adherents', label: 'Adhérents', icon: <Users className="w-5 h-5" /> }
     : canSeeEnseignants
       ? { id: 'enseignants', label: 'Profs', icon: <GraduationCap className="w-5 h-5" /> }
       : canSeeLicencies
         ? { id: 'licencies', label: 'Licenciés', icon: <ShieldCheck className="w-5 h-5" /> }
-        : { id: 'infos', label: 'Club', icon: <Info className="w-5 h-5" /> };
+        : { id: 'mon_espace', label: 'Mon Espace', icon: <UserCheck className="w-5 h-5" /> };
 
   const allTabs: { id: ActiveTab; label: string; subtitle: string; visible: boolean; icon: React.ReactNode; badge?: number }[] = [
+    {
+      id: 'mon_espace',
+      label: 'Mon Espace Adhérent',
+      subtitle: 'Fiche perso, attestation PDF & convocations',
+      visible: true,
+      icon: <UserCheck className="w-5 h-5 text-orange-400" />,
+    },
     {
       id: 'infos',
       label: 'Infos Club',

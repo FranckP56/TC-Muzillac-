@@ -13,6 +13,7 @@ import { LicenciesTab } from './components/LicenciesTab';
 import { ReglementsTab } from './components/ReglementsTab';
 import { TutosInfosTab } from './components/TutosInfosTab';
 import { TrocTab } from './components/TrocTab';
+import { MonEspaceTab } from './components/MonEspaceTab';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { AdherentModal } from './components/AdherentModal';
 import { AppsScriptModal } from './components/AppsScriptModal';
@@ -43,7 +44,7 @@ import {
   loadClubInfoFromLocal,
   saveLocalComposition
 } from './services/googleSheets';
-import { Adherent, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
+import { Adherent, AdherentSession, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
 import { filterLicenciesMuzillac2027 } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc, cleanRanking, isValidTennisRanking } from './utils/ranking';
@@ -113,6 +114,8 @@ export default function App() {
     }
   };
 
+  const [adherentSession, setAdherentSession] = useState<AdherentSession | null>(null);
+
   const handleUpdateRole = (newRole: UserRole) => {
     setUserRole(newRole);
     try {
@@ -121,6 +124,16 @@ export default function App() {
       console.warn(e);
     }
   };
+
+  const handleUpdateMinorParentLocal = useCallback((licence: string, representantLegal: string) => {
+    const cleanLic = licence.trim().replace(/\s+/g, '').toUpperCase();
+    setAdherents((prev) =>
+      prev.map((a) => {
+        const aLic = (a.licence || '').trim().replace(/\s+/g, '').toUpperCase();
+        return aLic === cleanLic ? { ...a, representantLegal } : a;
+      })
+    );
+  }, []);
 
   // URL du Web App Google Apps Script
   const [gasUrl, setGasUrl] = useState<string>(() => {
@@ -791,6 +804,22 @@ export default function App() {
             googleUser={googleUser}
             userRole={userRole}
             onOpenScriptModal={() => setIsScriptModalOpen(true)}
+          />
+        )}
+
+        {/* Onglet 'Mon Espace Adhérent' (Authentification OTP + Fiche + Attestation + Convocations) */}
+        {activeTab === 'mon_espace' && (
+          <MonEspaceTab
+            adherents={adherents}
+            rencontres={rencontres}
+            clubInfo={clubInfo}
+            saison={saison}
+            gasUrl={gasUrl}
+            session={adherentSession}
+            onSessionChange={setAdherentSession}
+            onUpdateMinorParentLocal={handleUpdateMinorParentLocal}
+            onRefreshData={() => handleLoadFromRealFile(false)}
+            isLoadingData={isLoadingFile}
           />
         )}
 
