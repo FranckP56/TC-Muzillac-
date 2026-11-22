@@ -1435,7 +1435,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                     </span>
                     {isComiteBye && comiteByeScore && (
                       <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                        Victoire {comiteByeScore} (Journée off)
+                        Victoire Muzillac {comiteByeScore} (Journée off)
                       </span>
                     )}
                   </div>
@@ -1653,7 +1653,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                     Journée « off » (Exempt) — Pas de rencontre à disputer
                   </h4>
                   <p className="text-[11px] text-emerald-200/90 leading-relaxed">
-                    Face au <strong>COMITÉ MORBIHAN TENNIS</strong> (poule avec un nombre impair de clubs), il n'y a pas de match à jouer : la rencontre est notée comme gagnée <strong>{comiteByeScore}</strong> ({compFormat.numSingles} simple{compFormat.numSingles > 1 ? 's' : ''} + {compFormat.numDoubles} double{compFormat.numDoubles > 1 ? 's' : ''}).
+                    Face à <strong>{isHome ? rencontre.clubVisiteurNom : rencontre.clubAccueilNom}</strong> (poule avec un nombre impair de clubs), il n'y a pas de match à jouer : la rencontre est gagnée <strong>{comiteByeScore} pour Muzillac</strong> ({compFormat.numSingles} simple{compFormat.numSingles > 1 ? 's' : ''} + {compFormat.numDoubles} double{compFormat.numDoubles > 1 ? 's' : ''}).
                   </p>
                 </div>
               </div>

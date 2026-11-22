@@ -23,7 +23,7 @@ export function getStoredChampionshipRules(): ChampionshipRule[] {
             merged.push({
               ...defaultMap.get(customRule.id)!,
               ...customRule,
-              isCustomized: true,
+              isCustomized: Boolean(customRule.isCustomized),
             });
             defaultMap.delete(customRule.id);
           } else {
@@ -155,45 +155,62 @@ export function findRuleForRencontre(rencontre: Rencontre, rulesList?: Champions
   const isFemme = reqSex === 'F';
   const combined = `${div} ${lib} ${niv}`.toLowerCase();
 
-  const youthText = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`.toLowerCase();
+  const youthText = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const normCat = cat.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // 1. Jeunes
+  // 1. Jeunes (ordre strict : 13-18 ans AVANT 11/12 et <10 ans pour éviter toute collision de chiffres ex: "17/18" contenant "8")
   const is13To18 =
-    /\b1[3-8]\s*[\/\-]\s*1[4-8]\b/.test(youthText) ||
-    /\b(13|14|15|16|17|18)\s*ans\b/.test(youthText) ||
-    cat.includes('13') || cat.includes('14') || cat.includes('15') ||
-    cat.includes('16') || cat.includes('17') || cat.includes('18');
+    /(?:^|[^\d])1[3-8]\s*[\/\-]\s*1[4-8](?:[^\d]|$)/.test(youthText) ||
+    /(?:^|[^\d])(13|14|15|16|17|18)\s*ans(?:[^\d]|$)/.test(youthText) ||
+    /(?:^|[^\d])u1[4-8](?:[^\d]|$)/.test(youthText) ||
+    /(?:^|[^\d])(13|14|15|16|17|18)(?:[^\d]|$)/.test(normCat);
+
+  const is11To12 =
+    !is13To18 && (
+      /(?:^|[^\d])11\s*[\/\-]\s*12(?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])(11|12)\s*ans(?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])u1[12](?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])(11|12)(?:[^\d]|$)/.test(normCat)
+    );
+
+  const isUnder10 =
+    !is13To18 &&
+    !is11To12 && (
+      youthText.includes('galaxie') ||
+      normCat.includes('rouge') || normCat.includes('orange') ||
+      normCat.includes('vert') || normCat.includes('violet') ||
+      /(?:^|[^\d])(7|8|9|10)\s*ans(?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])[789]\s*[\/\-]\s*10(?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])u(8|9|10)(?:[^\d]|$)/.test(youthText) ||
+      /(?:^|[^\d])(7|8|9|10)(?:[^\d]|$)/.test(normCat)
+    );
 
   const isJeunes =
     is13To18 ||
-    /\b1[12]\s*[\/\-]\s*12\b/.test(youthText) ||
-    /\b(8|9|10|11|12)\s*ans\b/.test(youthText) ||
-    cat.includes('11') || cat.includes('12') || cat.includes('jeune') ||
-    lib.includes('jeune') || cat.includes('galaxie') || lib.includes('galaxie') ||
-    cat.includes('8') || cat.includes('9') || cat.includes('10');
-
-  const isUnder10 =
-    cat.includes('galaxie') || lib.includes('galaxie') ||
-    cat.includes('rouge') || cat.includes('orange') ||
-    cat.includes('vert') || cat.includes('violet') ||
-    /\b(8|9|10)\s*ans\b/.test(youthText) || /\b9\s*[\/\-]\s*10\b/.test(youthText) ||
-    cat.includes('8') || cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
+    is11To12 ||
+    isUnder10 ||
+    youthText.includes('jeune');
 
   if (isJeunes) {
-    if (isUnder10) {
-      return rules.find(r => r.id === 'jeunes_galaxie') || null;
-    }
     if (is13To18) {
       return rules.find(r => r.id === 'jeunes_13_18_garcons') || null;
+    }
+    if (isUnder10) {
+      return rules.find(r => r.id === 'jeunes_galaxie') || null;
     }
     return rules.find(r => r.id === 'jeunes_11_18') || null;
   }
 
   // 2. Seniors+
-  const isSeniorsPlus = 
-    cat.includes('+') || cat.includes('35') || cat.includes('45') || 
-    cat.includes('55') || cat.includes('65') || cat.includes('vétéran') || 
-    cat.includes('senior+');
+  const isSeniorsPlus =
+    normCat.includes('+') ||
+    youthText.includes('baden') ||
+    youthText.includes('veteran') ||
+    youthText.includes('senior+') ||
+    /(?:^|[^\d])\+?(35|45|55|65|70|75)(?:[^\d]|$)/.test(youthText);
 
   if (isSeniorsPlus) {
     return rules.find(r => r.id === 'seniors_plus') || null;

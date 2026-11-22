@@ -120,34 +120,49 @@ export function getCompetitionFormat(
   const div = (rencontre.division || '').toLowerCase();
   const sexe = rencontre.sexeHomologation;
 
-  const youthSearch = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`.toLowerCase();
+  const youthSearch = `${cat} ${lib} ${div} ${rencontre.numeroEquipe || ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const normCat = cat.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // 1. Détection Jeunes
+  // 1. Détection Jeunes (ordre strict : 13-18 ans AVANT 11/12 et <10 ans)
   const is13To18 =
-    /\b1[3-8]\s*[\/\-]\s*1[4-8]\b/.test(youthSearch) ||
-    /\b(13|14|15|16|17|18)\s*ans\b/.test(youthSearch) ||
-    cat.includes('13') || cat.includes('14') || cat.includes('15') ||
-    cat.includes('16') || cat.includes('17') || cat.includes('18');
+    /(?:^|[^\d])1[3-8]\s*[\/\-]\s*1[4-8](?:[^\d]|$)/.test(youthSearch) ||
+    /(?:^|[^\d])(13|14|15|16|17|18)\s*ans(?:[^\d]|$)/.test(youthSearch) ||
+    /(?:^|[^\d])u1[4-8](?:[^\d]|$)/.test(youthSearch) ||
+    /(?:^|[^\d])(13|14|15|16|17|18)(?:[^\d]|$)/.test(normCat);
+
+  const is11To12 =
+    !is13To18 && (
+      /(?:^|[^\d])11\s*[\/\-]\s*12(?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])(11|12)\s*ans(?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])u1[12](?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])(11|12)(?:[^\d]|$)/.test(normCat)
+    );
+
+  const isUnder10 =
+    !is13To18 &&
+    !is11To12 && (
+      youthSearch.includes('galaxie') ||
+      normCat.includes('rouge') || normCat.includes('orange') ||
+      normCat.includes('vert') || normCat.includes('violet') ||
+      /(?:^|[^\d])(7|8|9|10)\s*ans(?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])[789]\s*[\/\-]\s*10(?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])u(8|9|10)(?:[^\d]|$)/.test(youthSearch) ||
+      /(?:^|[^\d])(7|8|9|10)(?:[^\d]|$)/.test(normCat)
+    );
 
   const isJeunes =
     is13To18 ||
-    /\b1[12]\s*[\/\-]\s*12\b/.test(youthSearch) ||
-    /\b(8|9|10|11|12)\s*ans\b/.test(youthSearch) ||
-    cat.includes('11') || cat.includes('12') || cat.includes('jeune') ||
-    lib.includes('jeune') || cat.includes('galaxie') || lib.includes('galaxie') ||
-    cat.includes('8') || cat.includes('9') || cat.includes('10');
-
-  const isUnder10 =
-    cat.includes('galaxie') || lib.includes('galaxie') ||
-    cat.includes('rouge') || cat.includes('orange') ||
-    cat.includes('vert') || cat.includes('violet') ||
-    /\b(8|9|10)\s*ans\b/.test(youthSearch) || /\b9\s*[\/\-]\s*10\b/.test(youthSearch) ||
-    cat.includes('8') || cat.includes('9') || cat.includes('10 ans') || cat.includes('9/10');
+    is11To12 ||
+    isUnder10 ||
+    youthSearch.includes('jeune');
 
   if (isJeunes) {
     // RÈGLE COMITÉ DU MORBIHAN (56) :
     // - Les rencontres 11/12 ans et Galaxie se disputent en 2 simples et 1 double (2S + 1D = 3 matchs).
-    // - Les rencontres 13/14 ans et 17/18 ans se disputent en 3 simples et 1 double (3S + 1D = 4 matchs).
+    // - Les rencontres 13/14 ans, 15/16 ans et 17/18 ans se disputent en 3 simples et 1 double (3S + 1D = 4 matchs).
     if (is13To18) {
       return {
         type: 'jeunes',
@@ -172,7 +187,9 @@ export function getCompetitionFormat(
 
     return {
       type: 'jeunes',
-      categoryLabel: 'Championnat Jeunes Filles & 11/12 ans (2S + 1D)',
+      categoryLabel: isUnder10
+        ? 'Galaxie Tennis (< 10 ans : 2S + 1D)'
+        : 'Championnat Jeunes 11/12 ans (2S + 1D)',
       divisionLabel: 'Comité du Morbihan / Ligue de Bretagne',
       isRegional: false,
       isJeunes: true,
@@ -185,7 +202,7 @@ export function getCompetitionFormat(
       pointsSystem: '2 simples (1 pt chacun) + 1 double (1 pt) = 3 points en jeu',
       matchRules: isUnder10
         ? 'Moins de 10 ans (Galaxie Tennis) : Terrains réduits & balles souples/intermédiaires. Formats très courts (sets de 3 ou 4 jeux, point décisif No-Ad, super tie-break).'
-        : '11 à 18 ans : Terrain classique & balles dures. Simples au meilleur des 3 sets (3e set Super Tie-Break 10 points en départemental).',
+        : '11/12 ans : Terrain classique & balles dures. Simples au meilleur des 3 sets (3e set Super Tie-Break 10 points en départemental).',
       doubleRules: 'Double en formule simplifiée (point décisif No-Ad et Super Tie-Break 10 points au 3e set). Les 2 joueurs de simple peuvent faire le double ensemble.',
       expectedDay: 'Samedi',
       orderOfPlay: 'Simple 1, Simple 2, puis le Double',
@@ -197,8 +214,10 @@ export function getCompetitionFormat(
   const isBadenCup = lib.includes('baden') || cat.includes('65') || div.includes('baden');
   const isSeniorsPlus = 
     isBadenCup ||
-    cat.includes('+') || cat.includes('35') || cat.includes('45') || 
-    cat.includes('55') || cat.includes('vétéran') || cat.includes('senior+');
+    normCat.includes('+') ||
+    youthSearch.includes('veteran') ||
+    youthSearch.includes('senior+') ||
+    /(?:^|[^\d])\+?(35|45|55|65|70|75)(?:[^\d]|$)/.test(youthSearch);
 
   if (isBadenCup) {
     return {

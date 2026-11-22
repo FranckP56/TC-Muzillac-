@@ -50,15 +50,20 @@ interface RencontresTabProps {
 export const isComiteMorbihanBye = (
   r: Pick<Rencontre, 'clubAccueilNom' | 'clubVisiteurNom'>
 ): boolean => {
-  const a = (r.clubAccueilNom || '').toLowerCase();
-  const v = (r.clubVisiteurNom || '').toLowerCase();
+  const normalizeStr = (s: string) =>
+    (s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  const a = normalizeStr(r.clubAccueilNom || '');
+  const v = normalizeStr(r.clubVisiteurNom || '');
   const matchesComite = (s: string) =>
-    /comit[eé]\s*(?:du\s*)?morbihan(?:\s*tennis)?/.test(s) || /\bexempt\b/.test(s);
+    /\bcomite\b/.test(s) || /\bexempt\b/.test(s);
   return matchesComite(a) || matchesComite(v);
 };
 
 export const getComiteByeScore = (r: Rencontre): string => {
-  const format = getCompetitionFormat(r, { formatReduit: r.composition?.formatReduit });
+  const format = getCompetitionFormat(r);
   const totalMatches = format.numSingles + format.numDoubles;
   return `${totalMatches}/0`;
 };
@@ -827,7 +832,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         {(isComiteBye || !isUpcoming) && (
                           <span className={`text-[9px] font-bold uppercase tracking-wider block mt-0.5 ${isComiteBye ? 'text-emerald-300' : 'text-zinc-400'}`}>
                             {isComiteBye
-                              ? 'Victoire (Pas de match)'
+                              ? 'Victoire Muzillac'
                               : r.vainqueur
                                 ? r.vainqueur
                                 : isWin
@@ -846,7 +851,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                   {isComiteBye ? (
                     <div className="flex items-center gap-2 text-[11px] text-emerald-300/95 bg-emerald-950/35 px-3 py-2 rounded-2xl border border-emerald-500/30">
                       <Trophy className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Journée off (poule impaire) — Victoire {comiteByeScore} attribuée (aucun match)</span>
+                      <span>Journée off (poule impaire) — Victoire {comiteByeScore} pour Muzillac (aucun match)</span>
                     </div>
                   ) : isLogisticsValidated ? (
                     <div className="flex flex-col gap-1.5 text-xs bg-[#12151b]/80 p-2.5 rounded-2xl border border-zinc-800/80">
