@@ -192,6 +192,32 @@ function extractJsonObject(rawText: string): Record<string, any> | null {
   }
 }
 
+function isTechnicalCategory(categorie: string): boolean {
+  const s = (categorie || '').toLowerCase();
+  if (!s) return true;
+  if (s.includes('balle') || s.includes('cordage') || s.includes('accessoire') || s.includes('grip') || s.includes('surgrip') || s.includes('antivibrateur')) {
+    return false;
+  }
+  return true;
+}
+
+function getSecondaryAngleKeywords(categorie: string): string | null {
+  const s = (categorie || '').toLowerCase();
+  if (s.includes('chaussure') || s.includes('shoe') || s.includes('basket')) {
+    return 'semelle profil';
+  }
+  if (s.includes('raquette')) {
+    return 'detail cadre tamis';
+  }
+  if (s.includes('sac') || s.includes('thermo') || s.includes('bag')) {
+    return 'compartiment interieur';
+  }
+  if (s.includes('tenue') || s.includes('textile')) {
+    return 'dos detail';
+  }
+  return null;
+}
+
 function normalizeCategory(rawCat: unknown, fallback?: string): string {
   const candidates = [String(rawCat || '').trim(), String(fallback || '').trim()].filter(Boolean);
   for (const raw of candidates) {
@@ -735,6 +761,7 @@ export async function lookupGoSportProductByReference(
 
   const serperApiKey = getSerperApiKey();
   const cseCreds = getGoogleCseCredentials();
+  const hintAngleKeywords = getSecondaryAngleKeywords(hintCat);
 
   // 1. Moteur de recherche prioritaire : Serper.dev (Google Images + Web), sinon Google CSE
   let searchImages: SearchImageCandidate[] = [];
@@ -744,16 +771,24 @@ export async function lookupGoSportProductByReference(
 
   if (serperApiKey) {
     usedSearchProvider = 'serper';
-    const [imgRes, webRes] = await Promise.all([
+    const [imgRes, webRes, angleImgRes] = await Promise.all([
       searchSerperImages(catalogImageQuery, serperApiKey),
       searchSerperWeb(catalogImageQuery, serperApiKey),
+      hintAngleKeywords
+        ? searchSerperImages(`${baseSearchQuery} ${hintAngleKeywords}`.trim(), serperApiKey)
+        : Promise.resolve({ items: [] as SearchImageCandidate[] }),
     ]);
-    searchImages = imgRes.items;
+    searchImages = [...imgRes.items];
+    for (const item of angleImgRes.items) {
+      if (!searchImages.some((existing) => existing.url === item.url)) {
+        searchImages.push(item);
+      }
+    }
     searchProviderError = imgRes.error;
     searchWeb = webRes;
 
-    // Si trop peu d'images avec référence + nom, élargir avec la référence nettoyée seule ou nom produit seul
-    if (searchImages.length < 3 && effectiveCleanRef && cleanHintNom) {
+    // Si trop peu d'images avec référence + nom, élargir avec la référence nettoyée seule
+    if (searchImages.length < 4 && effectiveCleanRef && cleanHintNom) {
       const fallbackQ = effectiveCleanRef;
       const retryImg = await searchSerperImages(`${fallbackQ} tennis`, serperApiKey);
       for (const item of retryImg.items) {
@@ -893,11 +928,28 @@ ${searchWeb.length > 0 ? 'À partir des résultats ci-dessus (et Google Search s
     parsed.imageSearchQuery || catalogImageQuery || `${nomProduit} ${reference}`.trim()
   ).trim();
 
-  // 4. Vérification des images (Serper / Google CSE prioritaire -> fiches produits -> Bing)
+  const isTechnical = isTechnicalCategory(categorie);
+  const maxPhotos = isTechnical ? 8 : 6;
+  const detectedAngleKeywords = getSecondaryAngleKeywords(categorie);
+
+  // Si produit technique et que la requête angle n'avait pas encore été faite avec la catégorie détectée
+  if (serperApiKey && isTechnical && detectedAngleKeywords && detectedAngleKeywords !== hintAngleKeywords) {
+    const angleRes = await searchSerperImages(`${imageSearchQuery} ${detectedAngleKeywords}`.trim(), serperApiKey);
+    for (const item of angleRes.items) {
+      if (!searchImages.some((existing) => existing.url === item.url)) {
+        searchImages.push({
+          ...item,
+          score: scoreCatalogImageCandidate(item, effectiveCleanRef),
+        });
+      }
+    }
+  }
+
+  // 4. Vérification des images (fiches produits multi-angles + Serper / Google CSE -> Bing)
   const pagesToScrape = geminiPageUrls.slice(0, 5);
   const [scrapedResults, bingCandidates] = await Promise.all([
     Promise.all(pagesToScrape.map((u) => scrapeProductPageImages(u))),
-    searchImages.length >= 6 ? Promise.resolve([]) : searchBingImageCandidates(imageSearchQuery),
+    searchImages.length >= maxPhotos ? Promise.resolve([]) : searchBingImageCandidates(imageSearchQuery),
   ]);
 
   const verifiedPhotos: GoSportLookupPhoto[] = [];
@@ -906,7 +958,7 @@ ${searchWeb.length > 0 ? 'À partir des résultats ci-dessus (et Google Search s
   // 4a. Vérifier d'abord les URLs Serper / Google CSE (avec fallback thumbnailUrl si hotlink bloqué)
   if (searchImages.length > 0) {
     const imgChecks = await Promise.all(
-      searchImages.slice(0, 10).map(async (item) => {
+      searchImages.slice(0, 14).map(async (item) => {
         const direct = await verifyImageUrl(item.url, item.source);
         if (direct) return direct;
         if (item.thumbnailUrl) {
@@ -919,34 +971,35 @@ ${searchWeb.length > 0 ? 'À partir des résultats ci-dessus (et Google Search s
       if (r && !seenResolvedUrls.has(r.url)) {
         seenResolvedUrls.add(r.url);
         verifiedPhotos.push(r);
-        if (verifiedPhotos.length >= 6) break;
+        if (verifiedPhotos.length >= maxPhotos) break;
       }
     }
   }
 
-  // 4b. Compléter jusqu'à 6 photos depuis les fiches produits & Bing
-  if (verifiedPhotos.length < 6) {
+  // 4b. Compléter depuis les galeries multi-angles des fiches produits & Bing
+  if (verifiedPhotos.length < maxPhotos) {
     const extraCandidates: string[] = [];
     const addExtra = (u: string) => {
       if (u && !isBadImageCandidate(u) && !seenResolvedUrls.has(u) && !extraCandidates.includes(u)) {
         extraCandidates.push(u);
       }
     };
+    const perPageSlice = isTechnical ? 6 : 3;
     for (const page of scrapedResults) {
-      for (const img of page.images.slice(0, 3)) addExtra(img);
+      for (const img of page.images.slice(0, perPageSlice)) addExtra(img);
     }
     for (const bImg of bingCandidates) addExtra(bImg);
 
     const batchSize = 6;
-    for (let i = 0; i < Math.min(extraCandidates.length, 15); i += batchSize) {
-      if (verifiedPhotos.length >= 6) break;
+    for (let i = 0; i < Math.min(extraCandidates.length, 18); i += batchSize) {
+      if (verifiedPhotos.length >= maxPhotos) break;
       const batch = extraCandidates.slice(i, i + batchSize);
       const results = await Promise.all(batch.map((u) => verifyImageUrl(u)));
       for (const r of results) {
         if (r && !seenResolvedUrls.has(r.url)) {
           seenResolvedUrls.add(r.url);
           verifiedPhotos.push(r);
-          if (verifiedPhotos.length >= 6) break;
+          if (verifiedPhotos.length >= maxPhotos) break;
         }
       }
     }

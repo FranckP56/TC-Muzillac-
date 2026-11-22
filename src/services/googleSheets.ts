@@ -1834,6 +1834,10 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
           nomProduit: String(item.nomProduit || item.Nom_Produit || '').trim(),
           categorie: String(item.categorie || item.Categorie || 'Équipement').trim(),
           photoUrl: String(item.photoUrl || item.Photo_URL || '').trim() || undefined,
+          photoUrl2:
+            String(
+              item.photoUrl2 || item.Photo_URL_2 || item.Photo_URL2 || item.photo_url_2 || ''
+            ).trim() || undefined,
           tarifMagasin: parseOptionalPrice(item.tarifMagasin ?? item.Tarif_Magasin) ?? 0,
           prixPromo: parseOptionalPrice(item.prixPromo ?? item.Prix_Promo),
           tarifAdherent: parseOptionalPrice(item.tarifAdherent ?? item.Tarif_Adherent),
@@ -1869,6 +1873,7 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
     const idxNom = findCol(['nom_produit', 'nom produit', 'nom'], 1);
     const idxCat = findCol(['categorie', 'catégorie'], 2);
     const idxPhoto = findCol(['photo_url', 'photo url', 'photo'], 3);
+    const idxPhoto2 = findCol(['photo_url_2', 'photo_url2', 'photo url 2', 'photo_2', 'photo 2'], -1);
     const idxMag = findCol(['tarif_magasin', 'tarif magasin'], 4);
     const idxPromo = findCol(['prix_promo', 'prix promo'], 5);
     const idxAdh = findCol(['tarif_adherent', 'tarif adhérent', 'tarif adherent'], 6);
@@ -1895,6 +1900,7 @@ function parseGoSportRowsOrObjects(raw: any): GoSportOffre[] {
         nomProduit,
         categorie: String(row[idxCat] || 'Équipement').trim(),
         photoUrl: String(row[idxPhoto] || '').trim() || undefined,
+        photoUrl2: idxPhoto2 >= 0 ? String(row[idxPhoto2] || '').trim() || undefined : undefined,
         tarifMagasin: parseOptionalPrice(row[idxMag]) ?? 0,
         prixPromo: parseOptionalPrice(row[idxPromo]),
         tarifAdherent: parseOptionalPrice(row[idxAdh]),
@@ -2025,6 +2031,7 @@ export async function saveGoSportOffreToSheet(
     nomProduit: offre.nomProduit.trim(),
     categorie: (offre.categorie || 'Équipement').trim(),
     photoUrl: (offre.photoUrl || '').trim(),
+    photoUrl2: (offre.photoUrl2 || '').trim(),
     tarifMagasin: Number(offre.tarifMagasin) || 0,
     prixPromo:
       offre.prixPromo !== null && offre.prixPromo !== undefined && !isNaN(Number(offre.prixPromo))

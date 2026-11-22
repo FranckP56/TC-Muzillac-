@@ -300,6 +300,7 @@ export interface GoSportOffre {
   nomProduit: string;
   categorie: string;
   photoUrl?: string;
+  photoUrl2?: string;
   tarifMagasin: number;
   prixPromo?: number | null;
   tarifAdherent?: number | null;

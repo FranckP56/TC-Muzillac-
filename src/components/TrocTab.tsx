@@ -32,8 +32,10 @@ import {
   Check,
   Sparkles,
   Upload,
+  ChevronLeft,
   ChevronRight,
   Info,
+  ShieldCheck,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -277,6 +279,65 @@ async function compressImageToBase64(file: Blob): Promise<string> {
   });
 }
 
+function isTechnicalGoSportCategory(categorie: string): boolean {
+  const s = (categorie || '').toLowerCase().trim();
+  if (!s) return true;
+  return (
+    !s.includes('balle') &&
+    !s.includes('cordage') &&
+    !s.includes('accessoire') &&
+    !s.includes('grip') &&
+    !s.includes('surgrip') &&
+    !s.includes('antivibrateur')
+  );
+}
+
+function getGoSportPhotoSlotLabels(categorie: string): { slot1: string; slot2: string } {
+  const s = (categorie || '').toLowerCase();
+  if (s.includes('chaussure')) {
+    return { slot1: 'Profil / Principale', slot2: 'Semelle / Autre angle' };
+  }
+  if (s.includes('raquette')) {
+    return { slot1: 'Vue globale', slot2: 'Détail cadre / Cordage' };
+  }
+  if (s.includes('sac')) {
+    return { slot1: 'Vue extérieure', slot2: 'Compartiments / Détail' };
+  }
+  if (s.includes('tenue')) {
+    return { slot1: 'Face / Principale', slot2: 'Dos / Détail' };
+  }
+  return { slot1: 'Vue principale', slot2: 'Vue complémentaire' };
+}
+
+function isExternalHttpUrl(url?: string | null): boolean {
+  const s = String(url || '').trim();
+  return s.startsWith('https://') || s.startsWith('http://');
+}
+
+async function convertRemoteImageUrlToBase64(url: string): Promise<string> {
+  const cleanUrl = String(url || '').trim();
+  if (!cleanUrl) throw new Error("URL d'image vide.");
+  if (cleanUrl.startsWith('data:image')) return cleanUrl;
+
+  const tryFetchBlob = async (targetUrl: string): Promise<Blob> => {
+    const res = await fetch(targetUrl, { signal: AbortSignal.timeout(7000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!blob.type.startsWith('image/') && blob.size < 100) {
+      throw new Error('Contenu non image');
+    }
+    return blob;
+  };
+
+  try {
+    const proxyBlob = await tryFetchBlob(`/api/image-proxy?url=${encodeURIComponent(cleanUrl)}`);
+    return await compressImageToBase64(proxyBlob);
+  } catch {
+    const directBlob = await tryFetchBlob(cleanUrl);
+    return await compressImageToBase64(directBlob);
+  }
+}
+
 export const TrocTab: React.FC<TrocTabProps> = ({
   gasUrl,
   selectedSpreadsheetId,
@@ -307,6 +368,8 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   >({});
   const [whatsappConfirmData, setWhatsappConfirmData] = useState<WhatsAppConfirmData | null>(null);
   const [detailGoSportOffreId, setDetailGoSportOffreId] = useState<string | null>(null);
+  const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
+  const detailTouchStartXRef = useRef<number | null>(null);
   const goSportOffresRef = useRef<GoSportOffre[]>([]);
   const stockSaveChainRef = useRef<Record<string, Promise<void>>>({});
 
@@ -314,6 +377,10 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     () => goSportOffres.find((o) => o.id === detailGoSportOffreId) || null,
     [goSportOffres, detailGoSportOffreId]
   );
+
+  useEffect(() => {
+    setDetailPhotoIndex(0);
+  }, [detailGoSportOffreId]);
 
   useEffect(() => {
     goSportOffresRef.current = goSportOffres;
@@ -326,6 +393,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [gsNomProduit, setGsNomProduit] = useState('');
   const [gsCategorie, setGsCategorie] = useState('Raquettes');
   const [gsPhotoUrl, setGsPhotoUrl] = useState('');
+  const [gsPhotoUrl2, setGsPhotoUrl2] = useState('');
+  const [gsActivePhotoSlot, setGsActivePhotoSlot] = useState<1 | 2>(1);
+  const [gsShowExtraPhotoSlot, setGsShowExtraPhotoSlot] = useState(false);
   const [gsTarifMagasin, setGsTarifMagasin] = useState('');
   const [gsPrixPromo, setGsPrixPromo] = useState('');
   const [gsTarifAdherent, setGsTarifAdherent] = useState('');
@@ -336,6 +406,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [gsDescription, setGsDescription] = useState('');
   const [isSavingGoSport, setIsSavingGoSport] = useState(false);
   const [isCompressingGsPhoto, setIsCompressingGsPhoto] = useState(false);
+  const [isConvertingUrlSlot, setIsConvertingUrlSlot] = useState<1 | 2 | null>(null);
+  const [isBackingUpExternalPhotos, setIsBackingUpExternalPhotos] = useState(false);
+  const [backupExternalProgress, setBackupExternalProgress] = useState<{ done: number; total: number } | null>(null);
   const [goSportFormError, setGoSportFormError] = useState<string | null>(null);
   const [goSportSuccessMsg, setGoSportSuccessMsg] = useState<string | null>(null);
   const [deletingGoSportId, setDeletingGoSportId] = useState<string | null>(null);
@@ -349,11 +422,13 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     Array<{ url: string; source: string; useProxy?: boolean; broken?: boolean }>
   >([]);
   const [gsSelectedCandidateUrl, setGsSelectedCandidateUrl] = useState<string | null>(null);
+  const [gsSelectedCandidateUrl2, setGsSelectedCandidateUrl2] = useState<string | null>(null);
   const [gsValidatingPhotoUrl, setGsValidatingPhotoUrl] = useState<string | null>(null);
   const [gsLookupSuggestedDesc, setGsLookupSuggestedDesc] = useState('');
   const [gsLastLookedUpRef, setGsLastLookedUpRef] = useState('');
   const gsFileInputRef = useRef<HTMLInputElement>(null);
   const gsCameraInputRef = useRef<HTMLInputElement>(null);
+  const gsUploadTargetSlotRef = useRef<1 | 2>(1);
 
   // ==================== ÉTAT : PETITES ANNONCES (Troc_Annonces) ====================
   const [annonces, setAnnonces] = useState<TrocAnnonce[]>([]);
@@ -371,7 +446,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [formSuccessMsg, setFormSuccessMsg] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; titre: string } | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ photos: string[]; index: number; titre: string } | null>(null);
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
 
   // Favoris & Mes Annonces (localStorage)
@@ -561,12 +636,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setGsLookupWarning(null);
     setGsLookupPhotos([]);
     setGsSelectedCandidateUrl(null);
+    setGsSelectedCandidateUrl2(null);
     setGsValidatingPhotoUrl(null);
     setGsLookupSuggestedDesc('');
     setGsLastLookedUpRef('');
     setGsNomProduit('');
     setGsCategorie('Raquettes');
     setGsPhotoUrl('');
+    setGsPhotoUrl2('');
+    setGsActivePhotoSlot(1);
+    setGsShowExtraPhotoSlot(false);
     setGsTarifMagasin('');
     setGsPrixPromo('');
     setGsTarifAdherent('');
@@ -689,12 +768,16 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setGsLookupWarning(null);
     setGsLookupPhotos([]);
     setGsSelectedCandidateUrl(null);
+    setGsSelectedCandidateUrl2(null);
     setGsValidatingPhotoUrl(null);
     setGsLookupSuggestedDesc('');
     setGsLastLookedUpRef('');
     setGsNomProduit(offre.nomProduit);
     setGsCategorie(offre.categorie || 'Équipement');
     setGsPhotoUrl(offre.photoUrl || '');
+    setGsPhotoUrl2(offre.photoUrl2 || '');
+    setGsActivePhotoSlot(offre.photoUrl && !offre.photoUrl2 && isTechnicalGoSportCategory(offre.categorie || '') ? 2 : 1);
+    setGsShowExtraPhotoSlot(Boolean(offre.photoUrl2));
     setGsTarifMagasin(offre.tarifMagasin ? String(offre.tarifMagasin) : '');
     setGsPrixPromo(
       offre.prixPromo !== null && offre.prixPromo !== undefined ? String(offre.prixPromo) : ''
@@ -734,33 +817,136 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     }
   };
 
-  const handleSelectAndValidatePhoto = async (photo: {
-    url: string;
-    source: string;
-    useProxy?: boolean;
-  }) => {
-    setGsSelectedCandidateUrl(photo.url);
+  const handleSelectAndValidatePhoto = async (
+    photo: {
+      url: string;
+      source: string;
+      useProxy?: boolean;
+    },
+    slotOverride?: 1 | 2
+  ) => {
+    const targetSlot: 1 | 2 = slotOverride ?? gsActivePhotoSlot;
+    if (targetSlot === 1) {
+      setGsSelectedCandidateUrl(photo.url);
+    } else {
+      setGsSelectedCandidateUrl2(photo.url);
+      setGsShowExtraPhotoSlot(true);
+    }
     setGsLookupError(null);
+    setGsLookupWarning(null);
+    setGsValidatingPhotoUrl(photo.url);
 
-    if (photo.useProxy) {
-      setGsValidatingPhotoUrl(photo.url);
-      try {
-        const res = await fetch(`/api/image-proxy?url=${encodeURIComponent(photo.url)}`);
-        if (res.ok) {
-          const blob = await res.blob();
-          const compressed = await compressImageToBase64(blob);
-          setGsPhotoUrl(compressed);
-          setGsValidatingPhotoUrl(null);
-          return;
-        }
-      } catch {
-        // Fallback URL directe
-      } finally {
-        setGsValidatingPhotoUrl(null);
-      }
+    let finalValue = photo.url;
+    try {
+      // Sauvegarde systématique en local (proxy serveur + compression JPEG < 42 Ko) pour éviter tout lien cassé
+      finalValue = await convertRemoteImageUrlToBase64(photo.url);
+    } catch {
+      setGsLookupWarning(
+        "Impossible de copier automatiquement cette photo en local (site protégé) — le lien direct est conservé temporairement."
+      );
+    } finally {
+      setGsValidatingPhotoUrl(null);
     }
 
-    setGsPhotoUrl(photo.url);
+    if (targetSlot === 1) {
+      setGsPhotoUrl(finalValue);
+      if (isTechnicalGoSportCategory(gsCategorie) && !gsPhotoUrl2.trim()) {
+        setGsActivePhotoSlot(2);
+      }
+    } else {
+      setGsPhotoUrl2(finalValue);
+    }
+  };
+
+  const handleConvertManualUrlSlot = async (slot: 1 | 2) => {
+    const rawUrl = (slot === 1 ? gsPhotoUrl : gsPhotoUrl2).trim();
+    if (!isExternalHttpUrl(rawUrl)) return;
+    setIsConvertingUrlSlot(slot);
+    setGoSportFormError(null);
+    try {
+      const compressed = await convertRemoteImageUrlToBase64(rawUrl);
+      if (slot === 1) setGsPhotoUrl(compressed);
+      else setGsPhotoUrl2(compressed);
+    } catch {
+      setGoSportFormError(
+        `Impossible de sauvegarder automatiquement le lien de la photo ${slot} (site externe bloqué).`
+      );
+    } finally {
+      setIsConvertingUrlSlot(null);
+    }
+  };
+
+  const handleBackupAllExternalGoSportPhotos = async () => {
+    const targets = goSportOffresRef.current.filter(
+      (o) => isExternalHttpUrl(o.photoUrl) || isExternalHttpUrl(o.photoUrl2)
+    );
+    if (targets.length === 0) return;
+
+    setIsBackingUpExternalPhotos(true);
+    setBackupExternalProgress({ done: 0, total: targets.length });
+    setGoSportFormError(null);
+
+    let convertedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const offre = targets[i];
+      let nextPhoto1 = (offre.photoUrl || '').trim();
+      let nextPhoto2 = (offre.photoUrl2 || '').trim();
+      let changed = false;
+
+      if (isExternalHttpUrl(nextPhoto1)) {
+        try {
+          nextPhoto1 = await convertRemoteImageUrlToBase64(nextPhoto1);
+          changed = true;
+        } catch {
+          failedCount++;
+        }
+      }
+      if (isExternalHttpUrl(nextPhoto2)) {
+        try {
+          nextPhoto2 = await convertRemoteImageUrlToBase64(nextPhoto2);
+          changed = true;
+        } catch {
+          failedCount++;
+        }
+      }
+
+      if (changed) {
+        const res = await saveGoSportOffreToSheet(
+          {
+            ...offre,
+            photoUrl: nextPhoto1,
+            photoUrl2: nextPhoto2,
+          },
+          gasUrl || TCM_APPS_SCRIPT_URL
+        );
+        if (res.success) {
+          convertedCount++;
+        } else {
+          failedCount++;
+        }
+      }
+
+      setBackupExternalProgress({ done: i + 1, total: targets.length });
+    }
+
+    setIsBackingUpExternalPhotos(false);
+    setBackupExternalProgress(null);
+    await loadGoSportLive();
+
+    if (convertedCount > 0) {
+      setGoSportSuccessMsg(
+        `${convertedCount} fiche(s) photo sauvegardée(s) localement dans Google Sheets.${
+          failedCount > 0 ? ` (${failedCount} lien(s) inaccessible(s))` : ''
+        }`
+      );
+      setTimeout(() => setGoSportSuccessMsg(null), 6000);
+    } else if (failedCount > 0) {
+      setGoSportFormError(
+        "Certains liens externes n'ont pas pu être téléchargés (site source indisponible ou protégé)."
+      );
+    }
   };
 
   const handleAddGsStockRow = () => {
@@ -793,14 +979,34 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setGsStockItems((prev) => prev.filter((item) => item.key !== key));
   };
 
+  const triggerGsPhotoUpload = (mode: 'camera' | 'file', slot: 1 | 2) => {
+    gsUploadTargetSlotRef.current = slot;
+    if (mode === 'camera') {
+      gsCameraInputRef.current?.click();
+    } else {
+      gsFileInputRef.current?.click();
+    }
+  };
+
   const handleGsPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const targetSlot = gsUploadTargetSlotRef.current;
     setIsCompressingGsPhoto(true);
     setGoSportFormError(null);
     try {
       const compressed = await compressImageToBase64(file);
-      setGsPhotoUrl(compressed);
+      if (targetSlot === 1) {
+        setGsPhotoUrl(compressed);
+        setGsSelectedCandidateUrl(null);
+        if (isTechnicalGoSportCategory(gsCategorie) && !gsPhotoUrl2.trim()) {
+          setGsActivePhotoSlot(2);
+        }
+      } else {
+        setGsPhotoUrl2(compressed);
+        setGsSelectedCandidateUrl2(null);
+        setGsShowExtraPhotoSlot(true);
+      }
     } catch (err: any) {
       setGoSportFormError(err?.message || "Erreur lors du traitement de la photo.");
     } finally {
@@ -853,6 +1059,25 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       gsReferenceClean.trim() || (finalRefMag ? deriveCleanSupplierRef(finalRefMag) : '');
 
     setIsSavingGoSport(true);
+
+    // Sauvegarde automatique en local si un lien externe http(s) reste dans Photo 1 ou Photo 2
+    let finalPhoto1 = gsPhotoUrl.trim();
+    let finalPhoto2 = gsPhotoUrl2.trim();
+    if (isExternalHttpUrl(finalPhoto1)) {
+      try {
+        finalPhoto1 = await convertRemoteImageUrlToBase64(finalPhoto1);
+      } catch {
+        // Conserver l'URL si le serveur distant refuse le téléchargement
+      }
+    }
+    if (isExternalHttpUrl(finalPhoto2)) {
+      try {
+        finalPhoto2 = await convertRemoteImageUrlToBase64(finalPhoto2);
+      } catch {
+        // Conserver l'URL si le serveur distant refuse le téléchargement
+      }
+    }
+
     const res = await saveGoSportOffreToSheet(
       {
         id: editingGoSportId || undefined,
@@ -860,7 +1085,8 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         referenceFabricantClean: finalRefClean || undefined,
         nomProduit: gsNomProduit.trim(),
         categorie: gsCategorie.trim() || 'Équipement',
-        photoUrl: gsPhotoUrl.trim(),
+        photoUrl: finalPhoto1,
+        photoUrl2: finalPhoto2,
         tarifMagasin: magNum,
         prixPromo: promoNum,
         tarifAdherent: adhNum,
@@ -1145,7 +1371,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
             {!photoInvalid ? (
               <button
                 type="button"
-                onClick={() => setLightboxPhoto({ url: annonce.photoUrl!, titre: annonce.titre })}
+                onClick={() => setLightboxPhoto({ photos: [annonce.photoUrl!], index: 0, titre: annonce.titre })}
                 className="w-full h-full block cursor-zoom-in"
                 title="Agrandir la photo"
               >
@@ -1566,7 +1792,15 @@ export const TrocTab: React.FC<TrocTabProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {filteredGoSportOffres.map((offre) => {
-                const photoInvalid = !offre.photoUrl || goSportBrokenPhotos[offre.id];
+                const photo1Broken = !offre.photoUrl || goSportBrokenPhotos[`${offre.id}:1`];
+                const photo2Broken = !offre.photoUrl2 || goSportBrokenPhotos[`${offre.id}:2`];
+                const cardThumbUrl = !photo1Broken
+                  ? offre.photoUrl
+                  : !photo2Broken
+                    ? offre.photoUrl2
+                    : undefined;
+                const cardThumbKey = !photo1Broken ? `${offre.id}:1` : `${offre.id}:2`;
+                const validPhotoCount = (photo1Broken ? 0 : 1) + (photo2Broken ? 0 : 1);
                 const hasPromo = offre.prixPromo !== null && offre.prixPromo !== undefined;
                 const hasAdherent = offre.tarifAdherent !== null && offre.tarifAdherent !== undefined;
                 const parsedSizes = parseGoSportTaillesDispo(offre.taillesDispo);
@@ -1604,13 +1838,13 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                       title="Ouvrir la fiche détaillée du produit"
                     >
                       <div className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
-                        {!photoInvalid ? (
+                        {cardThumbUrl ? (
                           <img
-                            src={offre.photoUrl}
+                            src={cardThumbUrl}
                             alt={offre.nomProduit}
                             referrerPolicy="no-referrer"
                             onError={() =>
-                              setGoSportBrokenPhotos((prev) => ({ ...prev, [offre.id]: true }))
+                              setGoSportBrokenPhotos((prev) => ({ ...prev, [cardThumbKey]: true }))
                             }
                             className="w-full h-full object-cover object-center group-hover/card:scale-105 transition-transform duration-200"
                           />
@@ -1619,6 +1853,12 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                             <ShoppingBag className="w-6 h-6 opacity-40" />
                             <span className="text-[10px] font-semibold">Visuel</span>
                           </div>
+                        )}
+                        {validPhotoCount > 1 && (
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/80 border border-white/15 text-white text-[9px] font-black inline-flex items-center gap-0.5 pointer-events-none">
+                            <Camera className="w-2.5 h-2.5 text-[#FF6D00]" />
+                            <span>{validPhotoCount}</span>
+                          </span>
                         )}
                       </div>
 
@@ -2159,84 +2399,150 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   </button>
                 </div>
 
+                {(() => {
+                  const externalOffresCount = goSportOffres.filter(
+                    (o) => isExternalHttpUrl(o.photoUrl) || isExternalHttpUrl(o.photoUrl2)
+                  ).length;
+                  if (externalOffresCount === 0 && !isBackingUpExternalPhotos) return null;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <p className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>
+                            {externalOffresCount} fiche(s) utilise(nt) encore un lien photo externe
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-amber-200/80">
+                          Sauvegardez-les en local dans le Google Sheet pour éviter tout lien cassé si un site marchand change ses URLs.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isBackingUpExternalPhotos}
+                        onClick={() => void handleBackupAllExternalGoSportPhotos()}
+                        className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-60 shrink-0 whitespace-nowrap"
+                      >
+                        {isBackingUpExternalPhotos ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>
+                              {backupExternalProgress
+                                ? `${backupExternalProgress.done}/${backupExternalProgress.total}`
+                                : 'Sauvegarde...'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Sauvegarder en local</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
+
                 {goSportOffres.length === 0 ? (
                   <div className="p-6 rounded-2xl bg-[#0b0e14] border border-zinc-800 text-center text-xs text-zinc-400">
                     Aucun produit dans « Partenaire_GOSport ». Cliquez sur « Ajouter un produit » pour créer la première offre.
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {goSportOffres.map((o) => (
-                      <div
-                        key={o.id}
-                        className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                      >
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-white text-sm truncate">{o.nomProduit}</span>
-                            {isGoSportUnitaire(o.reference, o.nomProduit) && (
-                              <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase">
-                                Unité (/U)
-                              </span>
+                    {goSportOffres.map((o) => {
+                      const hasExternalLink =
+                        isExternalHttpUrl(o.photoUrl) || isExternalHttpUrl(o.photoUrl2);
+                      const photoCount = (o.photoUrl ? 1 : 0) + (o.photoUrl2 ? 1 : 0);
+                      const needsSecondPhoto =
+                        isTechnicalGoSportCategory(o.categorie) && photoCount < 2;
+
+                      return (
+                        <div
+                          key={o.id}
+                          className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-white text-sm truncate">{o.nomProduit}</span>
+                              {isGoSportUnitaire(o.reference, o.nomProduit) && (
+                                <span className="px-2 py-0.5 rounded-md bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black uppercase">
+                                  Unité (/U)
+                                </span>
+                              )}
+                              {o.excluClub && (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-400 text-zinc-950 text-[10px] font-black uppercase">
+                                  Exclu Club
+                                </span>
+                              )}
+                              {photoCount >= 2 ? (
+                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 text-[10px] font-bold">
+                                  2 photos
+                                </span>
+                              ) : needsSecondPhoto ? (
+                                <span className="px-1.5 py-0.5 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] font-semibold">
+                                  {photoCount}/2 photo
+                                </span>
+                              ) : null}
+                              {hasExternalLink && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/35 text-amber-300 text-[10px] font-bold">
+                                  Lien externe
+                                </span>
+                              )}
+                            </div>
+                            {(o.reference || o.referenceFabricantClean) && (
+                              <p className="text-[11px] font-mono text-zinc-400">
+                                {o.reference ? `Réf. magasin : ${o.reference}` : ''}
+                                {o.reference &&
+                                o.referenceFabricantClean &&
+                                o.referenceFabricantClean !== o.reference
+                                  ? ` · Réf. clean : ${o.referenceFabricantClean}`
+                                  : !o.reference && o.referenceFabricantClean
+                                    ? `Réf. fournisseur : ${o.referenceFabricantClean}`
+                                    : ''}
+                              </p>
                             )}
-                            {o.excluClub && (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-400 text-zinc-950 text-[10px] font-black uppercase">
-                                Exclu Club
-                              </span>
+                            <p className="text-xs text-zinc-400 tabular-nums">
+                              Magasin: {formatPriceEur(o.tarifMagasin)}
+                              {o.prixPromo !== null && o.prixPromo !== undefined
+                                ? ` · Promo: ${formatPriceEur(o.prixPromo)}`
+                                : ''}
+                              {o.tarifAdherent !== null && o.tarifAdherent !== undefined
+                                ? ` · Adhérent: ${formatPriceEur(o.tarifAdherent)}`
+                                : ''}
+                            </p>
+                            {o.taillesDispo && (
+                              <p className="text-[11px] text-emerald-400">
+                                Tailles : {o.taillesDispo}
+                              </p>
                             )}
                           </div>
-                          {(o.reference || o.referenceFabricantClean) && (
-                            <p className="text-[11px] font-mono text-zinc-400">
-                              {o.reference ? `Réf. magasin : ${o.reference}` : ''}
-                              {o.reference &&
-                              o.referenceFabricantClean &&
-                              o.referenceFabricantClean !== o.reference
-                                ? ` · Réf. clean : ${o.referenceFabricantClean}`
-                                : !o.reference && o.referenceFabricantClean
-                                  ? `Réf. fournisseur : ${o.referenceFabricantClean}`
-                                  : ''}
-                            </p>
-                          )}
-                          <p className="text-xs text-zinc-400 tabular-nums">
-                            Magasin: {formatPriceEur(o.tarifMagasin)}
-                            {o.prixPromo !== null && o.prixPromo !== undefined
-                              ? ` · Promo: ${formatPriceEur(o.prixPromo)}`
-                              : ''}
-                            {o.tarifAdherent !== null && o.tarifAdherent !== undefined
-                              ? ` · Adhérent: ${formatPriceEur(o.tarifAdherent)}`
-                              : ''}
-                          </p>
-                          {o.taillesDispo && (
-                            <p className="text-[11px] text-emerald-400">
-                              Tailles : {o.taillesDispo}
-                            </p>
-                          )}
-                        </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => openGoSportEdit(o)}
-                            className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Pencil className="w-3.5 h-3.5 text-amber-300" />
-                            <span>Modifier</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={deletingGoSportId === o.id}
-                            onClick={() => handleDeleteGoSport(o.id)}
-                            aria-label="Supprimer le produit"
-                            className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 flex items-center justify-center cursor-pointer disabled:opacity-50"
-                          >
-                            {deletingGoSportId === o.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4" />
-                            )}
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openGoSportEdit(o)}
+                              className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Modifier</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingGoSportId === o.id}
+                              onClick={() => handleDeleteGoSport(o.id)}
+                              aria-label="Supprimer le produit"
+                              className="min-w-[44px] min-h-[44px] px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 flex items-center justify-center cursor-pointer disabled:opacity-50"
+                            >
+                              {deletingGoSportId === o.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2370,7 +2676,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                         <button
                           type="button"
                           disabled={isCompressingGsPhoto}
-                          onClick={() => gsCameraInputRef.current?.click()}
+                          onClick={() => triggerGsPhotoUpload('camera', gsActivePhotoSlot)}
                           className="min-h-[40px] px-3 py-1.5 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 border border-orange-400/45 text-orange-200 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
                         >
                           <Camera className="w-3.5 h-3.5 text-orange-400" />
@@ -2379,7 +2685,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                         <button
                           type="button"
                           disabled={isCompressingGsPhoto}
-                          onClick={() => gsFileInputRef.current?.click()}
+                          onClick={() => triggerGsPhotoUpload('file', gsActivePhotoSlot)}
                           className="min-h-[40px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
                         >
                           <Upload className="w-3.5 h-3.5 text-zinc-300" />
@@ -2396,84 +2702,139 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                     </div>
                   )}
 
-                  {gsLookupPhotos.filter((p) => !p.broken).length > 0 && (
-                    <div className="space-y-2 pt-1">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[11px] font-bold text-zinc-200">
-                          Photos trouvées ({gsLookupPhotos.filter((p) => !p.broken).length}) — cliquez pour valider :
-                        </p>
-                        {gsPhotoUrl && (
-                          <span className="text-[11px] font-bold text-emerald-400 inline-flex items-center gap-1">
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Photo validée</span>
-                          </span>
-                        )}
-                      </div>
+                  {gsLookupPhotos.filter((p) => !p.broken).length > 0 && (() => {
+                    const isTechCat = isTechnicalGoSportCategory(gsCategorie);
+                    const slotLabels = getGoSportPhotoSlotLabels(gsCategorie);
+                    const showMultiPicker = isTechCat || gsShowExtraPhotoSlot || Boolean(gsPhotoUrl2);
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                        {gsLookupPhotos.map((photo, idx) => {
-                          if (photo.broken) return null;
-                          const isValidated =
-                            gsPhotoUrl === photo.url || gsSelectedCandidateUrl === photo.url;
-                          const isConverting = gsValidatingPhotoUrl === photo.url;
-                          const displaySrc = photo.useProxy
-                            ? `/api/image-proxy?url=${encodeURIComponent(photo.url)}`
-                            : photo.url;
+                    return (
+                      <div className="space-y-2.5 pt-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] font-bold text-zinc-200">
+                            Photos trouvées ({gsLookupPhotos.filter((p) => !p.broken).length}) — sauvegardées en local au clic :
+                          </p>
+                          <div className="flex items-center gap-2">
+                            {gsPhotoUrl && (
+                              <span className="text-[11px] font-bold text-emerald-400 inline-flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Photo 1</span>
+                              </span>
+                            )}
+                            {gsPhotoUrl2 && (
+                              <span className="text-[11px] font-bold text-sky-400 inline-flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Photo 2</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                          return (
+                        {showMultiPicker && (
+                          <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-[#141820] border border-zinc-800">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mr-1">
+                              Assigner à :
+                            </span>
                             <button
-                              key={`${photo.url}-${idx}`}
                               type="button"
-                              onClick={() => handleSelectAndValidatePhoto(photo)}
-                              className={`group relative rounded-xl overflow-hidden border-2 text-left transition cursor-pointer bg-white ${
-                                isValidated
-                                  ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-950/50'
-                                  : 'border-zinc-700 hover:border-[#FF6D00]'
+                              onClick={() => setGsActivePhotoSlot(1)}
+                              className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1.5 ${
+                                gsActivePhotoSlot === 1
+                                  ? 'bg-emerald-500 text-zinc-950 font-black'
+                                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                               }`}
                             >
-                              <div className="aspect-[4/3] w-full bg-white flex items-center justify-center overflow-hidden">
-                                <img
-                                  src={displaySrc}
-                                  alt={`Proposition ${idx + 1}`}
-                                  referrerPolicy="no-referrer"
-                                  onError={() => {
-                                    setGsLookupPhotos((prev) =>
-                                      prev.map((item, i) =>
-                                        i === idx
-                                          ? item.useProxy
-                                            ? { ...item, broken: true }
-                                            : { ...item, useProxy: true }
-                                          : item
-                                      )
-                                    );
-                                  }}
-                                  className="w-full h-full object-contain p-1.5"
-                                />
-                              </div>
-
-                              <div className="px-2 py-1 bg-[#141820] border-t border-zinc-800 flex items-center justify-between gap-1">
-                                <span className="text-[10px] text-zinc-400 truncate">
-                                  {photo.source}
-                                </span>
-                                {isConverting ? (
-                                  <Loader2 className="w-3 h-3 animate-spin text-orange-400 shrink-0" />
-                                ) : isValidated ? (
-                                  <span className="text-[10px] font-black text-emerald-400 shrink-0 inline-flex items-center gap-0.5">
-                                    <Check className="w-3 h-3" />
-                                    Validée
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-bold text-orange-300 shrink-0">
-                                    Choisir
-                                  </span>
-                                )}
-                              </div>
+                              <span>1 · {slotLabels.slot1}</span>
+                              {gsPhotoUrl && <Check className="w-3 h-3" />}
                             </button>
-                          );
-                        })}
+                            <button
+                              type="button"
+                              onClick={() => setGsActivePhotoSlot(2)}
+                              className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer inline-flex items-center gap-1.5 ${
+                                gsActivePhotoSlot === 2
+                                  ? 'bg-sky-500 text-zinc-950 font-black'
+                                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                              }`}
+                            >
+                              <span>2 · {slotLabels.slot2}</span>
+                              {gsPhotoUrl2 && <Check className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {gsLookupPhotos.map((photo, idx) => {
+                            if (photo.broken) return null;
+                            const isPhoto1 =
+                              gsPhotoUrl === photo.url || gsSelectedCandidateUrl === photo.url;
+                            const isPhoto2 =
+                              gsPhotoUrl2 === photo.url || gsSelectedCandidateUrl2 === photo.url;
+                            const isConverting = gsValidatingPhotoUrl === photo.url;
+                            const displaySrc = photo.useProxy
+                              ? `/api/image-proxy?url=${encodeURIComponent(photo.url)}`
+                              : photo.url;
+
+                            return (
+                              <button
+                                key={`${photo.url}-${idx}`}
+                                type="button"
+                                onClick={() => void handleSelectAndValidatePhoto(photo)}
+                                className={`group relative rounded-xl overflow-hidden border-2 text-left transition cursor-pointer bg-white ${
+                                  isPhoto1
+                                    ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-950/50'
+                                    : isPhoto2
+                                      ? 'border-sky-400 ring-2 ring-sky-400/50 shadow-lg shadow-sky-950/50'
+                                      : 'border-zinc-700 hover:border-[#FF6D00]'
+                                }`}
+                              >
+                                <div className="aspect-[4/3] w-full bg-white flex items-center justify-center overflow-hidden">
+                                  <img
+                                    src={displaySrc}
+                                    alt={`Proposition ${idx + 1}`}
+                                    referrerPolicy="no-referrer"
+                                    onError={() => {
+                                      setGsLookupPhotos((prev) =>
+                                        prev.map((item, i) =>
+                                          i === idx
+                                            ? item.useProxy
+                                              ? { ...item, broken: true }
+                                              : { ...item, useProxy: true }
+                                            : item
+                                        )
+                                      );
+                                    }}
+                                    className="w-full h-full object-contain p-1.5"
+                                  />
+                                </div>
+
+                                <div className="px-2 py-1 bg-[#141820] border-t border-zinc-800 flex items-center justify-between gap-1">
+                                  <span className="text-[10px] text-zinc-400 truncate">
+                                    {photo.source}
+                                  </span>
+                                  {isConverting ? (
+                                    <Loader2 className="w-3 h-3 animate-spin text-orange-400 shrink-0" />
+                                  ) : isPhoto1 ? (
+                                    <span className="text-[10px] font-black text-emerald-400 shrink-0 inline-flex items-center gap-0.5">
+                                      <Check className="w-3 h-3" />
+                                      Photo 1
+                                    </span>
+                                  ) : isPhoto2 ? (
+                                    <span className="text-[10px] font-black text-sky-400 shrink-0 inline-flex items-center gap-0.5">
+                                      <Check className="w-3 h-3" />
+                                      Photo 2
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-orange-300 shrink-0">
+                                      {showMultiPicker ? `→ Photo ${gsActivePhotoSlot}` : 'Choisir'}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {gsLookupSuggestedDesc && (
                     <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1.5">
@@ -2725,101 +3086,177 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   )}
                 </div>
 
-                {/* Photo */}
-                <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-orange-400" />
-                      <span>Photo du produit</span>
-                    </label>
-                    <input
-                      ref={gsFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleGsPhotoChange}
-                      className="hidden"
-                    />
-                    <input
-                      ref={gsCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleGsPhotoChange}
-                      className="hidden"
-                    />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={isCompressingGsPhoto}
-                        onClick={() => gsCameraInputRef.current?.click()}
-                        className="min-h-[44px] px-3 py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/40 text-orange-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
-                      >
-                        {isCompressingGsPhoto ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
-                        ) : (
-                          <Camera className="w-4 h-4 text-orange-400" />
-                        )}
-                        <span>{isCompressingGsPhoto ? 'Traitement...' : 'Prendre une photo'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isCompressingGsPhoto}
-                        onClick={() => gsFileInputRef.current?.click()}
-                        className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
-                      >
-                        {isCompressingGsPhoto ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
-                        ) : (
-                          <Upload className="w-4 h-4 text-orange-400" />
-                        )}
-                        <span>{isCompressingGsPhoto ? 'Compression...' : 'Importer une photo'}</span>
-                      </button>
-                    </div>
-                  </div>
+                {/* Photos produit (2 angles pour produits techniques, 1 photo pour balles/accessoires) */}
+                {(() => {
+                  const isTechCat = isTechnicalGoSportCategory(gsCategorie);
+                  const slotLabels = getGoSportPhotoSlotLabels(gsCategorie);
+                  const showSlot2 = isTechCat || gsShowExtraPhotoSlot || Boolean(gsPhotoUrl2);
 
-                  {gsPhotoUrl ? (
-                    <div className="space-y-2">
-                      <div className="relative h-32 rounded-xl overflow-hidden border border-zinc-700 bg-white">
-                        <img
-                          src={gsPhotoUrl}
-                          alt="Aperçu produit validé"
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-contain p-1.5"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGsPhotoUrl('');
-                            setGsSelectedCandidateUrl(null);
-                          }}
-                          aria-label="Retirer la photo"
-                          className="min-w-[44px] min-h-[44px] absolute top-1.5 right-1.5 rounded-xl bg-black/75 text-white flex items-center justify-center cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                  const renderPhotoSlotEditor = (slot: 1 | 2) => {
+                    const currentVal = slot === 1 ? gsPhotoUrl : gsPhotoUrl2;
+                    const setVal = slot === 1 ? setGsPhotoUrl : setGsPhotoUrl2;
+                    const slotTitle = slot === 1 ? `Photo 1 · ${slotLabels.slot1}` : `Photo 2 · ${slotLabels.slot2}`;
+                    const isLocalSaved = currentVal.startsWith('data:image');
+                    const isExternalUrl = isExternalHttpUrl(currentVal);
+                    const isConverting = isConvertingUrlSlot === slot;
+
+                    return (
+                      <div
+                        key={`gs-photo-slot-${slot}`}
+                        className={`p-3 rounded-xl bg-[#141820] border space-y-2.5 ${
+                          slot === 1 ? 'border-zinc-800' : 'border-sky-500/25'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <span className="text-[11px] font-bold text-zinc-200">{slotTitle}</span>
+                          {isLocalSaved ? (
+                            <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" />
+                              Sauvegardée en local
+                            </span>
+                          ) : isExternalUrl ? (
+                            <button
+                              type="button"
+                              disabled={isConverting}
+                              onClick={() => void handleConvertManualUrlSlot(slot)}
+                              className="text-[10px] font-bold text-amber-300 hover:text-amber-200 underline cursor-pointer inline-flex items-center gap-1"
+                            >
+                              {isConverting ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <ShieldCheck className="w-3 h-3" />
+                              )}
+                              <span>{isConverting ? 'Copie...' : 'Sauvegarder en local'}</span>
+                            </button>
+                          ) : null}
+                        </div>
+
+                        {currentVal ? (
+                          <div className="space-y-2">
+                            <div className="relative h-28 rounded-xl overflow-hidden border border-zinc-700 bg-white">
+                              <img
+                                src={currentVal}
+                                alt={slotTitle}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-contain p-1.5"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setVal('');
+                                  if (slot === 1) setGsSelectedCandidateUrl(null);
+                                  else setGsSelectedCandidateUrl2(null);
+                                }}
+                                aria-label={`Retirer la photo ${slot}`}
+                                className="min-w-[36px] min-h-[36px] absolute top-1.5 right-1.5 rounded-lg bg-black/75 text-white flex items-center justify-center cursor-pointer"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            {!isLocalSaved && (
+                              <input
+                                type="url"
+                                inputMode="url"
+                                value={currentVal}
+                                onChange={(e) => setVal(e.target.value)}
+                                placeholder="URL de la photo (https://...)"
+                                className="w-full min-h-[40px] px-3 py-1.5 rounded-xl bg-[#0b0e14] border border-zinc-700 text-white placeholder-zinc-500 text-xs focus:border-[#FF6D00] focus:outline-none"
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <input
+                            type="url"
+                            inputMode="url"
+                            value={currentVal}
+                            onChange={(e) => setVal(e.target.value)}
+                            placeholder="Ou collez une URL d'image (https://...)"
+                            className="w-full min-h-[40px] px-3 py-1.5 rounded-xl bg-[#0b0e14] border border-zinc-700 text-white placeholder-zinc-500 text-xs focus:border-[#FF6D00] focus:outline-none"
+                          />
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={isCompressingGsPhoto}
+                            onClick={() => triggerGsPhotoUpload('camera', slot)}
+                            className="min-h-[38px] flex-1 px-2.5 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/35 text-orange-200 text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-orange-400" />
+                            <span>Prendre</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isCompressingGsPhoto}
+                            onClick={() => triggerGsPhotoUpload('file', slot)}
+                            className="min-h-[38px] flex-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-orange-400" />
+                            <span>Importer</span>
+                          </button>
+                        </div>
                       </div>
-                      {!gsPhotoUrl.startsWith('data:image') && (
-                        <input
-                          type="url"
-                          inputMode="url"
-                          value={gsPhotoUrl}
-                          onChange={(e) => setGsPhotoUrl(e.target.value)}
-                          placeholder="URL de la photo (https://...)"
-                          className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
-                        />
+                    );
+                  };
+
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5 text-orange-400" />
+                          <span>
+                            {isTechCat
+                              ? 'Photos du produit (2 vues conseillées)'
+                              : 'Photo du produit'}
+                          </span>
+                        </label>
+                        {!showSlot2 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGsShowExtraPhotoSlot(true);
+                              setGsActivePhotoSlot(2);
+                            }}
+                            className="text-[11px] font-bold text-sky-400 hover:text-sky-300 cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Ajouter une 2ᵉ photo</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <input
+                        ref={gsFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleGsPhotoChange}
+                        className="hidden"
+                      />
+                      <input
+                        ref={gsCameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleGsPhotoChange}
+                        className="hidden"
+                      />
+
+                      <div className={`grid grid-cols-1 ${showSlot2 ? 'sm:grid-cols-2' : ''} gap-3`}>
+                        {renderPhotoSlotEditor(1)}
+                        {showSlot2 && renderPhotoSlotEditor(2)}
+                      </div>
+
+                      {isTechCat && gsPhotoUrl && !gsPhotoUrl2 && (
+                        <p className="text-[11px] text-sky-300/90 flex items-center gap-1.5">
+                          <Info className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                          <span>
+                            Produit technique : ajoutez une 2ᵉ vue ({slotLabels.slot2.toLowerCase()}) pour enrichir la fiche adhérent.
+                          </span>
+                        </p>
                       )}
                     </div>
-                  ) : (
-                    <input
-                      type="url"
-                      inputMode="url"
-                      value={gsPhotoUrl}
-                      onChange={(e) => setGsPhotoUrl(e.target.value)}
-                      placeholder="Ou collez une URL d'image (https://...)"
-                      className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
-                    />
-                  )}
-                </div>
+                  );
+                })()}
 
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
@@ -3145,29 +3582,75 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         document.body
       )}
 
-      {/* Lightbox photo */}
+      {/* Lightbox photo (avec navigation multi-angles) */}
       {lightboxPhoto && typeof document !== 'undefined' && createPortal(
         <div
           onClick={() => setLightboxPhoto(null)}
           className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
         >
-          <div className="relative max-w-2xl w-full space-y-2" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between text-white">
-              <span className="font-heading font-bold text-sm truncate pr-4">{lightboxPhoto.titre}</span>
+          <div className="relative max-w-2xl w-full space-y-2.5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between text-white gap-2">
+              <span className="font-heading font-bold text-sm truncate">
+                {lightboxPhoto.titre}
+                {lightboxPhoto.photos.length > 1
+                  ? ` (${lightboxPhoto.index + 1}/${lightboxPhoto.photos.length})`
+                  : ''}
+              </span>
               <button
                 type="button"
                 onClick={() => setLightboxPhoto(null)}
-                className="min-w-[44px] min-h-[44px] rounded-xl bg-zinc-800 text-white flex items-center justify-center cursor-pointer"
+                aria-label="Fermer l'aperçu"
+                className="min-w-[44px] min-h-[44px] rounded-xl bg-zinc-800 text-white flex items-center justify-center cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <img
-              src={lightboxPhoto.url}
-              alt={lightboxPhoto.titre}
-              referrerPolicy="no-referrer"
-              className="w-full max-h-[80vh] object-contain rounded-2xl border border-zinc-700 bg-black"
-            />
+            <div className="relative">
+              <img
+                src={lightboxPhoto.photos[lightboxPhoto.index]}
+                alt={lightboxPhoto.titre}
+                referrerPolicy="no-referrer"
+                className="w-full max-h-[78vh] object-contain rounded-2xl border border-zinc-700 bg-white p-2"
+              />
+              {lightboxPhoto.photos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Photo précédente"
+                    onClick={() =>
+                      setLightboxPhoto((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              index: (prev.index - 1 + prev.photos.length) % prev.photos.length,
+                            }
+                          : null
+                      )
+                    }
+                    className="min-w-[44px] min-h-[44px] absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/75 hover:bg-black text-white flex items-center justify-center cursor-pointer border border-white/20"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Photo suivante"
+                    onClick={() =>
+                      setLightboxPhoto((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              index: (prev.index + 1) % prev.photos.length,
+                            }
+                          : null
+                      )
+                    }
+                    className="min-w-[44px] min-h-[44px] absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/75 hover:bg-black text-white flex items-center justify-center cursor-pointer border border-white/20"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>,
         document.body
@@ -3325,7 +3808,25 @@ export const TrocTab: React.FC<TrocTabProps> = ({
       {detailGoSportOffre && typeof document !== 'undefined' && createPortal(
         (() => {
           const offre = detailGoSportOffre;
-          const photoInvalid = !offre.photoUrl || goSportBrokenPhotos[offre.id];
+          const detailSlotLabels = getGoSportPhotoSlotLabels(offre.categorie);
+          const detailPhotoList: Array<{ key: string; url: string; label: string }> = [];
+          if (offre.photoUrl && !goSportBrokenPhotos[`${offre.id}:1`]) {
+            detailPhotoList.push({
+              key: `${offre.id}:1`,
+              url: offre.photoUrl,
+              label: detailSlotLabels.slot1,
+            });
+          }
+          if (offre.photoUrl2 && !goSportBrokenPhotos[`${offre.id}:2`]) {
+            detailPhotoList.push({
+              key: `${offre.id}:2`,
+              url: offre.photoUrl2,
+              label: detailSlotLabels.slot2,
+            });
+          }
+          const safePhotoIdx =
+            detailPhotoList.length > 0 ? Math.min(detailPhotoIndex, detailPhotoList.length - 1) : 0;
+          const activeDetailPhoto = detailPhotoList[safePhotoIdx] || null;
           const hasPromo = offre.prixPromo !== null && offre.prixPromo !== undefined;
           const hasAdherent = offre.tarifAdherent !== null && offre.tarifAdherent !== undefined;
           const parsedSizes = parseGoSportTaillesDispo(offre.taillesDispo);
@@ -3394,29 +3895,124 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                   </button>
                 </div>
 
-                {/* Image complète recadrée proprement */}
-                <div className="relative h-56 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
-                  {!photoInvalid ? (
-                    <button
-                      type="button"
-                      onClick={() => setLightboxPhoto({ url: offre.photoUrl!, titre: offre.nomProduit })}
-                      className="w-full h-full block cursor-zoom-in"
-                      title="Agrandir la photo"
-                    >
-                      <img
-                        src={offre.photoUrl}
-                        alt={offre.nomProduit}
-                        referrerPolicy="no-referrer"
-                        onError={() =>
-                          setGoSportBrokenPhotos((prev) => ({ ...prev, [offre.id]: true }))
+                {/* Galerie multi-angles tactile + miniatures */}
+                <div className="space-y-2">
+                  <div
+                    onTouchStart={(e) => {
+                      detailTouchStartXRef.current = e.touches[0]?.clientX ?? null;
+                    }}
+                    onTouchEnd={(e) => {
+                      if (detailPhotoList.length <= 1 || detailTouchStartXRef.current === null) return;
+                      const endX = e.changedTouches[0]?.clientX;
+                      if (typeof endX === 'number') {
+                        const dx = endX - detailTouchStartXRef.current;
+                        if (Math.abs(dx) > 40) {
+                          setDetailPhotoIndex((prev) =>
+                            dx < 0
+                              ? (prev + 1) % detailPhotoList.length
+                              : (prev - 1 + detailPhotoList.length) % detailPhotoList.length
+                          );
                         }
-                        className="w-full h-full object-contain p-2 bg-white"
-                      />
-                    </button>
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
-                      <ShoppingBag className="w-10 h-10 opacity-40" />
-                      <span className="text-xs font-semibold">Visuel produit indisponible</span>
+                      }
+                      detailTouchStartXRef.current = null;
+                    }}
+                    className="relative h-56 sm:h-60 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden"
+                  >
+                    {activeDetailPhoto ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxPhoto({
+                              photos: detailPhotoList.map((p) => p.url),
+                              index: safePhotoIdx,
+                              titre: offre.nomProduit,
+                            })
+                          }
+                          className="w-full h-full block cursor-zoom-in"
+                          title="Agrandir la photo"
+                        >
+                          <img
+                            src={activeDetailPhoto.url}
+                            alt={`${offre.nomProduit} - ${activeDetailPhoto.label}`}
+                            referrerPolicy="no-referrer"
+                            onError={() =>
+                              setGoSportBrokenPhotos((prev) => ({
+                                ...prev,
+                                [activeDetailPhoto.key]: true,
+                              }))
+                            }
+                            className="w-full h-full object-contain p-2 bg-white"
+                          />
+                        </button>
+
+                        {detailPhotoList.length > 1 && (
+                          <>
+                            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/75 border border-white/15 text-white text-[10px] font-bold pointer-events-none">
+                              {activeDetailPhoto.label}
+                            </span>
+                            <span className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/75 border border-white/15 text-zinc-200 text-[10px] font-mono font-bold pointer-events-none">
+                              {safePhotoIdx + 1}/{detailPhotoList.length}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label="Vue précédente"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDetailPhotoIndex(
+                                  (safePhotoIdx - 1 + detailPhotoList.length) % detailPhotoList.length
+                                );
+                              }}
+                              className="min-w-[38px] min-h-[38px] absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Vue suivante"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDetailPhotoIndex((safePhotoIdx + 1) % detailPhotoList.length);
+                              }}
+                              className="min-w-[38px] min-h-[38px] absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/70 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer border border-white/15 transition"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-zinc-600">
+                        <ShoppingBag className="w-10 h-10 opacity-40" />
+                        <span className="text-xs font-semibold">Visuel produit indisponible</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {detailPhotoList.length > 1 && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {detailPhotoList.map((item, idx) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => setDetailPhotoIndex(idx)}
+                          className={`flex items-center gap-2 p-1.5 rounded-xl border text-left transition cursor-pointer ${
+                            idx === safePhotoIdx
+                              ? 'bg-orange-500/15 border-[#FF6D00] text-white'
+                              : 'bg-[#0b0e14] border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-white overflow-hidden shrink-0 border border-zinc-700">
+                            <img
+                              src={item.url}
+                              alt={item.label}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-contain p-0.5"
+                            />
+                          </div>
+                          <span className="text-[11px] font-bold truncate">{item.label}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -372,6 +372,7 @@ function getGoSportColMap(headersRow) {
     nomProduit: findCol(['nom_produit', 'nom produit', 'nom'], 1),
     categorie: findCol(['categorie', 'catégorie'], 2),
     photoUrl: findCol(['photo_url', 'photo url', 'photo'], 3),
+    photoUrl2: findCol(['photo_url_2', 'photo_url2', 'photo url 2', 'photo_2', 'photo 2'], -1),
     tarifMagasin: findCol(['tarif_magasin', 'tarif magasin'], 4),
     prixPromo: findCol(['prix_promo', 'prix promo'], 5),
     tarifAdherent: findCol(['tarif_adherent', 'tarif adhérent', 'tarif adherent'], 6),
@@ -388,7 +389,7 @@ function handleSaveGoSportOffre(payload) {
     sheet = ss.insertSheet('Partenaire_GOSport');
     sheet.setTabColor('#0284C7');
     sheet.appendRow([
-      "ID", "Référence", "Reference_Fabricant_Clean", "Nom_Produit", "Categorie", "Photo_URL",
+      "ID", "Référence", "Reference_Fabricant_Clean", "Nom_Produit", "Categorie", "Photo_URL", "Photo_URL_2",
       "Tarif_Magasin", "Prix_Promo", "Tarif_Adherent", "Exclu_Club", "Tailles_Dispo", "Description"
     ]);
     sheet.setFrozenRows(1);
@@ -404,8 +405,15 @@ function handleSaveGoSportOffre(payload) {
   var excluFlag = (o.excluClub === true || String(o.excluClub || '').toUpperCase() === 'OUI') ? 'OUI' : 'NON';
 
   var rows = sheet.getDataRange().getValues();
-  var cols = getGoSportColMap(rows[0] || []);
-  var colCount = Math.max((rows[0] || []).length, 10);
+  var headerRow = (rows[0] || []).slice();
+  var cols = getGoSportColMap(headerRow);
+  if (cols.photoUrl2 < 0 && o.photoUrl2 !== undefined && String(o.photoUrl2).trim() !== '') {
+    var newColIdx = headerRow.length;
+    headerRow.push('Photo_URL_2');
+    sheet.getRange(1, newColIdx + 1).setValue('Photo_URL_2');
+    cols.photoUrl2 = newColIdx;
+  }
+  var colCount = Math.max(headerRow.length, 10);
 
   var matchRowIdx = -1;
   for (var i = 1; i < rows.length; i++) {
@@ -427,6 +435,7 @@ function handleSaveGoSportOffre(payload) {
   if (cols.nomProduit >= 0) rowArr[cols.nomProduit] = safeCellValue(nomTrim);
   if (cols.categorie >= 0) rowArr[cols.categorie] = safeCellValue(String(o.categorie || 'Équipement').trim());
   if (cols.photoUrl >= 0) rowArr[cols.photoUrl] = safeCellValue(String(o.photoUrl || '').trim());
+  if (cols.photoUrl2 >= 0 && o.photoUrl2 !== undefined) rowArr[cols.photoUrl2] = safeCellValue(String(o.photoUrl2 || '').trim());
   if (cols.tarifMagasin >= 0) rowArr[cols.tarifMagasin] = o.tarifMagasin !== '' && o.tarifMagasin !== null && o.tarifMagasin !== undefined ? Number(o.tarifMagasin) : 0;
   if (cols.prixPromo >= 0) rowArr[cols.prixPromo] = o.prixPromo !== '' && o.prixPromo !== null && o.prixPromo !== undefined ? Number(o.prixPromo) : '';
   if (cols.tarifAdherent >= 0) rowArr[cols.tarifAdherent] = o.tarifAdherent !== '' && o.tarifAdherent !== null && o.tarifAdherent !== undefined ? Number(o.tarifAdherent) : '';
