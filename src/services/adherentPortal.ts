@@ -2,7 +2,36 @@ import { APPS_SCRIPT_WEB_APP_URL } from './googleSheets';
 import { AdherentSession } from '../types/tennis';
 
 export function normalizeLicenceKey(raw: string): string {
-  return String(raw || '').trim().replace(/\s+/g, '').toUpperCase();
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-\.]+/g, '');
+}
+
+export function extractLicenceDigits(raw: string): string {
+  return normalizeLicenceKey(raw).replace(/\D/g, '').replace(/^0+/, '');
+}
+
+/**
+ * Compare deux numéros de licence FFT en tolérant l'absence de la lettre finale
+ * ou des zéros initiaux (ex: "1234567" correspond à "1234567A" ou "01234567A").
+ */
+export function licencesMatch(a?: string | null, b?: string | null): boolean {
+  const normA = normalizeLicenceKey(a || '');
+  const normB = normalizeLicenceKey(b || '');
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+
+  const digA = extractLicenceDigits(normA);
+  const digB = extractLicenceDigits(normB);
+  if (!digA || digA.length < 4 || digA !== digB) return false;
+
+  const letterA = normA.replace(/[^A-Z]/g, '');
+  const letterB = normB.replace(/[^A-Z]/g, '');
+  if (letterA && letterB) {
+    return letterA === letterB;
+  }
+  return true;
 }
 
 export function normalizeEmailKey(raw: string): string {
@@ -45,12 +74,16 @@ async function postAppsScriptJson(
     if (parsed && parsed.success === false) {
       const msg = String(parsed.error || 'Opération refusée.');
       const isUnknownAction = msg.toLowerCase().includes('action inconnue');
+      const isMailPermission =
+        msg.includes('script.send_mail') || msg.includes('MailApp.sendEmail');
       return {
         ok: false,
         scriptUpdateNeeded: isUnknownAction,
         error: isUnknownAction
           ? "La version actuelle du script Code.gs sur Google Sheets ne contient pas encore le module Espace Adhérent. Demandez à un administrateur de mettre à jour et redéployer Code.gs."
-          : msg,
+          : isMailPermission
+            ? "L'autorisation d'envoi d'e-mails n'a pas encore été validée dans Google Apps Script. L'administrateur doit exécuter une fonction dans l'éditeur Apps Script pour accepter la permission d'envoi, puis publier une nouvelle version du déploiement."
+            : msg,
         data: parsed,
       };
     }

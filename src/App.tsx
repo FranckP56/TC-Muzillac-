@@ -126,11 +126,16 @@ export default function App() {
   };
 
   const handleUpdateMinorParentLocal = useCallback((licence: string, representantLegal: string) => {
-    const cleanLic = licence.trim().replace(/\s+/g, '').toUpperCase();
+    const cleanInput = licence.trim().toUpperCase().replace(/[\s\-\.]+/g, '');
+    const digitsInput = cleanInput.replace(/\D/g, '').replace(/^0+/, '');
     setAdherents((prev) =>
       prev.map((a) => {
-        const aLic = (a.licence || '').trim().replace(/\s+/g, '').toUpperCase();
-        return aLic === cleanLic ? { ...a, representantLegal } : a;
+        const aLic = (a.licence || '').trim().toUpperCase().replace(/[\s\-\.]+/g, '');
+        const aDigits = aLic.replace(/\D/g, '').replace(/^0+/, '');
+        const match =
+          (aLic && aLic === cleanInput) ||
+          (digitsInput.length >= 4 && aDigits === digitsInput);
+        return match ? { ...a, representantLegal } : a;
       })
     );
   }, []);

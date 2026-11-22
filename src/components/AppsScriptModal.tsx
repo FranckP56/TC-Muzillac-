@@ -496,8 +496,35 @@ function handleDeleteGoSportOffre(payload) {
   return createJsonResponse({ success: false, error: 'Produit GO Sport introuvable.' });
 }
 
+function autoriserEnvoiEmails() {
+  Logger.log("Quota e-mail restant aujourd'hui : " + MailApp.getRemainingDailyQuota());
+}
+
 function normalizePortalLicence(val) {
-  return String(val || '').trim().replace(/\\s+/g, '').toUpperCase();
+  return String(val || '').trim().toUpperCase().replace(/[\\s\\-\\.]+/g, '');
+}
+
+function extractPortalLicenceDigits(val) {
+  return normalizePortalLicence(val).replace(/\\D/g, '').replace(/^0+/, '');
+}
+
+function licencesMatchPortal(a, b) {
+  var normA = normalizePortalLicence(a);
+  var normB = normalizePortalLicence(b);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+  var digA = extractPortalLicenceDigits(normA);
+  var digB = extractPortalLicenceDigits(normB);
+  if (!digA || digA.length < 4 || digA !== digB) return false;
+  var letterA = normA.replace(/[^A-Z]/g, '');
+  var letterB = normB.replace(/[^A-Z]/g, '');
+  if (letterA && letterB) return letterA === letterB;
+  return true;
+}
+
+function getPortalOtpCacheKey(normLic) {
+  var digits = extractPortalLicenceDigits(normLic);
+  return digits.length >= 4 ? digits : normalizePortalLicence(normLic);
 }
 
 function normalizePortalEmail(val) {
@@ -540,7 +567,7 @@ function findAdherentsPortalCols(headersRow) {
     representantLegal: findIdx(['statut representant legal', 'representant legal'], 8),
     email: findIdx(['email', 'mail'], 20),
     email2: findIdx(['2eme email', 'email 2'], -1),
-    licence: findIdx(['licence', 'n° licence'], 22)
+    licence: findIdx(['licence', 'n° licence', 'n° de licence', 'numero licence', 'numero de licence', 'licence fft'], 22)
   };
 }
 
@@ -558,9 +585,26 @@ function extractBirthYearForPortal(rawDate) {
   return null;
 }
 
+function findMatchingRowByLicencePortal(rows, cols, inputLic) {
+  var normInput = normalizePortalLicence(inputLic);
+  for (var i = 1; i < rows.length; i++) {
+    var rowLic = normalizePortalLicence(rows[i][cols.licence]);
+    if (rowLic && rowLic === normInput) {
+      return { rowIndex: i, rowLic: rowLic, row: rows[i] };
+    }
+  }
+  for (var j = 1; j < rows.length; j++) {
+    var rowLic2 = normalizePortalLicence(rows[j][cols.licence]);
+    if (rowLic2 && licencesMatchPortal(rowLic2, normInput)) {
+      return { rowIndex: j, rowLic: rowLic2, row: rows[j] };
+    }
+  }
+  return null;
+}
+
 function handleRequestAdherentOtp(payload) {
-  var normLic = normalizePortalLicence(payload && payload.licence);
-  if (!normLic || normLic.length < 4) {
+  var normInputLic = normalizePortalLicence(payload && payload.licence);
+  if (!normInputLic || normInputLic.length < 4) {
     return createJsonResponse({ success: false, error: 'Veuillez saisir un numéro de licence valide.' });
   }
 
@@ -576,25 +620,17 @@ function handleRequestAdherentOtp(payload) {
   }
 
   var cols = findAdherentsPortalCols(rows[0]);
-  var foundEmail = '';
-  var foundName = '';
-  var foundLic = '';
-
-  for (var i = 1; i < rows.length; i++) {
-    var rowLic = normalizePortalLicence(rows[i][cols.licence]);
-    if (rowLic && rowLic === normLic) {
-      foundLic = rowLic;
-      foundName = String(rows[i][cols.nomPrenom] || '').trim();
-      var mainEmail = normalizePortalEmail(rows[i][cols.email]);
-      var altEmail = cols.email2 >= 0 ? normalizePortalEmail(rows[i][cols.email2]) : '';
-      foundEmail = mainEmail || altEmail;
-      break;
-    }
-  }
-
-  if (!foundLic) {
+  var match = findMatchingRowByLicencePortal(rows, cols, normInputLic);
+  if (!match) {
     return createJsonResponse({ success: false, error: 'Numéro de licence introuvable dans la base du club.' });
   }
+
+  var foundLic = match.rowLic;
+  var foundName = String(match.row[cols.nomPrenom] || '').trim();
+  var mainEmail = normalizePortalEmail(match.row[cols.email]);
+  var altEmail = cols.email2 >= 0 ? normalizePortalEmail(match.row[cols.email2]) : '';
+  var foundEmail = mainEmail || altEmail;
+
   if (!foundEmail || foundEmail.indexOf('@') === -1) {
     return createJsonResponse({
       success: false,
@@ -603,7 +639,8 @@ function handleRequestAdherentOtp(payload) {
   }
 
   var cache = CacheService.getScriptCache();
-  var cooldownKey = 'tcm_otp_cd_' + foundLic;
+  var cacheStem = getPortalOtpCacheKey(foundLic);
+  var cooldownKey = 'tcm_otp_cd_' + cacheStem;
   if (cache.get(cooldownKey)) {
     return createJsonResponse({
       success: false,
@@ -620,7 +657,7 @@ function handleRequestAdherentOtp(payload) {
     expiresAt: Date.now() + 600000
   };
 
-  cache.put('tcm_otp_' + foundLic, JSON.stringify(record), 600);
+  cache.put('tcm_otp_' + cacheStem, JSON.stringify(record), 600);
   cache.put(cooldownKey, '1', 60);
 
   var clubName = 'Muzillac Tennis Club';
@@ -654,15 +691,16 @@ function handleRequestAdherentOtp(payload) {
 }
 
 function handleVerifyAdherentOtp(payload) {
-  var normLic = normalizePortalLicence(payload && payload.licence);
+  var normInputLic = normalizePortalLicence(payload && payload.licence);
   var cleanCode = String((payload && payload.code) || '').replace(/\\D/g, '').trim();
 
-  if (!normLic || !/^\\d{6}$/.test(cleanCode)) {
+  if (!normInputLic || !/^\\d{6}$/.test(cleanCode)) {
     return createJsonResponse({ success: false, error: 'Numéro de licence ou code à 6 chiffres invalide.' });
   }
 
   var cache = CacheService.getScriptCache();
-  var otpKey = 'tcm_otp_' + normLic;
+  var cacheStem = getPortalOtpCacheKey(normInputLic);
+  var otpKey = 'tcm_otp_' + cacheStem;
   var rawRecord = cache.get(otpKey);
   if (!rawRecord) {
     return createJsonResponse({ success: false, error: 'Code expiré ou introuvable. Veuillez demander un nouveau code.' });
@@ -679,6 +717,10 @@ function handleVerifyAdherentOtp(payload) {
   if (!record || Date.now() > Number(record.expiresAt || 0)) {
     cache.remove(otpKey);
     return createJsonResponse({ success: false, error: 'Ce code a expiré. Veuillez en demander un nouveau.' });
+  }
+
+  if (!licencesMatchPortal(record.licence, normInputLic)) {
+    return createJsonResponse({ success: false, error: 'Ce code ne correspond pas au numéro de licence saisi.' });
   }
 
   var attempts = Number(record.attempts || 0);
@@ -707,8 +749,9 @@ function handleVerifyAdherentOtp(payload) {
   }
 
   cache.remove(otpKey);
-  cache.remove('tcm_otp_cd_' + normLic);
+  cache.remove('tcm_otp_cd_' + cacheStem);
 
+  var canonicalLic = record.licence || normInputLic;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName('Adhérents');
   var familyLicences = [];
@@ -730,13 +773,13 @@ function handleVerifyAdherentOtp(payload) {
     }
   }
 
-  if (familyLicences.indexOf(normLic) === -1) {
-    familyLicences.unshift(normLic);
+  if (familyLicences.indexOf(canonicalLic) === -1) {
+    familyLicences.unshift(canonicalLic);
   }
 
   var sessionToken = Utilities.getUuid() + '-' + Utilities.getUuid().slice(0, 8);
   var sessionData = {
-    verifiedLicence: normLic,
+    verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     familyLicences: familyLicences,
     createdAt: Date.now()
@@ -747,7 +790,7 @@ function handleVerifyAdherentOtp(payload) {
   return createJsonResponse({
     success: true,
     sessionToken: sessionToken,
-    verifiedLicence: normLic,
+    verifiedLicence: canonicalLic,
     verifiedEmail: record.email,
     maskedEmail: maskPortalEmail(record.email),
     familyLicences: familyLicences
@@ -756,7 +799,7 @@ function handleVerifyAdherentOtp(payload) {
 
 function handleUpdateMinorParent(payload) {
   var sessionToken = String((payload && payload.sessionToken) || '').trim();
-  var normLic = normalizePortalLicence(payload && payload.licence);
+  var normInputLic = normalizePortalLicence(payload && payload.licence);
   var rawParent = String((payload && payload.representantLegal) || '')
     .trim()
     .replace(/^[=+\\-@]+/, '')
@@ -765,7 +808,7 @@ function handleUpdateMinorParent(payload) {
   if (!sessionToken) {
     return createJsonResponse({ success: false, error: 'Session expirée ou non authentifiée.' });
   }
-  if (!normLic || !rawParent) {
+  if (!normInputLic || !rawParent) {
     return createJsonResponse({ success: false, error: 'Numéro de licence ou nom du parent manquant.' });
   }
 
@@ -783,7 +826,10 @@ function handleUpdateMinorParent(payload) {
   }
 
   var allowed = Array.isArray(session.familyLicences) ? session.familyLicences : [];
-  if (allowed.indexOf(normLic) === -1) {
+  var isAllowed = allowed.some(function(aLic) {
+    return licencesMatchPortal(aLic, normInputLic);
+  });
+  if (!isAllowed) {
     return createJsonResponse({ success: false, error: 'Accès non autorisé pour ce numéro de licence.' });
   }
 
@@ -803,24 +849,22 @@ function handleUpdateMinorParent(payload) {
     return createJsonResponse({ success: false, error: 'Colonne Représentant légal introuvable.' });
   }
 
-  for (var i = 1; i < rows.length; i++) {
-    var rowLic = normalizePortalLicence(rows[i][cols.licence]);
-    if (rowLic === normLic) {
-      var birthYear = extractBirthYearForPortal(rows[i][cols.dateNaiss]);
-      var currentSeasonYear = Math.max(2027, new Date().getFullYear());
-      if (birthYear && (currentSeasonYear - birthYear) >= 18) {
-        return createJsonResponse({
-          success: false,
-          error: 'La modification du représentant légal est réservée aux adhérents mineurs.'
-        });
-      }
-      sheet.getRange(i + 1, cols.representantLegal + 1).setValue(rawParent);
+  var match = findMatchingRowByLicencePortal(rows, cols, normInputLic);
+  if (match) {
+    var birthYear = extractBirthYearForPortal(match.row[cols.dateNaiss]);
+    var currentSeasonYear = Math.max(2027, new Date().getFullYear());
+    if (birthYear && (currentSeasonYear - birthYear) >= 18) {
       return createJsonResponse({
-        success: true,
-        licence: normLic,
-        representantLegal: rawParent
+        success: false,
+        error: 'La modification du représentant légal est réservée aux adhérents mineurs.'
       });
     }
+    sheet.getRange(match.rowIndex + 1, cols.representantLegal + 1).setValue(rawParent);
+    return createJsonResponse({
+      success: true,
+      licence: match.rowLic,
+      representantLegal: rawParent
+    });
   }
 
   return createJsonResponse({ success: false, error: 'Adhérent introuvable.' });

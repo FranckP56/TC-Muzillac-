@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Adherent, AdherentSession, ClubInfo, Rencontre } from '../types/tennis';
 import {
+  licencesMatch,
   normalizeEmailKey,
   normalizeLicenceKey,
   requestAdherentOtp,
@@ -124,15 +125,13 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
   // Résolution des profils familiaux liés à l'e-mail vérifié
   const familyProfiles = useMemo(() => {
     if (!session) return [];
-    const allowedLicSet = new Set(
-      (session.familyLicences || []).map((l) => normalizeLicenceKey(l))
-    );
+    const allowedLics = session.familyLicences || [];
     const verifiedEmail = normalizeEmailKey(session.verifiedEmail);
 
     const matched = adherents.filter((a) => {
-      const aLic = normalizeLicenceKey(a.licence);
       const aMail = normalizeEmailKey(a.email);
-      return (aLic && allowedLicSet.has(aLic)) || (verifiedEmail && aMail === verifiedEmail);
+      const licOk = allowedLics.some((l) => licencesMatch(a.licence, l));
+      return licOk || (verifiedEmail && aMail === verifiedEmail);
     });
 
     // Déduplication et priorité au n° de licence utilisé à la connexion
@@ -146,8 +145,8 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
     }
 
     unique.sort((a, b) => {
-      const aPrimary = normalizeLicenceKey(a.licence) === session.verifiedLicence ? 0 : 1;
-      const bPrimary = normalizeLicenceKey(b.licence) === session.verifiedLicence ? 0 : 1;
+      const aPrimary = licencesMatch(a.licence, session.verifiedLicence) ? 0 : 1;
+      const bPrimary = licencesMatch(b.licence, session.verifiedLicence) ? 0 : 1;
       if (aPrimary !== bPrimary) return aPrimary - bPrimary;
       return (a.nomPrenom || '').localeCompare(b.nomPrenom || '', 'fr');
     });
@@ -162,8 +161,8 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
       return;
     }
     if (familyProfiles.length > 0) {
-      const stillValid = familyProfiles.some(
-        (p) => normalizeLicenceKey(p.licence) === normalizeLicenceKey(selectedLicence)
+      const stillValid = familyProfiles.some((p) =>
+        licencesMatch(p.licence, selectedLicence)
       );
       if (!stillValid) {
         setSelectedLicence(familyProfiles[0].licence || '');
@@ -173,8 +172,8 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
 
   const activeProfile: Adherent | null = useMemo(() => {
     if (familyProfiles.length === 0) return null;
-    const found = familyProfiles.find(
-      (p) => normalizeLicenceKey(p.licence) === normalizeLicenceKey(selectedLicence)
+    const found = familyProfiles.find((p) =>
+      licencesMatch(p.licence, selectedLicence)
     );
     return found || familyProfiles[0];
   }, [familyProfiles, selectedLicence]);
@@ -206,7 +205,7 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
       const raw = String(candidate).trim();
       if (!raw) return false;
       if (raw === pId) return true;
-      if (pLic && normalizeLicenceKey(raw) === pLic) return true;
+      if (pLic && licencesMatch(raw, pLic)) return true;
       if (pName && raw.toLowerCase() === pName) return true;
       return false;
     };
@@ -587,7 +586,7 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
                     Identifiez-vous avec votre n° de licence
                   </h2>
                   <p className="text-xs text-zinc-400">
-                    Saisissez le numéro à 7 chiffres (ou avec lettre clé) figurant sur votre attestation FFT / Ten&apos;Up.
+                    Saisissez le numéro figurant sur votre attestation FFT / Ten&apos;Up (avec ou sans la lettre finale).
                   </p>
                 </div>
 
