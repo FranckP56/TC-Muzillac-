@@ -201,7 +201,7 @@ export function checkFFT2027Eligibility(
   } else {
     switch (normalizedCategory) {
       case '11/12':
-        if (birthYear !== saisonNum - 12 && birthYear !== saisonNum - 11) {
+        if (birthYear < saisonNum - 12 || birthYear > saisonNum - 11) {
           ageValid = false;
           ageError = `Catégorie 11/12 ans : réservé aux nés en ${saisonNum - 12} et ${saisonNum - 11} (joueur né en ${birthYear})`;
           errors.push(ageError);
@@ -209,25 +209,28 @@ export function checkFFT2027Eligibility(
         break;
 
       case '13/14':
-        if (birthYear !== saisonNum - 14 && birthYear !== saisonNum - 13) {
+        // Les 13/14 ans + les 11/12 ans surclassés peuvent jouer (jamais 15 ans et +)
+        if (birthYear < saisonNum - 14 || birthYear > saisonNum - 11) {
           ageValid = false;
-          ageError = `Catégorie 13/14 ans : réservé aux nés en ${saisonNum - 14} et ${saisonNum - 13} (joueur né en ${birthYear})`;
+          ageError = `Catégorie 13/14 ans : réservé aux 13/14 ans et aux 11/12 ans surclassés (nés entre ${saisonNum - 14} et ${saisonNum - 11}, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '15/16':
-        if (birthYear !== saisonNum - 16 && birthYear !== saisonNum - 15) {
+        // Les 15/16 ans + les 12 à 14 ans surclassés peuvent jouer (jamais 17 ans et +)
+        if (birthYear < saisonNum - 16 || birthYear > saisonNum - 12) {
           ageValid = false;
-          ageError = `Catégorie 15/16 ans : réservé aux nés en ${saisonNum - 16} et ${saisonNum - 15} (joueur né en ${birthYear})`;
+          ageError = `Catégorie 15/16 ans : réservé aux 15/16 ans et jeunes surclassés dès 12 ans (nés entre ${saisonNum - 16} et ${saisonNum - 12}, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
 
       case '17/18':
-        if (birthYear !== saisonNum - 18 && birthYear !== saisonNum - 17) {
+        // Les 17/18 ans + les 15/16 ans et 13/14 ans surclassés peuvent jouer (jamais 19 ans et + / Seniors)
+        if (birthYear < saisonNum - 18 || birthYear > saisonNum - 13) {
           ageValid = false;
-          ageError = `Catégorie 17/18 ans : réservé aux nés en ${saisonNum - 18} et ${saisonNum - 17} (joueur né en ${birthYear})`;
+          ageError = `Catégorie 17/18 ans : réservé aux 17/18 ans et jeunes surclassés (13/14 et 15/16 ans, nés entre ${saisonNum - 18} et ${saisonNum - 13}, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
@@ -264,11 +267,20 @@ export function checkFFT2027Eligibility(
         }
         break;
 
+      case '+70':
+        if (birthYear > saisonNum - 70) {
+          ageValid = false;
+          ageError = `Catégorie Seniors +70 : réservé aux joueurs nés en ${saisonNum - 70} et avant (joueur né en ${birthYear})`;
+          errors.push(ageError);
+        }
+        break;
+
       case 'seniors':
       default:
-        if (birthYear > saisonNum - 19) {
+        // Adultes (19 ans et +) + jeunes surclassés à partir de 13 ans sportifs (13/14, 15/16, 17/18)
+        if (birthYear > saisonNum - 13) {
           ageValid = false;
-          ageError = `Catégorie Seniors : réservé aux joueurs nés en ${saisonNum - 19} et avant (joueur né en ${birthYear}, catégorie jeune)`;
+          ageError = `Catégorie Seniors : réservé aux adultes et jeunes surclassés à partir de 13 ans (nés en ${saisonNum - 13} et avant, joueur né en ${birthYear})`;
           errors.push(ageError);
         }
         break;
@@ -303,4 +315,29 @@ export function checkFFT2027Eligibility(
     rankingError,
     errors,
   };
+}
+
+/**
+ * Retourne un libellé court lorsqu'un jeune joue dans une catégorie supérieure (surclassement FFT autorisé)
+ */
+export function getYouthSurclassementLabel(
+  adherent: Adherent,
+  rencontre: Rencontre,
+  saison: string = '2027'
+): string | null {
+  const birthYear = extractBirthYear(adherent.dateNaissance);
+  if (birthYear === null) return null;
+  const saisonNum = parseInt(saison, 10) || 2027;
+  const age = saisonNum - birthYear;
+  const cat = normalizeCategory(rencontre.categorieAgeHomologation, rencontre.libelleHomologation);
+
+  if (cat === '13/14' && age <= 12) return 'Surclassé (11/12)';
+  if (cat === '15/16' && age <= 14) return `Surclassé (${age <= 12 ? '12 ans' : '13/14'})`;
+  if (cat === '17/18' && age <= 16) return `Surclassé (${age <= 14 ? '13/14' : '15/16'})`;
+  if (cat === 'seniors' && age <= 18) {
+    if (age <= 14) return 'Surclassé (13/14 · CM < 6 mois)';
+    if (age <= 16) return 'Surclassé (15/16)';
+    return 'Surclassé (17/18)';
+  }
+  return null;
 }

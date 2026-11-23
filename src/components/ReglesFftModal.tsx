@@ -260,6 +260,14 @@ export const ReglesFftModal: React.FC<ReglesFftModalProps> = ({ isOpen, onClose 
                     <span className="text-amber-400 font-mono font-bold">Nés en 1972 et avant</span>
                   </div>
                 </div>
+
+                <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-200 space-y-1">
+                  <strong className="text-white block">Règle de surclassement (montée autorisée, descente interdite) :</strong>
+                  <ul className="list-disc list-inside space-y-0.5 text-sky-200/90">
+                    <li><strong>Jeunes en Jeunes :</strong> les 11/12 ans peuvent jouer en 13/14 ans, les 13/14 ans en 15/16 et 17/18 ans, et les 15/16 ans en 17/18 ans (l&apos;inverse est interdit).</li>
+                    <li><strong>Jeunes en Adultes (Seniors) :</strong> surclassement automatique pour les 15/16 et 17/18 ans ; autorisé dès 13/14 ans avec certificat médical de moins de 6 mois.</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}

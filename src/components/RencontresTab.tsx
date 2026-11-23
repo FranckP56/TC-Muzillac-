@@ -444,7 +444,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     playerIds.forEach(id => {
       const p = adherentsById.get(id);
       if (p) {
-        const check = checkFFT2027Eligibility(p, r);
+        const check = checkFFT2027Eligibility(p, r, saison);
         if (!check.isEligible) hasIssue = true;
       }
     });
@@ -455,7 +455,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     return {
       count: playerIds.length,
       required: formatInfo.numSingles,
-      isValidated: !!c.valideParCapitaine && !hasIssue,
+      isValidated: Boolean((c.joueursValides || (c.valideParCapitaine && playerIds.length > 0)) && !hasIssue),
       hasIssue,
       doubleWeightIssue,
     };

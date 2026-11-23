@@ -119,7 +119,7 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
               </div>
             </div>
 
-            {/* Badges logistiques TCM (Heure, Lieu, Courts) */}
+            {/* Statuts des 3 volets indépendants */}
             <div className="pt-2.5 border-t border-[#1e2430] grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
               <div className="p-2 rounded-xl bg-black/40 border border-[#232934] flex items-center space-x-2">
                 <Clock className="w-3.5 h-3.5 text-orange-400 shrink-0" />
@@ -135,6 +135,32 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
                 <Layers className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                 <span className="text-zinc-400">Courts : <strong className="text-white">{composition.nombreCourts || 2} court(s)</strong></span>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[11px] pt-1">
+              <span className={`px-2.5 py-1 rounded-lg border font-bold ${
+                composition.logistiqueValidee
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+              }`}>
+                {composition.logistiqueValidee ? '✓ Date, heure & terrains validés' : 'Date, heure & terrains non validés'}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg border font-bold ${
+                composition.joueursValides
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  : slots.length > 0
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+              }`}>
+                {composition.joueursValides ? '✓ Composition validée' : slots.length > 0 ? `Composition (${slots.length} poste(s) — non validée)` : 'Composition non renseignée'}
+              </span>
+              <span className={`px-2.5 py-1 rounded-lg border font-bold ${
+                composition.ordreValide
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+              }`}>
+                {composition.ordreValide ? '✓ Ordre des matchs validé' : 'Ordre des matchs provisoire'}
+              </span>
             </div>
           </div>
 
@@ -162,10 +188,17 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
 
             return (
               <div className="p-3.5 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-2">
-                <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Créneaux &amp; Ordre des matchs</span>
-                </h4>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-orange-400" />
+                    <span>Créneaux &amp; Ordre des matchs</span>
+                  </h4>
+                  {!composition.ordreValide && (
+                    <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md">
+                      Provisoire (non validé)
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-1.5">
                   {Array.from(groups.entries()).map(([time, labels]) => (
                     <div
@@ -186,7 +219,12 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
           <div>
             <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
               <UserCheck className="w-3.5 h-3.5 text-orange-400" />
-              <span>Snapshot des {slots.length} joueur(s) retenus</span>
+              <span>
+                {(() => {
+                  const uniqueCount = new Set(slots.map(s => s.id)).size;
+                  return `Snapshot de ${uniqueCount} joueur${uniqueCount > 1 ? 's' : ''}${slots.length > uniqueCount ? ` (${slots.length} postes)` : ''}`;
+                })()}
+              </span>
             </h4>
 
             {slots.length > 0 ? (

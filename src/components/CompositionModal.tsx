@@ -12,7 +12,6 @@ import {
   Users, 
   Info, 
   Lock, 
-  Unlock, 
   Copy, 
   Check, 
   FileSpreadsheet, 
@@ -20,10 +19,6 @@ import {
   MapPin, 
   Layers, 
   ArrowUpDown, 
-  Sparkles, 
-  SlidersHorizontal, 
-  Building, 
-  Sun, 
   ChevronLeft, 
   ChevronRight,
   Search,
@@ -37,7 +32,7 @@ import {
 import { formatJourneeLabel, formatMuzillacClubName, isComiteMorbihanBye, getComiteByeScore } from './RencontresTab';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
-import { checkFFT2027Eligibility, getRequiredSex } from '../utils/fftEligibility';
+import { checkFFT2027Eligibility, getRequiredSex, getYouthSurclassementLabel } from '../utils/fftEligibility';
 import { getRankingMeta, getRankingWeight, getDoubleRankingWeight, cleanRanking } from '../utils/ranking';
 import { checkSinglesRankingOrder, getNextFftMonthlyRankingRelease } from '../utils/fftCalendar';
 import { 
@@ -449,10 +444,30 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     );
   }, [normalizeMatchOrder, normalizeRotationHours, rencontre?.id]);
 
-  // États des 3 étapes de validation du capitaine : 1. Date/Heure/Lieu -> 2. Ordre -> 3. Joueurs
-  const step1Done = Boolean(composition.logistiqueValidee || composition.valideParCapitaine);
-  const step2Done = Boolean(composition.ordreValide || composition.valideParCapitaine);
-  const step3Done = Boolean(composition.joueursValides || composition.valideParCapitaine);
+  // États des 3 validations indépendantes : Logistique (Date/Heure/Lieu/Courts), Ordre des matchs, Composition joueurs
+  const hasAnyAssignedPlayer = Boolean(
+    composition.simple1Id ||
+    composition.simple2Id ||
+    composition.simple3Id ||
+    composition.simple4Id ||
+    composition.simple5Id ||
+    composition.double1Player1Id ||
+    composition.double1Player2Id ||
+    composition.double2Player1Id ||
+    composition.double2Player2Id
+  );
+  const step1Done =
+    typeof composition.logistiqueValidee === 'boolean'
+      ? composition.logistiqueValidee
+      : Boolean(composition.valideParCapitaine);
+  const step2Done =
+    typeof composition.ordreValide === 'boolean'
+      ? composition.ordreValide
+      : Boolean(composition.valideParCapitaine);
+  const step3Done =
+    typeof composition.joueursValides === 'boolean'
+      ? composition.joueursValides
+      : Boolean(composition.valideParCapitaine && hasAnyAssignedPlayer);
 
   const moveMatchOrder = (indexA: number, indexB: number) => {
     if (
@@ -472,6 +487,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       ...prev,
       ordreMatchs: updated,
       heuresRotations: updatedRotations,
+      logistiqueValidee: step1Done,
+      joueursValides: step3Done,
       ordreValide: false,
       valideParCapitaine: false,
     }));
@@ -501,6 +518,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(prev => ({
       ...prev,
       heuresRotations: nextRot,
+      logistiqueValidee: step1Done,
+      joueursValides: step3Done,
       ordreValide: false,
       valideParCapitaine: false,
     }));
@@ -545,6 +564,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       double1Player2Id: prev.double2Player2Id,
       double2Player1Id: prev.double1Player1Id,
       double2Player2Id: prev.double1Player2Id,
+      logistiqueValidee: step1Done,
+      ordreValide: step2Done,
       joueursValides: false,
       valideParCapitaine: false,
     }));
@@ -613,13 +634,15 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return ids;
   }, [composition, compFormat]);
 
+  const uniqueSelectedPlayerCount = useMemo(() => new Set(selectedPlayerIds).size, [selectedPlayerIds]);
+
   // Validation globale de la composition
   const currentCompositionIssues = useMemo(() => {
     const issues: { player: Adherent; errors: string[] }[] = [];
     selectedPlayerIds.forEach(id => {
       const p = adherentsById.get(id);
       if (p) {
-        const check = checkFFT2027Eligibility(p, rencontre);
+        const check = checkFFT2027Eligibility(p, rencontre, saison);
         if (!check.isEligible) {
           issues.push({ player: p, errors: check.errors });
         }
@@ -785,7 +808,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   // Assigner un joueur à un poste
   const handleAssignPlayer = (adherent: Adherent, slotKey: SlotKey) => {
-    const eligibility = checkFFT2027Eligibility(adherent, rencontre);
+    const eligibility = checkFFT2027Eligibility(adherent, rencontre, saison);
 
     if (!eligibility.isEligible) {
       setBlockedAlertMessage(
@@ -805,6 +828,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(prev => ({
       ...prev,
       [slotKey]: adherent.id,
+      logistiqueValidee: step1Done,
+      ordreValide: step2Done,
       joueursValides: false,
       valideParCapitaine: false,
     }));
@@ -816,6 +841,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(prev => ({
       ...prev,
       [slotKey]: undefined,
+      logistiqueValidee: step1Done,
+      ordreValide: step2Done,
       joueursValides: false,
       valideParCapitaine: false,
     }));
@@ -846,6 +873,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
           updated[key] = undefined;
         }
       }
+      updated.logistiqueValidee = step1Done;
+      updated.ordreValide = step2Done;
       updated.joueursValides = false;
       updated.valideParCapitaine = false;
       return updated;
@@ -853,7 +882,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setBlockedAlertMessage(null);
   };
 
-  // ÉTAPE 1 : Validation Date, Heure, Courts et Lieu
+  // VALIDATION INDÉPENDANTE 1 : Date, Heure, Courts et Lieu
   const handleValidateStep1Logistics = () => {
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
     const updated: MatchComposition = {
@@ -866,21 +895,18 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       ordreMatchs: matchOrder,
       heuresRotations: rotationHours,
       logistiqueValidee: true,
+      ordreValide: step2Done,
+      joueursValides: step3Done,
     };
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
-    setValidationSuccess('Étape 1 validée : Date, heure et lieu enregistrés.');
+    setValidationSuccess('Date, heure, terrains et lieu validés.');
     setTimeout(() => setValidationSuccess(null), 3000);
   };
 
-  // ÉTAPE 2 : Validation de l'ordre des rencontres et des heures de rotations
+  // VALIDATION INDÉPENDANTE 2 : Ordre des rencontres et heures de rotations
   const handleValidateStep2Order = () => {
-    if (!step1Done) {
-      setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
-      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
     const updated: MatchComposition = {
       ...composition,
@@ -891,28 +917,19 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       formatReduit,
       ordreMatchs: matchOrder,
       heuresRotations: rotationHours,
-      logistiqueValidee: true,
+      logistiqueValidee: step1Done,
       ordreValide: true,
+      joueursValides: step3Done,
     };
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
-    setValidationSuccess('Étape 2 validée : Ordre et heures de rotations enregistrés.');
+    setValidationSuccess('Ordre et créneaux des matchs validés.');
     setTimeout(() => setValidationSuccess(null), 3000);
   };
 
-  // ÉTAPE 3 : Validation des joueurs
+  // VALIDATION INDÉPENDANTE 3 : Composition des joueurs (sans dépendre ni de l'heure ni de l'ordre)
   const handleValidateStep3Players = () => {
-    if (!step1Done) {
-      setBlockedAlertMessage("Veuillez d'abord valider la date, l'heure et le lieu (Étape 1).");
-      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    if (!step2Done) {
-      setBlockedAlertMessage("Veuillez d'abord valider l'ordre des rencontres (Étape 2).");
-      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
     if (hasIneligiblePlayer) {
       setBlockedAlertMessage(
         "Blocage FFT 2027 : La feuille de match contient un ou plusieurs joueurs non éligibles. Retirez-les avant de valider."
@@ -937,8 +954,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       formatReduit,
       ordreMatchs: matchOrder,
       heuresRotations: rotationHours,
-      logistiqueValidee: true,
-      ordreValide: true,
+      logistiqueValidee: step1Done,
+      ordreValide: step2Done,
       joueursValides: true,
       valideParCapitaine: true,
       dateValidation: new Date().toLocaleDateString('fr-FR'),
@@ -949,11 +966,11 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
-    setValidationSuccess('Étape 3 validée : Composition des joueurs confirmée !');
+    setValidationSuccess("Composition de l'équipe validée !");
     setTimeout(() => setValidationSuccess(null), 3500);
   };
 
-  // Enregistrement global de la feuille de match (ouvre toujours la modale de confirmation)
+  // Enregistrement global de la feuille de match (préserve l'indépendance de chaque validation)
   const handleValidateMatchSheet = () => {
     if (hasIneligiblePlayer) {
       setBlockedAlertMessage(
@@ -975,10 +992,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
     const updated: MatchComposition = {
       ...composition,
-      valideParCapitaine: true,
-      logistiqueValidee: true,
-      ordreValide: true,
-      joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
+      logistiqueValidee: step1Done,
+      ordreValide: step2Done,
+      joueursValides: step3Done,
+      valideParCapitaine: Boolean(step1Done || step2Done || step3Done),
       ordreMatchs: matchOrder,
       heuresRotations: rotationHours,
       dateValidation: new Date().toLocaleDateString('fr-FR'),
@@ -1006,10 +1023,10 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
       const updated: MatchComposition = {
         ...composition,
-        valideParCapitaine: true,
-        logistiqueValidee: true,
-        ordreValide: true,
-        joueursValides: selectedPlayerIds.length > 0 ? true : composition.joueursValides,
+        logistiqueValidee: step1Done,
+        ordreValide: step2Done,
+        joueursValides: step3Done,
+        valideParCapitaine: Boolean(step1Done || step2Done || step3Done),
         ordreMatchs: matchOrder,
         heuresRotations: rotationHours,
         dateValidation: new Date().toLocaleDateString('fr-FR'),
@@ -1174,119 +1191,6 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const opponentSmsPhone = (rencontre.portableCapitaineAdverse || rencontre.portableCorrespondantAdverse || '').replace(/\s+/g, '');
   const playersSmsHref = `sms:?body=${encodeURIComponent(playersSmsText)}`;
   const opponentSmsHref = `sms:${opponentSmsPhone}?body=${encodeURIComponent(opponentSmsText)}`;
-
-  const getScheduleSlotFor = (slotKey: SlotKey) => {
-    if (slotKey.startsWith('simple')) {
-      const num = parseInt(slotKey.replace('simple', '').replace('Id', ''), 10);
-      return schedulePlan.slots.find(s => s.matchType === 'simple' && s.slotNumber === num);
-    }
-    if (slotKey.startsWith('double1')) {
-      return schedulePlan.slots.find(s => s.matchType === 'double' && s.slotNumber === 1);
-    }
-    if (slotKey.startsWith('double2')) {
-      return schedulePlan.slots.find(s => s.matchType === 'double' && s.slotNumber === 2);
-    }
-    return undefined;
-  };
-
-  const renderSlotCard = (slotKey: SlotKey, label: string) => {
-    const playerId = composition[slotKey];
-    const player = playerId ? adherentsById.get(playerId) : null;
-    const eligibility = player ? checkFFT2027Eligibility(player, rencontre) : null;
-    const isSlotIneligible = eligibility && !eligibility.isEligible;
-    const isDouble = slotKey.startsWith('double');
-
-    return (
-      <div 
-        className={`p-2.5 rounded-xl border transition-all ${
-          isSlotIneligible 
-            ? 'bg-rose-950/30 border-rose-500/60 shadow-lg shadow-rose-950/40' 
-            : player 
-              ? 'bg-[#181d26] border-[#293140]' 
-              : 'bg-[#12151b] border-dashed border-[#282f3c] hover:border-[#E65100]/60'
-        }`}
-      >
-        {player ? (
-          <div>
-            {isDouble && (
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-orange-400">
-                  {label}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="font-heading font-black text-white text-xs sm:text-sm truncate leading-tight">
-                  {player.nomPrenom}
-                </p>
-                <p className="text-[10px] text-zinc-400">
-                  Licence : <span className="font-mono text-zinc-300">{player.licence}</span>
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="text-right">
-                  <span className="px-2 py-0.5 rounded-lg text-xs font-black bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono">
-                    {player.dernierClassTennis}
-                  </span>
-                  <p className="text-[9px] text-zinc-500 mt-0.5">
-                    {isDouble
-                      ? `Poids ${getDoubleRankingWeight(player.dernierClassTennis)}`
-                      : player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}
-                  </p>
-                </div>
-
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => handleClearSlot(slotKey)}
-                    className="text-zinc-500 hover:text-rose-400 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-rose-950/40 border border-zinc-700 transition cursor-pointer"
-                    title="Retirer ce joueur"
-                  >
-                    Retirer
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Alerte si inéligible */}
-            {isSlotIneligible && eligibility && (
-              <div className="mt-1.5 p-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-[10px] text-rose-300 space-y-0.5">
-                <p className="font-black flex items-center gap-1 text-rose-200">
-                  <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
-                  JOUEUR INÉLIGIBLE :
-                </p>
-                {eligibility.errors.map((err, i) => (
-                  <p key={i}>• {err}</p>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : canEdit ? (
-          step2Done ? (
-            <button
-              type="button"
-              onClick={() => setActiveSlot({ key: slotKey, label })}
-              className="w-full py-2 flex items-center justify-center gap-2 rounded-lg transition cursor-pointer hover:bg-orange-600/10"
-            >
-              <UserCheck className="w-4 h-4 text-[#FF6D00]" />
-              <span className="text-[#FF6D00] font-black text-xs">Assigner {label}</span>
-            </button>
-          ) : (
-            <div className="w-full py-2 flex items-center justify-center gap-1.5 text-zinc-500 text-[11px] italic opacity-75">
-              <Lock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-              <span>Validez d&apos;abord l&apos;ordre des rencontres (Étape 2)</span>
-            </div>
-          )
-        ) : (
-          <div className="w-full py-2 flex items-center justify-center gap-1.5 text-zinc-500 text-xs italic">
-            <span>Poste non assigné</span>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   if (!isOpen || !rencontre) return null;
 
@@ -1583,61 +1487,62 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                 </div>
               )}
 
-          {/* Progression des 3 étapes de validation du capitaine */}
-          {canEdit && (
-            <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
+          {/* 3 indicateurs de validation indépendants (sans blocage séquentiel) */}
+          {!isComiteBye && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className={`px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ${
                 step1Done
-                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
-                  : 'bg-orange-500/15 border-orange-500/40 text-orange-300'
+                  ? 'bg-emerald-950/25 border-emerald-500/40 text-emerald-200'
+                  : 'bg-[#090b0e] border-[#232934] text-zinc-400'
               }`}>
-                {step1Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">1</span>}
-                <span className="truncate">1. Date, heure &amp; lieu</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Calendar className={`w-4 h-4 shrink-0 ${step1Done ? 'text-emerald-400' : 'text-orange-400'}`} />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase tracking-wider font-bold block text-zinc-400">Date, heure &amp; terrains</span>
+                    <span className="font-bold text-white truncate block">{matchDateInput} à {matchHourInput} · {matchCourtsInput}c</span>
+                  </div>
+                </div>
+                <span className={`text-[10px] font-black shrink-0 ${step1Done ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  {step1Done ? 'Validé' : 'À valider'}
+                </span>
               </div>
 
-              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
-                step2Done
-                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
-                  : step1Done
-                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
-                    : 'bg-[#12151b] border-zinc-800 text-zinc-500'
-              }`}>
-                {step2Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${step1Done ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>2</span>}
-                <span className="truncate">2. Ordre des matchs</span>
-              </div>
-
-              <div className={`p-2 rounded-xl border flex items-center gap-1.5 font-bold ${
+              <div className={`px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ${
                 step3Done
-                  ? 'bg-emerald-950/35 border-emerald-500/40 text-emerald-300'
-                  : step2Done
-                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
-                    : 'bg-[#12151b] border-zinc-800 text-zinc-500'
+                  ? 'bg-emerald-950/25 border-emerald-500/40 text-emerald-200'
+                  : 'bg-[#090b0e] border-[#232934] text-zinc-400'
               }`}>
-                {step3Done ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <span className={`w-4 h-4 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${step2Done ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>3</span>}
-                <span className="truncate">3. Joueurs</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <UserCheck className={`w-4 h-4 shrink-0 ${step3Done ? 'text-emerald-400' : 'text-orange-400'}`} />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase tracking-wider font-bold block text-zinc-400">Composition</span>
+                    <span className="font-bold text-white truncate block">
+                      {uniqueSelectedPlayerCount} joueur{uniqueSelectedPlayerCount > 1 ? 's' : ''}
+                      {selectedPlayerIds.length > uniqueSelectedPlayerCount ? ` (${selectedPlayerIds.length} postes)` : ' assigné(s)'}
+                    </span>
+                  </div>
+                </div>
+                <span className={`text-[10px] font-black shrink-0 ${step3Done ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  {step3Done ? 'Validée' : 'À valider'}
+                </span>
               </div>
-            </div>
-          )}
 
-          {/* Statut de la composition officielle */}
-          {composition.valideParCapitaine && (
-            <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 flex items-center justify-between gap-2 shadow-md">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
-                  <CheckCircle2 className="w-4 h-4" />
+              <div className={`px-3 py-2.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                step2Done
+                  ? 'bg-emerald-950/25 border-emerald-500/40 text-emerald-200'
+                  : 'bg-[#090b0e] border-[#232934] text-zinc-400'
+              }`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Clock className={`w-4 h-4 shrink-0 ${step2Done ? 'text-emerald-400' : 'text-orange-400'}`} />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase tracking-wider font-bold block text-zinc-400">Ordre des matchs</span>
+                    <span className="font-bold text-white truncate block">{compFormat.numSingles}S + {compFormat.numDoubles}D</span>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-heading font-black text-white text-xs sm:text-sm">
-                    Feuille de match validée
-                  </h4>
-                  <p className="text-[11px] text-emerald-300/80">
-                    {composition.dateValidation ? `Validée le ${composition.dateValidation}` : 'Enregistrée'} • Visible par tous les adhérents
-                  </p>
-                </div>
+                <span className={`text-[10px] font-black shrink-0 ${step2Done ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                  {step2Done ? 'Validé' : 'Provisoire'}
+                </span>
               </div>
-              <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                Validée
-              </span>
             </div>
           )}
 
@@ -1665,9 +1570,30 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             </div>
           )}
 
-          {/* ==================== ÉTAPE 1 : LOGISTIQUE DU MATCH (DATE, HEURE, COURTS, LIEU) ==================== */}
+          {/* ==================== BLOC 1 (INDÉPENDANT) : DATE, HEURE, TERRAINS & LIEU ==================== */}
           {!isComiteBye && (canEdit || step1Done) ? (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
+          <div className="p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-orange-400" />
+                <span>Date, heure, terrains &amp; lieu</span>
+              </h3>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={handleValidateStep1Logistics}
+                  className={`min-h-[38px] px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                    step1Done
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                      : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md hover:brightness-110'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{step1Done ? 'Date, heure & terrains validés' : 'Valider date, heure & terrains'}</span>
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
               
               {/* 1. Date avec mini calendrier */}
@@ -1684,7 +1610,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                       onChange={(e) => {
                         if (e.target.value) {
                           setMatchDateInput(fromIsoDate(e.target.value));
-                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                          setComposition(prev => ({
+                            ...prev,
+                            logistiqueValidee: false,
+                            ordreValide: step2Done,
+                            joueursValides: step3Done,
+                            valideParCapitaine: false,
+                          }));
                         }
                       }}
                       className="w-full bg-transparent text-xs text-white font-mono focus:outline-none cursor-pointer [color-scheme:dark]"
@@ -1727,6 +1659,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                           heureDebut: val,
                           heuresRotations: nextRot,
                           logistiqueValidee: false,
+                          ordreValide: step2Done,
+                          joueursValides: step3Done,
                           valideParCapitaine: false,
                         }));
                       }}
@@ -1754,6 +1688,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                                 heureDebut: newHour,
                                 heuresRotations: nextRot,
                                 logistiqueValidee: false,
+                                ordreValide: step2Done,
+                                joueursValides: step3Done,
                                 valideParCapitaine: false,
                               }));
                             }
@@ -1792,6 +1728,8 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                             nombreCourts: cnt,
                             heuresRotations: nextRot,
                             logistiqueValidee: false,
+                            ordreValide: step2Done,
+                            joueursValides: step3Done,
                             valideParCapitaine: false,
                           }));
                         }}
@@ -1823,7 +1761,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                       value={matchVenueInput}
                       onChange={(e) => {
                         setMatchVenueInput(e.target.value);
-                        setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                        setComposition(prev => ({
+                          ...prev,
+                          logistiqueValidee: false,
+                          ordreValide: step2Done,
+                          joueursValides: step3Done,
+                          valideParCapitaine: false,
+                        }));
                       }}
                       className="w-full bg-black/50 border border-[#2a323f] rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500 truncate"
                     >
@@ -1857,7 +1801,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                         value={customVenueInput}
                         onChange={(e) => {
                           setCustomVenueInput(e.target.value);
-                          setComposition(prev => ({ ...prev, logistiqueValidee: false, valideParCapitaine: false }));
+                          setComposition(prev => ({
+                            ...prev,
+                            logistiqueValidee: false,
+                            ordreValide: step2Done,
+                            joueursValides: step3Done,
+                            valideParCapitaine: false,
+                          }));
                         }}
                         placeholder="Saisir le lieu..."
                         className="w-full bg-black/50 border border-orange-500/50 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
@@ -1872,28 +1822,6 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
               </div>
 
             </div>
-
-            {canEdit && (
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1e2430] flex-wrap">
-                <span className="text-[11px] text-zinc-400">
-                  {step1Done
-                    ? '✓ Étape 1 validée (Date, heure, courts et lieu enregistrés)'
-                    : 'Étape 1 : Validez d’abord la date, l’heure et le lieu de la rencontre'}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleValidateStep1Logistics}
-                  className={`px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                    step1Done
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
-                      : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md hover:brightness-110'
-                  }`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{step1Done ? 'Date, heure et lieu validés' : '1. Valider date, heure et lieu'}</span>
-                </button>
-              </div>
-            )}
           </div>
           ) : !isComiteBye ? (
             <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] flex items-center gap-2.5 text-xs text-zinc-400">
@@ -2073,456 +2001,601 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             );
           })()}
 
-          {/* ==================== MATCHS OFFICIELS, RÈGLE SPÉCIFIQUE & ORDRE ==================== */}
-          <div className="space-y-3">
-            {/* Règle spécifique uniquement à CETTE rencontre */}
-            <div className="p-3 rounded-2xl bg-[#0e1219] border border-[#232a37] text-xs space-y-1">
-              <div className="flex items-center justify-between text-orange-400 font-bold gap-2">
-                <span className="flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 shrink-0" />
-                  <span>Règle applicable à cette rencontre ({compFormat.divisionLabel})</span>
-                </span>
-                <span className="text-[10px] text-zinc-400 font-mono shrink-0">
-                  {compFormat.numSingles}S + {compFormat.numDoubles}D
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-300 leading-relaxed">
-                {compFormat.orderOfPlay}
-                {compFormat.doubleWeightStrict ? ' • Poids des doubles FFT (inversé) : Poids Double 1 ≤ Poids Double 2.' : ''}
-              </p>
-              {schedulePlan.surfacesDifferentesActif && (
-                <p className="text-[10px] text-purple-300">
-                  2 terrains de surfaces différentes : le capitaine visiteur choisit le terrain pour chacun des simples avant jeudi 20h00.
-                </p>
-              )}
-            </div>
+          {/* ==================== FORMAT SIMPLIFIÉ TYPE « ENREGISTRER » (COMPOSITION & ORDRE INDÉPENDANTS) ==================== */}
+          {!isComiteBye && (
+            <>
+              {/* BLOC 2 (INDÉPENDANT) : COMPOSITION DE L'ÉQUIPE (FORMAT LISTE CLAIRE « ENREGISTRER ») */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-orange-400" />
+                    <span>
+                      Composition de l&apos;équipe ({uniqueSelectedPlayerCount} joueur{uniqueSelectedPlayerCount > 1 ? 's' : ''} · {selectedPlayerIds.length} poste{selectedPlayerIds.length > 1 ? 's' : ''})
+                    </span>
+                  </h4>
 
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-orange-400" />
-                <h3 className="font-heading font-black text-white text-sm sm:text-base">
-                  Matchs officiels &amp; Ordre des rencontres
-                </h3>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30 font-bold">
-                  {compFormat.numSingles}S + {compFormat.numDoubles}D
-                </span>
-              </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {compFormat.numDoubles >= 2 && (
+                        <button
+                          type="button"
+                          onClick={handleSwapDoubles}
+                          className="min-h-[38px] px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-orange-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                          title="Intervertir la paire D1 et la paire D2"
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5" />
+                          <span>Inverser D1 et D2</span>
+                        </button>
+                      )}
 
-              {canEdit && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleValidateStep2Order}
-                    disabled={!step1Done}
-                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition ${
-                      !step1Done
-                        ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-800 cursor-not-allowed'
-                        : step2Done
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer'
-                          : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow hover:brightness-110 cursor-pointer'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{step2Done ? 'Ordre des rencontres validé' : "2. Valider l'ordre des rencontres"}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleValidateStep3Players}
-                    disabled={!step1Done || !step2Done || hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
-                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition ${
-                      !step1Done || !step2Done || hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
-                        ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-800 cursor-not-allowed'
-                        : step3Done
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer'
-                          : 'bg-sky-600 hover:bg-sky-500 text-white shadow cursor-pointer'
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>{step3Done ? 'Joueurs validés' : '3. Valider les joueurs'}</span>
-                  </button>
+                      <button
+                        type="button"
+                        onClick={handleValidateStep3Players}
+                        disabled={hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)}
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition ${
+                          hasIneligiblePlayer || ((compFormat.numDoubles >= 2 || compFormat.doubleWeightStrict) && !doublesWeightCheck.isValid)
+                            ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-800 cursor-not-allowed'
+                            : step3Done
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 cursor-pointer'
+                              : 'bg-sky-600 hover:bg-sky-500 text-white shadow cursor-pointer'
+                        }`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{step3Done ? 'Composition validée' : 'Valider la composition'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Liste ordonnée unifiée (Simples & Doubles en ordre numérique par défaut tant que le capitaine n'a pas validé) */}
-            <div className="space-y-2.5">
-              {matchOrder.map((token, matchIndex) => {
-                const timeSlot = getMatchTimeSlot(matchIndex, token);
+                {(() => {
+                  const playerSlots: {
+                    key: SlotKey;
+                    label: string;
+                    badge: string;
+                    isDouble: boolean;
+                    doublePairNum?: number;
+                  }[] = [];
 
-                if (token.startsWith('S')) {
-                  const playerNum = parseInt(token.slice(1), 10);
-                  const slotKey = `simple${playerNum}Id` as SlotKey;
+                  for (let i = 1; i <= compFormat.numSingles; i++) {
+                    playerSlots.push({
+                      key: `simple${i}Id` as SlotKey,
+                      label: `Simple ${i}`,
+                      badge: String(i),
+                      isDouble: false,
+                    });
+                  }
+
+                  for (let d = 1; d <= compFormat.numDoubles; d++) {
+                    const pairLabel = compFormat.numDoubles >= 2 ? `Double ${d}` : 'Double';
+                    playerSlots.push({
+                      key: (d === 1 ? 'double1Player1Id' : 'double2Player1Id') as SlotKey,
+                      label: `${pairLabel} (Joueur 1)`,
+                      badge: `D${d}`,
+                      isDouble: true,
+                      doublePairNum: d,
+                    });
+                    playerSlots.push({
+                      key: (d === 1 ? 'double1Player2Id' : 'double2Player2Id') as SlotKey,
+                      label: `${pairLabel} (Joueur 2)`,
+                      badge: `D${d}`,
+                      isDouble: true,
+                      doublePairNum: d,
+                    });
+                  }
 
                   return (
-                    <div
-                      key={`match-${token}`}
-                      className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md"
-                    >
-                      <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
-                            Match {matchIndex + 1}
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono text-xs font-bold">
-                            <Clock className="w-3 h-3 text-orange-400 shrink-0" />
-                            {canEdit && step1Done ? (
-                              <input
-                                type="time"
-                                value={timeSlot}
-                                onChange={(e) => handleUpdateMatchRotationTime(token, e.target.value)}
-                                className="bg-transparent text-orange-300 font-mono text-xs font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
-                                title="Heure de rotation de ce match"
-                              />
-                            ) : (
-                              <span>{timeSlot}</span>
-                            )}
-                          </span>
+                    <div className="rounded-2xl border border-[#232934] bg-[#090b0e] overflow-hidden divide-y divide-[#1e2430]">
+                      {playerSlots.map((slot) => {
+                        const playerId = composition[slot.key];
+                        const player = playerId ? adherentsById.get(playerId) : null;
+                        const eligibility = player ? checkFFT2027Eligibility(player, rencontre, saison) : null;
+                        const isSlotIneligible = eligibility && !eligibility.isEligible;
+                        const surclassementNote = player ? getYouthSurclassementLabel(player, rencontre, saison) : null;
+                        const isPickerOpen = canEdit && activeSlot?.key === slot.key;
 
-                          <div className="flex items-center space-x-1.5">
-                            <span className="text-[11px] text-zinc-400">Affectation :</span>
-                            {canEdit && step1Done ? (
-                              <select
-                                value={playerNum}
-                                onChange={(e) => {
-                                  const targetNum = parseInt(e.target.value, 10);
-                                  swapSingleTokenInOrder(matchIndex, targetNum);
-                                }}
-                                className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-orange-500 cursor-pointer"
-                                title="Choisir quel numéro de joueur dispute ce créneau"
-                              >
-                                {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
-                                  <option key={num} value={num}>
-                                    Joueur n°{num} {num === 1 ? '(Leader)' : ''}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span className="font-bold text-xs text-orange-300 bg-black/60 border border-orange-500/30 px-2 py-0.5 rounded-lg">
-                                Joueur n°{playerNum} {playerNum === 1 ? '(Leader)' : ''}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {canEdit && (
-                          <div className="flex items-center space-x-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => moveMatchOrder(matchIndex, matchIndex - 1)}
-                              disabled={!step1Done || matchIndex === 0}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                                !step1Done || matchIndex === 0
-                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                              }`}
-                              title="Monter ce match dans l'ordre"
-                            >
-                              <ArrowUp className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => moveMatchOrder(matchIndex, matchIndex + 1)}
-                              disabled={!step1Done || matchIndex === matchOrder.length - 1}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                                !step1Done || matchIndex === matchOrder.length - 1
-                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                              }`}
-                              title="Descendre ce match dans l'ordre"
-                            >
-                              <ArrowDown className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div>
-                        {renderSlotCard(slotKey, `Joueur n°${playerNum}`)}
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Double 1 ou Double 2
-                const dNum = parseInt(token.slice(1), 10);
-                const p1SlotKey: SlotKey = dNum === 1 ? 'double1Player1Id' : 'double2Player1Id';
-                const p2SlotKey: SlotKey = dNum === 1 ? 'double1Player2Id' : 'double2Player2Id';
-                const p1 = composition[p1SlotKey] ? adherentsById.get(composition[p1SlotKey]!) : null;
-                const p2 = composition[p2SlotKey] ? adherentsById.get(composition[p2SlotKey]!) : null;
-                const pairWeight = (p1 ? getDoubleRankingWeight(p1.dernierClassTennis) : 0) + (p2 ? getDoubleRankingWeight(p2.dernierClassTennis) : 0);
-                const pairComplete = Boolean(p1 && p2);
-
-                return (
-                  <div
-                    key={`match-${token}`}
-                    className="p-3 rounded-2xl bg-[#0d1016] border border-[#232936] space-y-2 transition hover:border-zinc-700 shadow-md"
-                  >
-                    <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-xs">
-                          Match {matchIndex + 1}
-                        </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono text-xs font-bold">
-                          <Clock className="w-3 h-3 text-purple-400 shrink-0" />
-                          {canEdit && step1Done ? (
-                            <input
-                              type="time"
-                              value={timeSlot}
-                              onChange={(e) => handleUpdateMatchRotationTime(token, e.target.value)}
-                              className="bg-transparent text-purple-300 font-mono text-xs font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
-                              title="Heure de rotation de ce double"
-                            />
-                          ) : (
-                            <span>{timeSlot}</span>
-                          )}
-                        </span>
-                        <span className="font-heading font-black text-white text-xs sm:text-sm">
-                          {compFormat.numDoubles >= 2 ? `Double N°${dNum}` : 'Double'}
-                        </span>
-                        {dNum === 1 && compFormat.numDoubles >= 2 && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
-                            Paire N°1 (Poids D1 ≤ D2)
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        {dNum === 2 && canEdit && step2Done && (
-                          <button
-                            type="button"
-                            onClick={handleSwapDoubles}
-                            className="text-xs text-orange-400 hover:text-white flex items-center gap-1 font-bold cursor-pointer mr-1"
-                            title="Intervertir la paire D1 et la paire D2"
+                        return (
+                          <div
+                            key={slot.key}
+                            ref={isPickerOpen ? activeSlotRef : undefined}
+                            className={`p-3 sm:px-4 flex flex-col gap-2 text-xs transition scroll-mt-4 ${
+                              isSlotIneligible
+                                ? 'bg-rose-950/25'
+                                : isPickerOpen
+                                  ? 'bg-[#10141c] ring-1 ring-inset ring-[#E65100]/50'
+                                  : ''
+                            }`}
                           >
-                            <ArrowUpDown className="w-3.5 h-3.5" />
-                            <span>Inverser D1 et D2</span>
-                          </button>
-                        )}
-                        {canEdit && (
-                          <div className="flex items-center space-x-1">
-                            <button
-                              type="button"
-                              onClick={() => moveMatchOrder(matchIndex, matchIndex - 1)}
-                              disabled={!step1Done || matchIndex === 0}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                                !step1Done || matchIndex === 0
-                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                              }`}
-                              title="Monter ce double dans l'ordre"
-                            >
-                              <ArrowUp className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => moveMatchOrder(matchIndex, matchIndex + 1)}
-                              disabled={!step1Done || matchIndex === matchOrder.length - 1}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition ${
-                                !step1Done || matchIndex === matchOrder.length - 1
-                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
-                              }`}
-                              title="Descendre ce double dans l'ordre"
-                            >
-                              <ArrowDown className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                            <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                              <div className="flex items-center space-x-3 min-w-0 flex-1">
+                                <span
+                                  className={`w-7 h-7 rounded-lg border font-extrabold flex items-center justify-center text-[11px] shrink-0 ${
+                                    slot.isDouble
+                                      ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
+                                      : 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                                  }`}
+                                >
+                                  {slot.badge}
+                                </span>
 
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {renderSlotCard(p1SlotKey, compFormat.numDoubles >= 2 ? `Joueur 1 (Double ${dNum})` : 'Joueur 1 (Double)')}
-                        {renderSlotCard(p2SlotKey, compFormat.numDoubles >= 2 ? `Joueur 2 (Double ${dNum})` : 'Joueur 2 (Double)')}
-                      </div>
-                      {pairComplete && (
-                        <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                                      {slot.label}
+                                    </span>
+                                    {surclassementNote && (
+                                      <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[9px] font-bold">
+                                        {surclassementNote}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {player ? (
+                                    <>
+                                      <p className="font-heading font-black text-white text-sm truncate">
+                                        {player.nomPrenom}
+                                      </p>
+                                      <p className="text-[11px] text-zinc-400 truncate">
+                                        Licence : <span className="font-mono text-zinc-300">{player.licence || 'N/A'}</span> •{' '}
+                                        {slot.isDouble
+                                          ? `Poids double : ${getDoubleRankingWeight(player.dernierClassTennis)}`
+                                          : `Catégorie : ${player.ageSportif ? `${player.ageSportif} ans` : 'Senior'}`}
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p className="text-xs text-zinc-500 italic">Poste non assigné</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                {player ? (
+                                  <>
+                                    <div className="px-2.5 py-1 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-300 font-black text-xs flex items-center gap-1.5">
+                                      <CheckCircle2 className="w-3 h-3 text-[#FF6D00]" />
+                                      <span>Classement : {player.dernierClassTennis}</span>
+                                    </div>
+                                    {canEdit && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => setActiveSlot(isPickerOpen ? null : { key: slot.key, label: slot.label })}
+                                          className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
+                                            isPickerOpen
+                                              ? 'bg-[#E65100] border-[#FF6D00] text-white'
+                                              : 'bg-zinc-800/80 hover:bg-orange-500/20 border-zinc-700 hover:border-orange-500/40 text-zinc-200 hover:text-orange-300'
+                                          }`}
+                                          title="Changer ce joueur"
+                                        >
+                                          {isPickerOpen ? 'Fermer' : 'Changer'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleClearSlot(slot.key)}
+                                          className="min-h-[34px] px-2.5 py-1 rounded-xl bg-zinc-800/80 hover:bg-rose-950/50 border border-zinc-700 hover:border-rose-500/40 text-zinc-300 hover:text-rose-300 text-[11px] font-bold transition cursor-pointer"
+                                          title="Retirer ce joueur"
+                                        >
+                                          Retirer
+                                        </button>
+                                      </>
+                                    )}
+                                  </>
+                                ) : canEdit ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSlot(isPickerOpen ? null : { key: slot.key, label: slot.label })}
+                                    className={`min-h-[36px] px-3 py-1.5 rounded-xl border font-black text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                                      isPickerOpen
+                                        ? 'bg-zinc-800 border-zinc-600 text-zinc-200 hover:text-white'
+                                        : 'bg-orange-500/15 hover:bg-orange-500/25 border-orange-500/35 text-[#FF6D00]'
+                                    }`}
+                                  >
+                                    {isPickerOpen ? <X className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                                    <span>{isPickerOpen ? 'Fermer' : 'Assigner'}</span>
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {isSlotIneligible && eligibility && (
+                              <div className="ml-10 p-2 rounded-lg bg-rose-500/20 border border-rose-500/40 text-[10px] text-rose-200 space-y-0.5">
+                                <p className="font-black flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+                                  <span>JOUEUR INÉLIGIBLE :</span>
+                                </p>
+                                {eligibility.errors.map((err, i) => (
+                                  <p key={i}>• {err}</p>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Sélecteur de joueur intégré directement dans la ligne du poste */}
+                            {isPickerOpen && (
+                              <div className="mt-1 pt-3 border-t border-[#E65100]/30 space-y-2.5">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="relative flex-1 min-w-[200px]">
+                                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                      type="text"
+                                      value={playerSearchQuery}
+                                      onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                                      placeholder={`Rechercher un joueur pour ${slot.label} (nom, classement)...`}
+                                      autoFocus
+                                      className="w-full bg-[#0b0e14] border border-zinc-700 focus:border-orange-500 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-zinc-500 outline-none"
+                                    />
+                                    {playerSearchQuery && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPlayerSearchQuery('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white cursor-pointer"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                    <span>{playersWithEligibility.length} éligible{playersWithEligibility.length > 1 ? 's' : ''}</span>
+                                  </span>
+                                </div>
+
+                                <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1 touch-pan-y">
+                                  {playersWithEligibility
+                                    .filter(item => {
+                                      if (!playerSearchQuery.trim()) return true;
+                                      const q = playerSearchQuery.toLowerCase().trim();
+                                      const name = (item.adherent.nomPrenom || '').toLowerCase();
+                                      const rank = (item.adherent.dernierClassTennis || '').toLowerCase();
+                                      const lic = (item.adherent.licence || '').toLowerCase();
+                                      return name.includes(q) || rank.includes(q) || lic.includes(q);
+                                    })
+                                    .map(({ adherent, dispo }) => {
+                                      const assignment = getPlayerAssignment(adherent, slot.key);
+                                      const isDisabled = !!assignment?.isDisabled;
+                                      const isCurrentSlot = !!assignment?.isCurrentSlot;
+                                      const itemSurclassement = getYouthSurclassementLabel(adherent, rencontre, saison);
+
+                                      return (
+                                        <div
+                                          key={adherent.id}
+                                          onClick={() => {
+                                            if (isDisabled) return;
+                                            handleAssignPlayer(adherent, slot.key);
+                                          }}
+                                          className={`p-2.5 rounded-xl border transition flex items-center justify-between gap-2 ${
+                                            isDisabled
+                                              ? 'bg-[#0e1117] border-zinc-800/80 opacity-60 cursor-not-allowed select-none'
+                                              : isCurrentSlot
+                                                ? 'bg-emerald-950/25 border-emerald-500/40 text-white cursor-default'
+                                                : 'bg-[#161a24] border-[#262c3a] hover:border-orange-500/60 hover:bg-[#1c2230] cursor-pointer group'
+                                          }`}
+                                          title={isDisabled ? assignment.details : `Assigner ${adherent.nomPrenom} à ${slot.label}`}
+                                        >
+                                          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                                              isDisabled
+                                                ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-700'
+                                                : isCurrentSlot
+                                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                  : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                            }`}>
+                                              {isDisabled ? <Lock className="w-3 h-3 text-zinc-400" /> : isCurrentSlot ? <Check className="w-3 h-3 text-emerald-400" /> : '✓'}
+                                            </div>
+
+                                            <div className="min-w-0 flex-1">
+                                              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                                                <span className={`font-heading font-black text-xs truncate ${isDisabled ? 'text-zinc-400' : 'text-white'}`}>
+                                                  {adherent.nomPrenom}
+                                                </span>
+                                                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold shrink-0">
+                                                  {adherent.dernierClassTennis}
+                                                </span>
+                                                {itemSurclassement && (
+                                                  <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 text-[9px] font-bold shrink-0">
+                                                    {itemSurclassement}
+                                                  </span>
+                                                )}
+                                                {dispo && (
+                                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
+                                                    dispo.statut === 'disponible'
+                                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                      : dispo.statut === 'incertain'
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                                  }`}>
+                                                    {dispo.statut === 'disponible'
+                                                      ? `🟢 Dispo (${dispo.preferenceJeu === 'simple_et_double' ? 'S+D' : dispo.preferenceJeu === 'simple_seul' ? 'S' : 'D'})`
+                                                      : dispo.statut === 'incertain' ? '🟡 Incertain' : '🔴 Indispo'}
+                                                  </span>
+                                                )}
+                                              </div>
+
+                                              {isDisabled ? (
+                                                <p className="text-[10px] text-amber-400 font-medium flex items-center gap-1 mt-0.5 truncate">
+                                                  <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                                  <span className="truncate">{assignment.details}</span>
+                                                </p>
+                                              ) : (
+                                                <p className="text-[10px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                                                  <span>Licence {adherent.licence} ({adherent.millesimeLicence || saison})</span>
+                                                  <span>•</span>
+                                                  <span>{adherent.ageSportif ? `${adherent.ageSportif} ans` : adherent.dateNaissance || 'TCM'}</span>
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div className="shrink-0">
+                                            {isDisabled ? (
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                                                <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                                <span>{assignment.badge}</span>
+                                              </span>
+                                            ) : isCurrentSlot ? (
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                                                <span>Assigné</span>
+                                              </span>
+                                            ) : (
+                                              <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-orange-500/20 text-orange-400 border border-orange-500/40 group-hover:bg-orange-500 group-hover:text-white transition">
+                                                Assigner
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {compFormat.numDoubles >= 2 && doublesWeightCheck.isComplete && (
+                        <div className="px-4 py-2.5 bg-black/30 flex items-center justify-between gap-2 flex-wrap text-[11px] text-zinc-400">
                           <span>
-                            Poids total {compFormat.numDoubles >= 2 ? `Double ${dNum}` : 'du Double'} :{' '}
-                            <strong className="text-white font-mono">{pairWeight}</strong>
-                            <span className="text-zinc-500 ml-1">
-                              ({getDoubleRankingWeight(p1!.dernierClassTennis)} + {getDoubleRankingWeight(p2!.dernierClassTennis)})
-                            </span>
+                            Poids Double 1 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble1}</strong>
+                            {' · '}
+                            Poids Double 2 : <strong className="text-white font-mono">{doublesWeightCheck.weightDouble2}</strong>
+                          </span>
+                          <span className={doublesWeightCheck.isValid ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                            {doublesWeightCheck.isValid ? '✓ Règle Poids D1 ≤ D2 respectée' : '⚠ Poids D1 doit être ≤ D2'}
                           </span>
                         </div>
                       )}
                     </div>
+                  );
+                })()}
+              </div>
+
+              {/* BLOC 3 (INDÉPENDANT) : CRÉNEAUX & ORDRE DES MATCHS (TABLEAU UNIQUE AVEC NOM & CLASSEMENT) */}
+              <div className="p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-orange-400" />
+                      <span>Créneaux &amp; Ordre des matchs ({compFormat.numSingles}S + {compFormat.numDoubles}D)</span>
+                    </h4>
+                    {!step2Done && (
+                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md">
+                        Provisoire (non validé)
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
 
-          {/* ==================== TIROIR DE SÉLECTION D'UN JOUEUR ==================== */}
-          {activeSlot && (
-            <div ref={activeSlotRef} className="p-4 sm:p-5 rounded-3xl bg-[#101319] border-2 border-[#E65100]/60 shadow-2xl space-y-3.5 scroll-mt-4">
-              <div className="flex items-center justify-between border-b border-[#232936] pb-3 gap-2 flex-wrap">
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#E65100] shrink-0"></span>
-                  <h4 className="font-heading font-black text-white text-xs sm:text-sm">
-                    Assigner un joueur : <span className="text-[#FF6D00]">{activeSlot.label}</span>
-                  </h4>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={handleValidateStep2Order}
+                      className={`min-h-[38px] px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                        step2Done
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                          : 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow hover:brightness-110'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{step2Done ? 'Ordre des matchs validé' : "Valider l'ordre des matchs"}</span>
+                    </button>
+                  )}
                 </div>
-                
-                <div className="flex items-center space-x-2">
-                  <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="hidden sm:inline">{playersWithEligibility.length} licenciés TCM éligibles</span>
-                    <span className="sm:hidden">Licenciés TCM</span>
+
+                {/* Rappel 1 ligne du format officiel */}
+                <p className="text-[11px] text-zinc-400 flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-orange-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-zinc-300">{compFormat.divisionLabel} :</strong> {compFormat.orderOfPlay}
+                    {compFormat.doubleWeightStrict ? ' · Poids Double 1 ≤ Poids Double 2.' : ''}
                   </span>
-                  <button
-                    onClick={() => setActiveSlot(null)}
-                    className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+                </p>
 
-              {/* Champ de recherche instantanée par nom ou classement */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={playerSearchQuery}
-                  onChange={(e) => setPlayerSearchQuery(e.target.value)}
-                  placeholder="Rechercher par nom, prénom ou classement (ex: 15/4)..."
-                  className="w-full bg-[#0b0e14] border border-zinc-700 focus:border-orange-500 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none"
-                />
-                {playerSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setPlayerSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
+                {/* Tableau unique des matchs (numéro court, heure, bulle poste + joueur sélectionné & classement) */}
+                {matchOrder.length > 0 && (
+                  <div className="pt-2 border-t border-[#1e2430] space-y-1.5">
+                    {matchOrder.map((token, matchIndex) => {
+                      const timeSlot = getMatchTimeSlot(matchIndex, token);
+                      const isSingle = token.startsWith('S');
+                      const playerNum = isSingle ? parseInt(token.slice(1), 10) : 0;
+                      const dNum = !isSingle ? parseInt(token.slice(1), 10) : 0;
 
-              {/* Rappel du barème pour cette sélection */}
-              <div className="p-2.5 sm:p-3 rounded-xl bg-[#171b24] border border-[#262c3b] text-xs text-zinc-300 grid grid-cols-3 gap-1.5 text-center sm:text-left">
-                <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">1. Club &amp; Licence :</span>
-                  <span className="font-bold text-emerald-400 text-[11px] sm:text-xs">TCM ({saison})</span>
-                </div>
-                <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">2. Sexe épreuve :</span>
-                  <span className="font-bold text-orange-400 text-[11px] sm:text-xs">{reqSex === 'H' ? 'Messieurs (H)' : reqSex === 'F' ? 'Dames (F)' : 'Mixte'}</span>
-                </div>
-                <div>
-                  <span className="text-zinc-500 block text-[9px] sm:text-[10px]">3. Catégorie d'âge :</span>
-                  <span className="font-bold text-white text-[11px] sm:text-xs">{rencontre.categorieAgeHomologation || 'TCM'}</span>
-                </div>
-              </div>
+                      const singlePlayerId = isSingle ? (composition[`simple${playerNum}Id` as SlotKey] as string | undefined) : undefined;
+                      const singlePlayer = singlePlayerId ? adherentsById.get(singlePlayerId) : null;
 
-              {/* Grille des adhérents avec statut */}
-              <div className="max-h-64 sm:max-h-72 overflow-y-auto space-y-1.5 pr-1 touch-pan-y">
-                {playersWithEligibility
-                  .filter(item => {
-                    if (!playerSearchQuery.trim()) return true;
-                    const q = playerSearchQuery.toLowerCase().trim();
-                    const name = (item.adherent.nomPrenom || '').toLowerCase();
-                    const rank = (item.adherent.dernierClassTennis || '').toLowerCase();
-                    const lic = (item.adherent.licence || '').toLowerCase();
-                    return name.includes(q) || rank.includes(q) || lic.includes(q);
-                  })
-                  .map(({ adherent, dispo }) => {
-                    const assignment = getPlayerAssignment(adherent, activeSlot.key);
-                    const isDisabled = !!assignment?.isDisabled;
-                    const isCurrentSlot = !!assignment?.isCurrentSlot;
+                      const dP1Id = !isSingle ? (dNum === 1 ? composition.double1Player1Id : composition.double2Player1Id) : undefined;
+                      const dP2Id = !isSingle ? (dNum === 1 ? composition.double1Player2Id : composition.double2Player2Id) : undefined;
+                      const dPlayer1 = dP1Id ? adherentsById.get(dP1Id) : null;
+                      const dPlayer2 = dP2Id ? adherentsById.get(dP2Id) : null;
+                      const doubleWeightTotal = (dPlayer1 && dPlayer2)
+                        ? getDoubleRankingWeight(dPlayer1.dernierClassTennis) + getDoubleRankingWeight(dPlayer2.dernierClassTennis)
+                        : null;
 
-                    return (
-                      <div
-                        key={adherent.id}
-                        onClick={() => {
-                          if (isDisabled) return;
-                          handleAssignPlayer(adherent, activeSlot.key);
-                        }}
-                        className={`p-3 rounded-2xl border transition flex items-center justify-between ${
-                          isDisabled
-                            ? 'bg-[#10131a] border-zinc-800/80 opacity-60 cursor-not-allowed select-none'
-                            : isCurrentSlot
-                              ? 'bg-emerald-950/20 border-emerald-500/40 text-white cursor-default'
-                              : 'bg-[#181c25] border-[#262c3a] hover:border-orange-500/60 hover:bg-[#1d222e] cursor-pointer group'
-                        }`}
-                        title={isDisabled ? assignment.details : `Assigner ${adherent.nomPrenom} au ${activeSlot.label}`}
-                      >
-                        <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                            isDisabled 
-                              ? 'bg-zinc-800/80 text-zinc-500 border border-zinc-700' 
-                              : isCurrentSlot
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                          }`}>
-                            {isDisabled ? <Lock className="w-3.5 h-3.5 text-zinc-400" /> : isCurrentSlot ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : '✓'}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                              <span className={`font-heading font-black text-xs sm:text-sm truncate ${isDisabled ? 'text-zinc-400' : 'text-white'}`}>
-                                {adherent.nomPrenom}
+                      return (
+                        <div
+                          key={`order-${token}`}
+                          className="px-3 py-2.5 rounded-xl bg-[#12161f] border border-[#232936] flex items-center justify-between gap-3"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 shrink-0 sm:w-[248px]">
+                              <span
+                                className="w-6 h-6 rounded-lg bg-black/70 border border-zinc-700 text-white font-mono font-black text-[11px] flex items-center justify-center shrink-0"
+                                title={`Match ${matchIndex + 1}`}
+                              >
+                                {matchIndex + 1}
                               </span>
-                              <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold shrink-0">
-                                {adherent.dernierClassTennis}
+
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border font-mono text-xs font-bold shrink-0 ${
+                                isSingle
+                                  ? 'bg-orange-500/15 border-orange-500/30 text-orange-300'
+                                  : 'bg-purple-500/15 border-purple-500/30 text-purple-300'
+                              }`}>
+                                <Clock className="w-3 h-3 shrink-0" />
+                                {canEdit ? (
+                                  <input
+                                    type="time"
+                                    value={timeSlot}
+                                    onChange={(e) => handleUpdateMatchRotationTime(token, e.target.value)}
+                                    className="bg-transparent font-mono text-xs font-bold focus:outline-none [color-scheme:dark] cursor-pointer"
+                                    title="Heure de rotation de ce match"
+                                  />
+                                ) : (
+                                  <span>{timeSlot.replace(':', 'h')}</span>
+                                )}
                               </span>
-                              {dispo && (
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
-                                  dispo.statut === 'disponible'
-                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                    : dispo.statut === 'incertain'
-                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                                }`}>
-                                  {dispo.statut === 'disponible' 
-                                    ? `🟢 Dispo (${dispo.preferenceJeu === 'simple_et_double' ? 'S+D' : dispo.preferenceJeu === 'simple_seul' ? 'S' : 'D'})`
-                                    : dispo.statut === 'incertain' ? '🟡 Incertain' : '🔴 Indispo'}
+
+                              {isSingle ? (
+                                canEdit ? (
+                                  <select
+                                    value={playerNum}
+                                    onChange={(e) => {
+                                      const targetNum = parseInt(e.target.value, 10);
+                                      swapSingleTokenInOrder(matchIndex, targetNum);
+                                    }}
+                                    className="bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-orange-500 cursor-pointer shrink-0 w-[108px]"
+                                    title="Choisir quel simple dispute ce créneau"
+                                  >
+                                    {Array.from({ length: compFormat.numSingles }, (_, i) => i + 1).map((num) => (
+                                      <option key={num} value={num}>
+                                        Simple N°{num}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-lg bg-black/60 border border-orange-500/40 text-orange-300 font-bold text-xs shrink-0 w-[108px] text-center">
+                                    Simple N°{playerNum}
+                                  </span>
+                                )
+                              ) : (
+                                <span className="px-2 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 font-heading font-black text-purple-200 text-xs shrink-0 w-[108px] text-center">
+                                  {compFormat.numDoubles >= 2 ? `Double N°${dNum}` : 'Double'}
                                 </span>
                               )}
                             </div>
 
-                            {/* Ligne détails ou motif d'affectation */}
-                            {isDisabled ? (
-                              <p className="text-[11px] text-amber-400 font-medium flex items-center gap-1 mt-0.5 truncate">
-                                <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-                                <span className="truncate">{assignment.details}</span>
-                              </p>
-                            ) : (
-                              <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
-                                <span>Licence {adherent.licence} ({adherent.millesimeLicence || '2027'})</span>
-                                <span>•</span>
-                                <span>{adherent.ageSportif ? `${adherent.ageSportif} ans` : adherent.dateNaissance || 'TCM'}</span>
-                              </p>
-                            )}
-                          </div>
-                        </div>
+                            {/* Nom, prénom, numéro de licence aligné et classement / poids total double aligné */}
+                            <div className="min-w-0 flex-1 pl-8 sm:pl-0">
+                              {isSingle ? (
+                                singlePlayer ? (
+                                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                    <span className="flex-1 min-w-0 text-xs font-bold text-white truncate">
+                                      {singlePlayer.nomPrenom}
+                                    </span>
+                                    <span className="w-[78px] sm:w-[88px] shrink-0 text-xs font-normal font-mono text-zinc-300 tabular-nums text-left">
+                                      {singlePlayer.licence || '—'}
+                                    </span>
+                                    <span className="w-[68px] text-center px-1.5 py-0.5 rounded-md bg-orange-500/15 border border-orange-500/30 text-orange-300 font-mono font-black text-[11px] shrink-0 tabular-nums">
+                                      {singlePlayer.dernierClassTennis}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                    <span className="flex-1 min-w-0 text-xs text-zinc-500 italic">À désigner</span>
+                                    <span className="w-[78px] sm:w-[88px] shrink-0 text-xs font-normal font-mono text-zinc-600 text-left">
+                                      —
+                                    </span>
+                                    <span className="w-[68px] text-center px-1.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-[10px] shrink-0">
+                                      —
+                                    </span>
+                                  </div>
+                                )
+                              ) : (
+                                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                  <div className="flex-1 min-w-0 space-y-1">
+                                    {[dPlayer1, dPlayer2].map((dp, idx) =>
+                                      dp ? (
+                                        <div key={`${dp.id}-${idx}`} className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                          <span className="flex-1 min-w-0 text-xs font-bold text-white truncate">
+                                            {dp.nomPrenom}
+                                          </span>
+                                          <span className="w-[78px] sm:w-[88px] shrink-0 text-xs font-normal font-mono text-zinc-300 tabular-nums text-left">
+                                            {dp.licence || '—'}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div key={`empty-d-${idx}`} className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                          <span className="flex-1 min-w-0 text-xs text-zinc-500 italic">
+                                            Joueur {idx + 1} à désigner
+                                          </span>
+                                          <span className="w-[78px] sm:w-[88px] shrink-0 text-xs font-normal font-mono text-zinc-600 text-left">
+                                            —
+                                          </span>
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
 
-                        {/* Statut / Badge d'affectation à droite */}
-                        <div className="shrink-0">
-                          {isDisabled ? (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-sm">
-                              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>{assignment.badge}</span>
-                            </span>
-                          ) : isCurrentSlot ? (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                              <span>Actuellement assigné</span>
-                            </span>
-                          ) : (
-                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-orange-500/20 text-orange-400 border border-orange-500/40 group-hover:bg-orange-500 group-hover:text-white transition">
-                              Assigner
-                            </span>
+                                  {doubleWeightTotal !== null ? (
+                                    <span
+                                      className="w-[68px] text-center px-1.5 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono font-black text-[11px] shrink-0 tabular-nums"
+                                      title="Poids total de la paire de double"
+                                    >
+                                      Poids {doubleWeightTotal}
+                                    </span>
+                                  ) : (
+                                    <span className="w-[68px] text-center px-1.5 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-[10px] shrink-0">
+                                      —
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {canEdit && (
+                            <div className="flex items-center space-x-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => moveMatchOrder(matchIndex, matchIndex - 1)}
+                                disabled={matchIndex === 0}
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center border transition ${
+                                  matchIndex === 0
+                                    ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                                }`}
+                                title="Monter ce match dans l'ordre"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveMatchOrder(matchIndex, matchIndex + 1)}
+                                disabled={matchIndex === matchOrder.length - 1}
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center border transition ${
+                                  matchIndex === matchOrder.length - 1
+                                    ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300 hover:text-white cursor-pointer'
+                                }`}
+                                title="Descendre ce match dans l'ordre"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
+            </>
           )}
 
         </div>
