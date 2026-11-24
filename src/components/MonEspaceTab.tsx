@@ -40,6 +40,7 @@ import {
   computeDeterministicAttestationPricing,
 } from '../utils/attestationUtils';
 import { parseDateToJs } from '../utils/dateUtils';
+import { getEffectiveMatchVenueInfo } from '../utils/matchScheduling';
 import { AttestationDocument } from './AttestationDocument';
 
 type EspaceSubTab = 'fiche' | 'attestation' | 'convocations';
@@ -328,23 +329,10 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
 
       const isHome = (r.clubAccueilNom || '').toLowerCase().includes('muzillac');
       const opponentName = isHome ? r.clubVisiteurNom : r.clubAccueilNom;
+      const venueInfo = getEffectiveMatchVenueInfo(r);
 
-      const installAddr = [
-        r.adresse1Installation,
-        r.adresse2Installation,
-        r.codePostalInstallation,
-        r.villeInstallation,
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      const lieuDisplay =
-        comp.lieuRencontre ||
-        (isHome ? 'Complexe du Clos des Moines, Muzillac' : installAddr || r.clubAccueilNom);
-
-      const mapsQuery = isHome
-        ? `${clubInfo.adresse || 'Complexe du Clos des Moines'}, ${clubInfo.codePostal || '56190'} ${clubInfo.ville || 'Muzillac'}`
-        : installAddr || r.clubAccueilNom;
+      const lieuDisplay = venueInfo.gpsDisplayAddress || venueInfo.title;
+      const mapsQuery = venueInfo.gpsDestinationQuery;
 
       const heureDebut = comp.heureDebut || '09:00';
       const heureRotation =
@@ -355,7 +343,10 @@ export const MonEspaceTab: React.FC<MonEspaceTabProps> = ({
         roleLabel,
         slotKey,
         isSubstitute,
-        isValidated: Boolean(comp.valideParCapitaine || comp.joueursValides),
+        isValidated: Boolean(
+          comp.joueursValides ||
+            (typeof comp.joueursValides !== 'boolean' && comp.valideParCapitaine)
+        ),
         dateObj,
         isPast,
         dateDisplay,

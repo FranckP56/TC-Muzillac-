@@ -14,6 +14,7 @@ import {
   Car
 } from 'lucide-react';
 import { Rencontre } from '../types/tennis';
+import { getEffectiveMatchVenueInfo } from '../utils/matchScheduling';
 
 interface MatchItineraryModalProps {
   isOpen: boolean;
@@ -33,40 +34,11 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
   if (!isOpen || !rencontre) return null;
 
   const isHome = (rencontre.clubAccueilNom || '').toLowerCase().includes('muzillac');
-  const targetClubName = isHome ? (rencontre.clubAccueilNom || 'TC Muzillac') : (rencontre.clubAccueilNom || 'Club adverse');
-
-  // Construction de l'adresse de destination
-  const addressParts: string[] = [];
-  if (isHome) {
-    addressParts.push(TCM_HOME_ADDRESS);
-  } else {
-    if (rencontre.adresse1Installation && rencontre.adresse1Installation.trim()) {
-      addressParts.push(rencontre.adresse1Installation.trim());
-    }
-    if (rencontre.adresse2Installation && rencontre.adresse2Installation.trim()) {
-      addressParts.push(rencontre.adresse2Installation.trim());
-    }
-    const cpVille: string[] = [];
-    if (rencontre.codePostalInstallation && rencontre.codePostalInstallation.trim()) {
-      cpVille.push(rencontre.codePostalInstallation.trim());
-    }
-    if (rencontre.villeInstallation && rencontre.villeInstallation.trim()) {
-      cpVille.push(rencontre.villeInstallation.trim());
-    }
-    if (cpVille.length > 0) {
-      addressParts.push(cpVille.join(' '));
-    }
-    if (addressParts.length === 0) {
-      // Fallback avec nom du club et ville
-      addressParts.push(`Installations de tennis ${targetClubName}`);
-      if (rencontre.villeInstallation) {
-        addressParts.push(rencontre.villeInstallation);
-      }
-    }
-  }
-
-  const destinationAddress = addressParts.join(', ');
-  const destinationQuery = `${targetClubName}, ${destinationAddress}`;
+  const venueInfo = getEffectiveMatchVenueInfo(rencontre);
+  const isExternalVenue = venueInfo.isExternalVenue;
+  const targetClubName = isHome ? venueInfo.title : (rencontre.clubAccueilNom || 'Club adverse');
+  const destinationAddress = venueInfo.gpsDisplayAddress;
+  const destinationQuery = venueInfo.gpsDestinationQuery;
 
   // URLs d'itinéraires
   const googleMapsDirUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(TCM_HOME_ADDRESS)}&destination=${encodeURIComponent(destinationQuery)}`;
@@ -123,23 +95,23 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* En-tête avec dégradé bleu ciel / orange */}
-        <div className={`p-5 bg-gradient-to-r ${isHome ? 'from-amber-600/25 via-[#161a22] to-[#12151b] border-amber-500/30' : 'from-sky-600/25 via-[#161a22] to-[#12151b] border-sky-500/30'} border-b flex items-start justify-between shrink-0`}>
+        <div className={`p-5 bg-gradient-to-r ${!isExternalVenue ? 'from-amber-600/25 via-[#161a22] to-[#12151b] border-amber-500/30' : 'from-sky-600/25 via-[#161a22] to-[#12151b] border-sky-500/30'} border-b flex items-start justify-between shrink-0`}>
           <div className="flex items-center space-x-3">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-inner border ${
-              isHome 
+              !isExternalVenue 
                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
                 : 'bg-sky-500/20 text-sky-300 border-sky-500/30'
             }`}>
-              {isHome ? <MapPin className="w-6 h-6" /> : <Navigation className="w-6 h-6" />}
+              {!isExternalVenue ? <MapPin className="w-6 h-6" /> : <Navigation className="w-6 h-6" />}
             </div>
             <div>
               <div className="flex items-center space-x-2">
                 <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                  isHome 
+                  !isExternalVenue 
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' 
                     : 'bg-sky-500/20 text-sky-200 border-sky-400/40'
                 }`}>
-                  {isHome ? 'Match à Domicile' : 'Match à l\'Extérieur'}
+                  {isHome ? (isExternalVenue ? 'Domicile · Site délocalisé' : 'Match à Domicile') : 'Match à l\'Extérieur'}
                 </span>
                 <span className="text-[10px] text-zinc-400 font-bold">
                   {rencontre.numeroEquipe}
@@ -180,7 +152,7 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
 
             <div className="border-t border-zinc-800/80 pt-3 flex items-start space-x-3">
               <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 mt-0.5 border ${
-                isHome 
+                !isExternalVenue 
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
                   : 'bg-sky-500/20 text-sky-300 border-sky-500/30'
               }`}>
@@ -189,7 +161,7 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] uppercase font-black text-zinc-400 tracking-wider block">
-                    {isHome ? 'Installations TCM' : 'Installations du club adverse'}
+                    {isHome ? (isExternalVenue ? 'Lieu retenu (TCM)' : 'Installations TCM') : 'Installations du club adverse'}
                   </span>
                   <button
                     onClick={handleCopyAddress}
@@ -218,7 +190,7 @@ export const MatchItineraryModal: React.FC<MatchItineraryModalProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-orange-400" />
                 <span className="text-white font-medium">{rencontre.dateRencontre}</span>
               </div>
-              {(rencontre.composition?.logistiqueValidee || rencontre.composition?.valideParCapitaine) && rencontre.composition?.heureDebut && (
+              {(rencontre.composition?.logistiqueValidee || (typeof rencontre.composition?.logistiqueValidee !== 'boolean' && rencontre.composition?.valideParCapitaine)) && rencontre.composition?.heureDebut && (
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-orange-400" />
                   <span className="text-white font-medium">{rencontre.composition.heureDebut}</span>

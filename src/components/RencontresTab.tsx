@@ -31,7 +31,7 @@ import { Rencontre, Adherent, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility } from '../utils/fftEligibility';
 import { getNextFftMonthlyRankingRelease, getWeeklyScheduleInfo } from '../utils/fftCalendar';
 import { getCompetitionFormat, validateMatchDateAndSchedule } from '../utils/competitionFormats';
-import { getAdverseClubFullAddress, computeMatchRotationSchedule } from '../utils/matchScheduling';
+import { getEffectiveMatchVenueInfo, computeMatchRotationSchedule } from '../utils/matchScheduling';
 import { normalizeDateString, parseDateToJs, isBadenCupMatch } from '../utils/dateUtils';
 import { MatchItineraryModal } from './MatchItineraryModal';
 
@@ -69,7 +69,10 @@ export const getComiteByeScore = (r: Rencontre): string => {
 };
 
 export const isMatchLogisticsValidated = (r: Rencontre): boolean =>
-  Boolean(r.composition?.logistiqueValidee || r.composition?.valideParCapitaine);
+  Boolean(
+    r.composition?.logistiqueValidee ||
+      (typeof r.composition?.logistiqueValidee !== 'boolean' && r.composition?.valideParCapitaine)
+  );
 
 export const isMatchFinished = (r: Rencontre): boolean => {
   // 1. Un score officiel chiffré (ex: 4/1, 3/2, 2-3...)
@@ -455,7 +458,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
     return {
       count: playerIds.length,
       required: formatInfo.numSingles,
-      isValidated: Boolean((c.joueursValides || (c.valideParCapitaine && playerIds.length > 0)) && !hasIssue),
+      isValidated: Boolean((c.joueursValides || (typeof c.joueursValides !== 'boolean' && c.valideParCapitaine && playerIds.length > 0)) && !hasIssue),
       hasIssue,
       doubleWeightIssue,
     };
@@ -691,7 +694,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
             const isLogisticsValidated = isMatchLogisticsValidated(r);
             const isHome = r.clubAccueilNom.toLowerCase().includes('muzillac');
             const compStatus = getCompositionStatus(r);
-            const adverseAddressInfo = getAdverseClubFullAddress(r);
+            const venueInfo = getEffectiveMatchVenueInfo(r);
             const matchHour = r.composition?.heureDebut || '14:00';
             
             // Calcul indicatif du score (victoire automatique 3/0, 4/0, 5/0 ou 6/0 contre COMITE MORBIHAN TENNIS / Exempt)
@@ -913,7 +916,7 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Lieu & Adresse complète sur 2 lignes (adresse, code postal, ville) avec itinéraire Maps */}
+                      {/* Lieu & Adresse effective sélectionnée sur la fiche (Clos des Moines, Nivillac, salle repli ou club adverse) */}
                       <div className="text-[11px] text-zinc-400 pt-1.5 border-t border-zinc-800/60">
                         <button
                           type="button"
@@ -924,24 +927,22 @@ export const RencontresTab: React.FC<RencontresTabProps> = ({
                           className="w-full flex items-start gap-2 text-left hover:text-white transition group/loc cursor-pointer"
                           title="Ouvrir l'itinéraire Maps et partager la localisation"
                         >
-                          <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${!isHome ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
+                          <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${venueInfo.isExternalVenue ? 'text-sky-400 group-hover/loc:text-sky-300' : 'text-amber-400 group-hover/loc:text-amber-300'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1">
                               <span className="text-zinc-200 group-hover/loc:text-white font-semibold truncate underline decoration-dotted decoration-zinc-600 underline-offset-2">
-                                {isHome ? 'Complexe du Clos des Moines (TCM)' : r.clubAccueilNom}
+                                {venueInfo.title}
                               </span>
                               <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 shadow-sm ${
-                                !isHome
+                                venueInfo.isExternalVenue
                                   ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 group-hover/loc:bg-sky-500/35'
                                   : 'bg-amber-500/25 text-amber-300 border border-amber-500/50'
                               }`}>
-                                {!isHome ? '🚗 Itinéraire GPS' : '📍 Complexe'}
+                                {venueInfo.badgeLabel}
                               </span>
                             </div>
                             <p className="text-[10px] text-zinc-400 group-hover/loc:text-zinc-300 leading-tight mt-0.5">
-                              {isHome 
-                                ? '12 Rue du Clos des Moines, 56190 Muzillac' 
-                                : ([r.adresse1Installation, [r.codePostalInstallation, r.villeInstallation].filter(Boolean).join(' ')].filter(Boolean).join(', ') || adverseAddressInfo.venueLabel)}
+                              {venueInfo.address}
                             </p>
                           </div>
                         </button>

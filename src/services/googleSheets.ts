@@ -201,6 +201,10 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
 
       const frozenSlots: FrozenPlayerSlot[] = Array.isArray(v.frozenPlayers) ? v.frozenPlayers : [];
 
+      const rawRot = v.heuresRotations && typeof v.heuresRotations === 'object' ? { ...v.heuresRotations } : undefined;
+      const rotFlags = rawRot && rawRot._flags && typeof rawRot._flags === 'object' ? rawRot._flags : undefined;
+      if (rawRot && '_flags' in rawRot) delete rawRot._flags;
+
       const comp: MatchComposition = {
         valideParCapitaine: !!v.valideParCapitaine,
         dateValidation: String(v.dateValidation || ''),
@@ -209,10 +213,22 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         lieuRencontre,
         nombreCourts,
         ordreMatchs: Array.isArray(v.ordreMatchs) ? v.ordreMatchs : undefined,
-        heuresRotations: v.heuresRotations && typeof v.heuresRotations === 'object' ? v.heuresRotations : undefined,
-        logistiqueValidee: typeof v.logistiqueValidee === 'boolean' ? v.logistiqueValidee : undefined,
-        ordreValide: typeof v.ordreValide === 'boolean' ? v.ordreValide : undefined,
-        joueursValides: typeof v.joueursValides === 'boolean' ? v.joueursValides : undefined,
+        heuresRotations: rawRot,
+        logistiqueValidee: typeof v.logistiqueValidee === 'boolean'
+          ? v.logistiqueValidee
+          : typeof rotFlags?.logistiqueValidee === 'boolean'
+            ? rotFlags.logistiqueValidee
+            : undefined,
+        ordreValide: typeof v.ordreValide === 'boolean'
+          ? v.ordreValide
+          : typeof rotFlags?.ordreValide === 'boolean'
+            ? rotFlags.ordreValide
+            : false,
+        joueursValides: typeof v.joueursValides === 'boolean'
+          ? v.joueursValides
+          : typeof rotFlags?.joueursValides === 'boolean'
+            ? rotFlags.joueursValides
+            : undefined,
         frozenPlayers: frozenSlots,
       };
 
@@ -289,10 +305,15 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
       }
 
       let heuresRotations: Record<string, string> | undefined;
+      let rotFlags: { logistiqueValidee?: boolean; ordreValide?: boolean; joueursValides?: boolean } | undefined;
       if (row[21]) {
         try {
           const parsedRot = JSON.parse(String(row[21]).trim());
           if (parsedRot && typeof parsedRot === 'object' && !Array.isArray(parsedRot)) {
+            if (parsedRot._flags && typeof parsedRot._flags === 'object') {
+              rotFlags = parsedRot._flags;
+              delete parsedRot._flags;
+            }
             heuresRotations = parsedRot;
           }
         } catch { /* ignore */ }
@@ -305,6 +326,7 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
 
       let entry = map.get(matchId);
       if (!entry) {
+        const hasRealPlayer = Boolean(nomPrenom && poste !== 'Logistique & Ordre');
         entry = {
           composition: {
             valideParCapitaine: valide,
@@ -315,6 +337,15 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
             nombreCourts,
             ordreMatchs,
             heuresRotations,
+            logistiqueValidee: typeof rotFlags?.logistiqueValidee === 'boolean'
+              ? rotFlags.logistiqueValidee
+              : valide,
+            ordreValide: typeof rotFlags?.ordreValide === 'boolean'
+              ? rotFlags.ordreValide
+              : false,
+            joueursValides: typeof rotFlags?.joueursValides === 'boolean'
+              ? rotFlags.joueursValides
+              : (valide && hasRealPlayer),
             frozenPlayers: [],
           },
           frozenSlots: [],
@@ -421,8 +452,8 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         if (typeof localComp.joueursValides === 'boolean') {
           existing.composition.joueursValides = localComp.joueursValides;
         }
-        if (localComp.valideParCapitaine) {
-          existing.composition.valideParCapitaine = true;
+        if (typeof localComp.valideParCapitaine === 'boolean') {
+          existing.composition.valideParCapitaine = localComp.valideParCapitaine;
         }
       }
     }
@@ -1163,6 +1194,15 @@ export async function saveCompositionViaAppsScript(
     // Persistance locale immédiate systématique
     saveLocalComposition(rencontre.id, composition);
 
+    const rotationsWithFlags: Record<string, unknown> = {
+      ...(composition.heuresRotations || {}),
+      _flags: {
+        logistiqueValidee: Boolean(composition.logistiqueValidee),
+        ordreValide: Boolean(composition.ordreValide),
+        joueursValides: Boolean(composition.joueursValides),
+      },
+    };
+
     const payload = {
       action: 'saveComposition',
       rencontreId: rencontre.id,
@@ -1178,7 +1218,7 @@ export async function saveCompositionViaAppsScript(
       lieuRencontre: composition.lieuRencontre || 'Clos des Moines (Muzillac)',
       nombreCourts: composition.nombreCourts || 2,
       dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
-      valideParCapitaine: composition.valideParCapitaine ?? true,
+      valideParCapitaine: Boolean(composition.valideParCapitaine),
       slots,
       rencontre: {
         id: rencontre.id,
@@ -1198,15 +1238,15 @@ export async function saveCompositionViaAppsScript(
         lieuRencontre: composition.lieuRencontre || 'Clos des Moines (Muzillac)',
         nombreCourts: composition.nombreCourts || 2,
         dateValidation: composition.dateValidation || new Date().toLocaleDateString('fr-FR'),
-        valideParCapitaine: composition.valideParCapitaine ?? true,
+        valideParCapitaine: Boolean(composition.valideParCapitaine),
         ordreMatchs: composition.ordreMatchs,
-        heuresRotations: composition.heuresRotations,
-        logistiqueValidee: composition.logistiqueValidee,
-        ordreValide: composition.ordreValide,
-        joueursValides: composition.joueursValides,
+        heuresRotations: rotationsWithFlags,
+        logistiqueValidee: Boolean(composition.logistiqueValidee),
+        ordreValide: Boolean(composition.ordreValide),
+        joueursValides: Boolean(composition.joueursValides),
       },
       ordreMatchs: composition.ordreMatchs || [],
-      heuresRotations: composition.heuresRotations || {},
+      heuresRotations: rotationsWithFlags,
       frozenPlayers: slots,
     };
 
@@ -1373,7 +1413,14 @@ export async function saveCompositionToSheet(
       const rowsToAppend: any[][] = [];
       const nowStr = composition.dateValidation || new Date().toLocaleDateString('fr-FR');
       const ordreJson = JSON.stringify(composition.ordreMatchs || []);
-      const rotationsJson = JSON.stringify(composition.heuresRotations || {});
+      const rotationsJson = JSON.stringify({
+        ...(composition.heuresRotations || {}),
+        _flags: {
+          logistiqueValidee: Boolean(composition.logistiqueValidee),
+          ordreValide: Boolean(composition.ordreValide),
+          joueursValides: Boolean(composition.joueursValides),
+        },
+      });
 
       slotDefinitions.forEach(({ key, label }) => {
         const playerId = (composition as any)[key];

@@ -1234,3 +1234,102 @@ export function getAdverseClubFullAddress(rencontre: Rencontre): {
     hasAdverseAddress,
   };
 }
+
+export interface EffectiveMatchVenueInfo {
+  title: string;
+  address: string;
+  badgeLabel: string;
+  isClosDesMoines: boolean;
+  isExternalVenue: boolean;
+  gpsDestinationQuery: string;
+  gpsDisplayAddress: string;
+}
+
+/**
+ * Résout le lieu et l'adresse effectifs d'une rencontre en tenant compte
+ * du lieu sélectionné dans la fiche détaillée (ex : TC Nivillac, Salle municipale, lieu personnalisé...)
+ */
+export function getEffectiveMatchVenueInfo(rencontre: Rencontre): EffectiveMatchVenueInfo {
+  const isHome = (rencontre.clubAccueilNom || '').toLowerCase().includes('muzillac');
+  const rawLieu = (rencontre.composition?.lieuRencontre || '').trim();
+  const lieuLower = rawLieu.toLowerCase();
+  const adv = getAdverseClubFullAddress(rencontre);
+
+  // 1. Salle du TC Nivillac (empruntée par TCM lorsque 3 équipes reçoivent)
+  if (lieuLower.includes('nivillac')) {
+    return {
+      title: 'Salle du TC Nivillac (Emprunt TCM)',
+      address: 'Complexe sportif / Salle de tennis, 56130 Nivillac',
+      badgeLabel: '🚗 Itinéraire GPS',
+      isClosDesMoines: false,
+      isExternalVenue: true,
+      gpsDestinationQuery: 'Tennis Club Nivillac, Complexe sportif, 56130 Nivillac',
+      gpsDisplayAddress: 'Salle du TC Nivillac — Complexe sportif, 56130 Nivillac',
+    };
+  }
+
+  // 2. Salle omnisports municipale (Repli)
+  if (lieuLower.includes('omnisport') || lieuLower.includes('repli')) {
+    return {
+      title: 'Salle omnisports municipale (Repli TCM)',
+      address: 'Complexe sportif, 56190 Muzillac',
+      badgeLabel: '🚗 Itinéraire GPS',
+      isClosDesMoines: false,
+      isExternalVenue: true,
+      gpsDestinationQuery: 'Salle omnisports, 56190 Muzillac',
+      gpsDisplayAddress: 'Salle omnisports municipale, 56190 Muzillac',
+    };
+  }
+
+  // 3. Clos des Moines (TCM) - Résine ou Extérieurs
+  if (
+    lieuLower.includes('clos des moines') ||
+    (isHome && (!rawLieu || lieuLower === 'clos des moines (muzillac)'))
+  ) {
+    const isExt = lieuLower.includes('extérieur') || lieuLower.includes('exterieur') || lieuLower.includes('béton');
+    return {
+      title: isExt ? 'Complexe du Clos des Moines (Extérieurs TCM)' : 'Complexe du Clos des Moines (TCM)',
+      address: '12 Rue du Clos des Moines, 56190 Muzillac',
+      badgeLabel: '📍 Complexe',
+      isClosDesMoines: true,
+      isExternalVenue: !isHome,
+      gpsDestinationQuery: 'Complexe du Clos des Moines, Allée du Clos des Moines, 56190 Muzillac',
+      gpsDisplayAddress: 'Complexe du Clos des Moines, Allée du Clos des Moines, 56190 Muzillac',
+    };
+  }
+
+  // 4. Autre lieu personnalisé sélectionné par le capitaine
+  if (
+    rawLieu &&
+    (isHome || (!rawLieu.includes(rencontre.clubAccueilNom || '') && rawLieu !== adv.venueLabel))
+  ) {
+    return {
+      title: rawLieu,
+      address: isHome ? 'Lieu validé sur la feuille de match' : 'Lieu personnalisé validé',
+      badgeLabel: '🚗 Itinéraire GPS',
+      isClosDesMoines: false,
+      isExternalVenue: true,
+      gpsDestinationQuery: rawLieu,
+      gpsDisplayAddress: rawLieu,
+    };
+  }
+
+  // 5. Par défaut à l'extérieur : installations du club adverse
+  const advAddrParts = [
+    rencontre.adresse1Installation?.trim(),
+    rencontre.adresse2Installation?.trim(),
+    [rencontre.codePostalInstallation?.trim(), rencontre.villeInstallation?.trim()].filter(Boolean).join(' '),
+  ].filter(Boolean);
+  const advDisplayAddress = advAddrParts.join(', ') || adv.venueLabel;
+
+  return {
+    title: rencontre.clubAccueilNom || 'Club adverse',
+    address: advDisplayAddress,
+    badgeLabel: '🚗 Itinéraire GPS',
+    isClosDesMoines: false,
+    isExternalVenue: true,
+    gpsDestinationQuery: `${rencontre.clubAccueilNom || 'Club adverse'}, ${advDisplayAddress}`,
+    gpsDisplayAddress: advDisplayAddress,
+  };
+}
+
