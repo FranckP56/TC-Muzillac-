@@ -42,7 +42,9 @@ import {
   getLastSyncTimestamp,
   saveClubInfoToLocal,
   loadClubInfoFromLocal,
-  saveLocalComposition
+  saveLocalComposition,
+  clearLocalCompositions,
+  invalidateAppsScriptCache
 } from './services/googleSheets';
 import { Adherent, AdherentSession, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
 import {
@@ -50,7 +52,7 @@ import {
   loadStoredAdherentSession,
   saveStoredAdherentSession,
 } from './services/adherentPortal';
-import { filterLicenciesMuzillac2027 } from './utils/licencies';
+import { filterLicenciesMuzillac2027, isAdherentMatchingEntry, isNonPlayingBureauMember } from './utils/licencies';
 import { INITIAL_CLUB_INFO } from './data/clubData';
 import { sortAdherentsByRankingDesc, cleanRanking, isValidTennisRanking } from './utils/ranking';
 import { evaluateDataStaleness } from './utils/fftCalendar';
@@ -203,6 +205,9 @@ export default function App() {
       if (initialCached.bureau.president?.nom) base.president = initialCached.bureau.president.nom;
       if (initialCached.bureau.secretaire?.nom) base.secretaire = initialCached.bureau.secretaire.nom;
       if (initialCached.bureau.tresorier?.nom) base.tresorier = initialCached.bureau.tresorier.nom;
+      if (initialCached.bureau.membresBureau && initialCached.bureau.membresBureau.length > 0) {
+        base.membresBureau = initialCached.bureau.membresBureau;
+      }
       if (initialCached.bureau.enseignants && initialCached.bureau.enseignants.length > 0) {
         base.enseignants = initialCached.bureau.enseignants;
         base.enseignant = `${initialCached.bureau.enseignants[0].nomPrenom} (${initialCached.bureau.enseignants[0].diplome})`;
@@ -349,6 +354,9 @@ export default function App() {
                 if (data.bureau.tresorier.tel) updated.tresorierTelephone = formatFrenchPhoneNumber(data.bureau.tresorier.tel);
                 if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
               }
+              if (data.bureau.membresBureau && data.bureau.membresBureau.length > 0) {
+                updated.membresBureau = data.bureau.membresBureau;
+              }
               if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
                 updated.enseignants = data.bureau.enseignants;
                 updated.enseignant = `${data.bureau.enseignants[0].nomPrenom} (${data.bureau.enseignants[0].diplome})`;
@@ -384,6 +392,19 @@ export default function App() {
               if (localCustom.signataireNom && !data.clubInfo?.signataireNom) updated.signataireNom = localCustom.signataireNom;
               if (localCustom.signataireFonction && !data.clubInfo?.signataireFonction) updated.signataireFonction = localCustom.signataireFonction;
               if (localCustom.ribIban && !data.clubInfo?.ribIban) updated.ribIban = localCustom.ribIban;
+              if (localCustom.membresBureau && localCustom.membresBureau.length > 0 && !data.clubInfo?.membresBureau?.length && !data.bureau?.membresBureau?.length) {
+                updated.membresBureau = localCustom.membresBureau;
+              } else if (localCustom.membresBureau?.length && updated.membresBureau?.length) {
+                updated.membresBureau = updated.membresBureau.map(mb => {
+                  const localMatch = localCustom.membresBureau?.find(
+                    lm => lm.nom.trim().toLowerCase() === mb.nom.trim().toLowerCase()
+                  );
+                  return localMatch?.nonJoueur ? { ...mb, nonJoueur: true } : mb;
+                });
+              }
+              if (localCustom.membresNonJoueurs && !data.clubInfo?.membresNonJoueurs) {
+                updated.membresNonJoueurs = localCustom.membresNonJoueurs;
+              }
             }
             return sanitizeLoadedTarifs(updated);
           });
@@ -474,8 +495,46 @@ export default function App() {
         setClubInfo(prev => {
           const updated = { ...prev };
           if (data.clubInfo) Object.assign(updated, data.clubInfo);
+          if (data.bureau) {
+            if (data.bureau.president?.nom) {
+              updated.president = data.bureau.president.nom;
+              if (data.bureau.president.tel) updated.presidentTelephone = formatFrenchPhoneNumber(data.bureau.president.tel);
+              if (data.bureau.president.email) updated.presidentEmail = data.bureau.president.email;
+            }
+            if (data.bureau.secretaire?.nom) {
+              updated.secretaire = data.bureau.secretaire.nom;
+              if (data.bureau.secretaire.tel) updated.secretaireTelephone = formatFrenchPhoneNumber(data.bureau.secretaire.tel);
+              if (data.bureau.secretaire.email) updated.secretaireEmail = data.bureau.secretaire.email;
+            }
+            if (data.bureau.tresorier?.nom) {
+              updated.tresorier = data.bureau.tresorier.nom;
+              if (data.bureau.tresorier.tel) updated.tresorierTelephone = formatFrenchPhoneNumber(data.bureau.tresorier.tel);
+              if (data.bureau.tresorier.email) updated.tresorierEmail = data.bureau.tresorier.email;
+            }
+            if (data.bureau.membresBureau && data.bureau.membresBureau.length > 0) {
+              updated.membresBureau = data.bureau.membresBureau;
+            }
+            if (data.bureau.enseignants && data.bureau.enseignants.length > 0) {
+              updated.enseignants = data.bureau.enseignants;
+              updated.enseignant = `${data.bureau.enseignants[0].nomPrenom} (${data.bureau.enseignants[0].diplome})`;
+            }
+          }
           if (data.installations && data.installations.length > 0) updated.installations = data.installations;
           if (data.tarifs && data.tarifs.length > 0) updated.tarifs = data.tarifs;
+          const localCustom = loadClubInfoFromLocal();
+          if (localCustom) {
+            if (localCustom.membresNonJoueurs && !data.clubInfo?.membresNonJoueurs) {
+              updated.membresNonJoueurs = localCustom.membresNonJoueurs;
+            }
+            if (localCustom.membresBureau?.length && updated.membresBureau?.length) {
+              updated.membresBureau = updated.membresBureau.map(mb => {
+                const localMatch = localCustom.membresBureau?.find(
+                  lm => lm.nom.trim().toLowerCase() === mb.nom.trim().toLowerCase()
+                );
+                return localMatch?.nonJoueur ? { ...mb, nonJoueur: true } : mb;
+              });
+            }
+          }
           return sanitizeLoadedTarifs(updated);
         });
       }
@@ -495,6 +554,8 @@ export default function App() {
 
   // Réinitialiser les données (recharge les données en direct, zéro fallback fictif)
   const handleResetData = () => {
+    clearLocalCompositions();
+    invalidateAppsScriptCache();
     setAdherents([]);
     setRencontres([]);
     setLastSyncTime(null);
@@ -549,17 +610,29 @@ export default function App() {
 
   // Modification de l'horaire d'une rencontre avec persistance locale et synchronisation
   const handleUpdateMatchHour = (rencontreId: string, hour: string) => {
+    const target = rencontres.find(r => r.id === rencontreId);
+    const updatedComp: MatchComposition = {
+      ...(target?.composition || {}),
+      heureDebut: hour,
+    };
+    saveLocalComposition(rencontreId, updatedComp);
     setRencontres(prev => prev.map(r => {
       if (r.id === rencontreId) {
-        const updatedComp: MatchComposition = {
-          ...(r.composition || {}),
-          heureDebut: hour,
-        };
-        saveLocalComposition(r.id, updatedComp);
         return { ...r, heure: hour, composition: updatedComp };
       }
       return r;
     }));
+    if (target) {
+      const adherentsById = new Map<string, Adherent>();
+      adherents.forEach(a => {
+        adherentsById.set(a.id, a);
+        if (a.licence) adherentsById.set(a.licence, a);
+        adherentsById.set(a.nomPrenom, a);
+      });
+      saveCompositionViaAppsScript(target, updatedComp, adherentsById, gasUrl || TCM_APPS_SCRIPT_URL).catch((err) => {
+        console.warn('Erreur synchro horaire vers Apps Script:', err);
+      });
+    }
   };
 
   // Enregistrement des disponibilités
@@ -609,6 +682,39 @@ export default function App() {
     } catch (e) {
       console.warn('Erreur envoi ClubInfo vers Apps Script / GSheets API:', e);
     }
+  };
+
+  // Bascule rapide du statut « non-joueur (bureau) » d'un licencié (exclu des matchs mais conservé dans Licenciés)
+  const handleToggleNonPlayingMember = (adh: Adherent) => {
+    const currentlyExcluded = isNonPlayingBureauMember(adh, clubInfo);
+    const currentNj = clubInfo.membresNonJoueurs || [];
+    const currentMb = clubInfo.membresBureau || [];
+
+    const nextNj = currentlyExcluded
+      ? currentNj.filter(entry => !isAdherentMatchingEntry(adh, entry))
+      : [
+          ...currentNj,
+          {
+            id: `nj-${adh.id}`,
+            nom: adh.nomPrenom,
+            role: 'Membre du bureau (non-joueur)',
+            email: adh.email || undefined,
+            licence: adh.licence || undefined,
+            nonJoueur: true,
+          },
+        ];
+
+    const nextMb = currentMb.map(entry =>
+      isAdherentMatchingEntry(adh, entry)
+        ? { ...entry, nonJoueur: !currentlyExcluded }
+        : entry
+    );
+
+    void handleSaveClubInfo({
+      ...clubInfo,
+      membresNonJoueurs: nextNj,
+      membresBureau: nextMb,
+    });
   };
 
   return (
@@ -865,6 +971,12 @@ export default function App() {
               : undefined
           }
           onOpenRelance={(adh) => setRelanceAdherent(adh)}
+          isNonJoueur={isNonPlayingBureauMember(selectedAdherent, clubInfo)}
+          onToggleNonJoueur={
+            userRole === 'admin' || userRole === 'bureau'
+              ? handleToggleNonPlayingMember
+              : undefined
+          }
         />
       )}
 
@@ -908,6 +1020,7 @@ export default function App() {
           saison={saison}
           onOpenSondageModal={(r) => setSelectedRencontreForSondage(r)}
           userRole={userRole}
+          clubInfo={clubInfo}
         />
       )}
 
@@ -915,6 +1028,7 @@ export default function App() {
       <SondageDisponibilitesModal
         rencontre={selectedRencontreForSondage}
         adherents={adherents}
+        clubInfo={clubInfo}
         isOpen={!!selectedRencontreForSondage}
         onClose={() => setSelectedRencontreForSondage(null)}
         onUpdateDisponibilites={handleUpdateDisponibilites}
@@ -972,6 +1086,7 @@ export default function App() {
         clubInfo={clubInfo}
         onSave={handleSaveClubInfo}
         selectedSpreadsheetId={selectedSpreadsheetId}
+        adherents={adherents}
       />
 
       {/* Visionneuse Code.gs Google Apps Script & Déploiement (Réservé Admin) */}

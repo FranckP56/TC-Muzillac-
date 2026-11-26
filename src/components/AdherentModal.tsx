@@ -20,7 +20,8 @@ import {
   KeyRound,
   Ticket,
   CalendarCheck,
-  History
+  History,
+  UserX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Adherent } from '../types/tennis';
@@ -35,6 +36,8 @@ interface AdherentModalProps {
   onSelectAdherent?: (adherent: Adherent) => void;
   onOpenAttestation?: (adherent: Adherent) => void;
   onOpenRelance?: (adherent: Adherent) => void;
+  isNonJoueur?: boolean;
+  onToggleNonJoueur?: (adherent: Adherent) => void;
 }
 
 export const AdherentModal: React.FC<AdherentModalProps> = ({
@@ -44,6 +47,8 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
   onSelectAdherent,
   onOpenAttestation,
   onOpenRelance,
+  isNonJoueur = false,
+  onToggleNonJoueur,
 }) => {
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
   const [direction, setDirection] = React.useState<number>(1);
@@ -589,7 +594,7 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                 </div>
 
                 {/* Nombre de réservations sur l'année en cours (colonne BI) */}
-                <div className={`flex items-center justify-between gap-2 py-1.5 ${adherent.commentaire ? `border-b ${theme.infoRowBorder}` : ''}`}>
+                <div className={`flex items-center justify-between gap-2 py-1.5 ${(onToggleNonJoueur || adherent.commentaire) ? `border-b ${theme.infoRowBorder}` : ''}`}>
                   <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
                     <CalendarCheck className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                     <span>Réservations (année)</span>
@@ -598,6 +603,28 @@ export const AdherentModal: React.FC<AdherentModalProps> = ({
                     {adherent.nbReservationsAnnee && adherent.nbReservationsAnnee !== '' ? adherent.nbReservationsAnnee : 'Non renseigné'}
                   </span>
                 </div>
+
+                {/* Statut compétition (ex: membre du bureau ne jouant pas) */}
+                {onToggleNonJoueur && (
+                  <div className={`flex items-center justify-between gap-2 py-1.5 ${adherent.commentaire ? `border-b ${theme.infoRowBorder}` : ''}`}>
+                    <span className="text-zinc-400 flex items-center gap-2 shrink-0 font-medium">
+                      <UserX className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                      <span>Sélections équipe</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onToggleNonJoueur(adherent)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                        isNonJoueur
+                          ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+                          : 'bg-white/5 hover:bg-white/10 text-zinc-300 border-white/10'
+                      }`}
+                      title="Cliquer pour basculer l'exclusion des listes de joueurs en compétition (sans retirer la licence)"
+                    >
+                      {isNonJoueur ? 'Non-joueur (exclu des matchs)' : 'Joueur actif (inclure)'}
+                    </button>
+                  </div>
+                )}
 
                 {/* Commentaire (colonne BK) */}
                 {adherent.commentaire && (

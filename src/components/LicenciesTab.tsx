@@ -9,7 +9,7 @@ import {
   Check,
 } from 'lucide-react';
 import { Adherent, ClubInfo, UserRole } from '../types/tennis';
-import { filterLicenciesMuzillac2027, getLicenciesStats } from '../utils/licencies';
+import { filterLicenciesMuzillac2027, getLicenciesStats, isNonPlayingBureauMember } from '../utils/licencies';
 import { getRankingMeta, cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { extractBirthYear } from '../utils/fftEligibility';
 import { INITIAL_CLUB_INFO } from '../data/clubData';
@@ -471,6 +471,14 @@ export const LicenciesTab: React.FC<LicenciesTabProps> = ({
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>N° {adh.licence}</span>
                     </span>
+                    {isNonPlayingBureauMember(adh, effectiveClubInfo) && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0"
+                        title="Membre non-joueur (exclu des sélections d'équipe)"
+                      >
+                        Non-joueur
+                      </span>
+                    )}
 
                     {/* Bouton Attestation (Réservé exclusivement aux membres du Bureau / Admin) */}
                     {canIssueAttestation && !isSelectionMode && (

@@ -31,12 +31,13 @@ import {
 } from 'lucide-react';
 import { formatJourneeLabel, formatMuzillacClubName, isComiteMorbihanBye, getComiteByeScore } from './RencontresTab';
 import { motion, AnimatePresence } from 'motion/react';
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
+import { Adherent, ClubInfo, Rencontre, MatchComposition, FrozenPlayerSlot, UserRole } from '../types/tennis';
 import { checkFFT2027Eligibility, getRequiredSex, getYouthSurclassementLabel } from '../utils/fftEligibility';
 import { getRankingMeta, getRankingWeight, getDoubleRankingWeight, cleanRanking } from '../utils/ranking';
 import { checkSinglesRankingOrder, getNextFftMonthlyRankingRelease } from '../utils/fftCalendar';
 import { 
   getCompetitionFormat, 
+  sanitizeCompositionForFormat,
   validateMatchDateAndSchedule, 
   checkRegionalDoublesWeight, 
   TCM_VENUES, 
@@ -53,7 +54,7 @@ import {
 import { ConfirmSaveCompositionModal } from './ConfirmSaveCompositionModal';
 import { saveCompositionToSheet } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
-import { isLicencieMuzillac } from '../utils/licencies';
+import { isLicencieMuzillac, isNonPlayingBureauMember } from '../utils/licencies';
 import { isSameWeekend, isBadenCupMatch } from '../utils/dateUtils';
 
 /**
@@ -98,6 +99,7 @@ interface CompositionModalProps {
   saison?: string;
   onOpenSondageModal?: (rencontre: Rencontre) => void;
   userRole?: UserRole;
+  clubInfo?: ClubInfo;
 }
 
 type SlotKey = 
@@ -126,6 +128,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   saison = '2027',
   onOpenSondageModal,
   userRole = 'adherent',
+  clubInfo,
 }) => {
   // Navigation / Slider entre rencontres selon les critères actifs
   const [direction, setDirection] = useState<number>(1);
@@ -191,9 +194,13 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePrev, handleNext, onClose, rencontre, isOpen]);
 
-  // État local de la composition
+  // État local de la composition (assaini selon le format de la rencontre)
   const [composition, setComposition] = useState<MatchComposition>(() => {
-    return rencontre?.composition || {
+    if (rencontre?.composition) {
+      const fmt = getCompetitionFormat(rencontre, { formatReduit: !!rencontre.composition.formatReduit });
+      return sanitizeCompositionForFormat(rencontre.composition, fmt);
+    }
+    return {
       simple1Id: undefined,
       simple2Id: undefined,
       simple3Id: undefined,
@@ -244,18 +251,23 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   // Réinitialisation de l'état local quand on change de rencontre (slide)
   useEffect(() => {
     if (!rencontre) return;
-    setComposition(rencontre.composition || {
-      simple1Id: undefined,
-      simple2Id: undefined,
-      simple3Id: undefined,
-      simple4Id: undefined,
-      simple5Id: undefined,
-      double1Player1Id: undefined,
-      double1Player2Id: undefined,
-      double2Player1Id: undefined,
-      double2Player2Id: undefined,
-      valideParCapitaine: false,
-    });
+    if (rencontre.composition) {
+      const fmt = getCompetitionFormat(rencontre, { formatReduit: !!rencontre.composition.formatReduit });
+      setComposition(sanitizeCompositionForFormat(rencontre.composition, fmt));
+    } else {
+      setComposition({
+        simple1Id: undefined,
+        simple2Id: undefined,
+        simple3Id: undefined,
+        simple4Id: undefined,
+        simple5Id: undefined,
+        double1Player1Id: undefined,
+        double1Player2Id: undefined,
+        double2Player1Id: undefined,
+        double2Player2Id: undefined,
+        valideParCapitaine: false,
+      });
+    }
     setMatchDateInput(rencontre.composition?.dateRencontreValidee || rencontre.dateRencontre || '15/03/2026');
     const nextHour = rencontre.composition?.heureDebut || '14:00';
     setMatchHourInput(nextHour);
@@ -365,6 +377,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
   // Rôle et permissions : admin, capitaines et membres du bureau peuvent modifier la feuille
   const canEdit = userRole === 'admin' || userRole === 'capitaine' || userRole === 'bureau';
+  const isAdherentView = userRole === 'adherent';
 
   // Analyse du format de championnat officiel (Jeunes, Seniors+, Régional, Départemental)
   const compFormat: CompetitionFormatInfo = useMemo(() => {
@@ -579,6 +592,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         // 2. EXCLUSION STRICTE : Licence de l'année en cours au Tennis Club de Muzillac (exclut Vannes et autres clubs)
         if (!isLicencieMuzillac(adh, saison)) return false;
 
+        // 2b. EXCLUSION STRICTE : Membres du bureau licenciés obligatoires mais non-joueurs
+        if (isNonPlayingBureauMember(adh, clubInfo)) return false;
+
         // 3. EXCLUSION STRICTE : Éligibilité FFT (catégorie d'âge, licence C/W valide, classement non ND)
         const eligibility = checkFFT2027Eligibility(adh, rencontre, saison);
         if (!eligibility.isEligible) return false;
@@ -612,7 +628,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         // 2. Classement FFT décroissant
         return b.weight - a.weight;
       });
-  }, [adherents, rencontre, reqSex, saison]);
+  }, [adherents, clubInfo, rencontre, reqSex, saison]);
 
   // Vérifier les joueurs sélectionnés dans le format actif
   const selectedPlayerIds = useMemo(() => {
@@ -692,15 +708,12 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       };
     }
 
-    // 2. Déjà assigné sur un autre simple dans la même rencontre
+    // 2. Déjà assigné sur un autre simple dans la même rencontre (borné au format actif)
     if (slotKey.startsWith('simple')) {
-      const singleSlots: { key: SlotKey; label: string }[] = [
-        { key: 'simple1Id', label: 'Simple 1' },
-        { key: 'simple2Id', label: 'Simple 2' },
-        { key: 'simple3Id', label: 'Simple 3' },
-        { key: 'simple4Id', label: 'Simple 4' },
-        { key: 'simple5Id', label: 'Simple 5' },
-      ];
+      const singleSlots: { key: SlotKey; label: string }[] = [];
+      for (let i = 1; i <= compFormat.numSingles; i++) {
+        singleSlots.push({ key: `simple${i}Id` as SlotKey, label: `Simple ${i}` });
+      }
       for (const s of singleSlots) {
         if (s.key !== slotKey && (composition[s.key] === adherent.id || (adherent.licence && composition[s.key] === adherent.licence))) {
           return {
@@ -714,14 +727,17 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       }
     }
 
-    // 3. Déjà assigné sur un double dans la même rencontre
+    // 3. Déjà assigné sur un double dans la même rencontre (borné au format actif)
     if (slotKey.startsWith('double')) {
-      const doubleSlots: { key: SlotKey; label: string }[] = [
-        { key: 'double1Player1Id', label: 'Double 1 (J1)' },
-        { key: 'double1Player2Id', label: 'Double 1 (J2)' },
-        { key: 'double2Player1Id', label: 'Double 2 (J1)' },
-        { key: 'double2Player2Id', label: 'Double 2 (J2)' },
-      ];
+      const doubleSlots: { key: SlotKey; label: string }[] = [];
+      if (compFormat.numDoubles >= 1) {
+        doubleSlots.push({ key: 'double1Player1Id', label: 'Double 1 (J1)' });
+        doubleSlots.push({ key: 'double1Player2Id', label: 'Double 1 (J2)' });
+      }
+      if (compFormat.numDoubles >= 2) {
+        doubleSlots.push({ key: 'double2Player1Id', label: 'Double 2 (J1)' });
+        doubleSlots.push({ key: 'double2Player2Id', label: 'Double 2 (J2)' });
+      }
       for (const d of doubleSlots) {
         if (d.key !== slotKey && (composition[d.key] === adherent.id || (adherent.licence && composition[d.key] === adherent.licence))) {
           return {
@@ -757,19 +773,21 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         }
       }
 
-      const otherComp = otherR.composition;
-      const matchSlots = [
-        otherComp.simple1Id,
-        otherComp.simple2Id,
-        otherComp.simple3Id,
-        otherComp.simple4Id,
-        otherComp.simple5Id,
-        otherComp.double1Player1Id,
-        otherComp.double1Player2Id,
-        otherComp.double2Player1Id,
-        otherComp.double2Player2Id,
-        ...(otherComp.frozenPlayers ? otherComp.frozenPlayers.map(fp => fp.adherentId || fp.licence) : [])
-      ].filter(Boolean);
+      const otherFormat = getCompetitionFormat(otherR, { formatReduit: otherR.composition.formatReduit });
+      const otherComp = sanitizeCompositionForFormat(otherR.composition, otherFormat);
+      const matchSlots: string[] = [];
+      for (let i = 1; i <= otherFormat.numSingles; i++) {
+        const val = otherComp[`simple${i}Id` as keyof MatchComposition] as string | undefined;
+        if (val) matchSlots.push(val);
+      }
+      if (otherFormat.numDoubles >= 1) {
+        if (otherComp.double1Player1Id) matchSlots.push(otherComp.double1Player1Id);
+        if (otherComp.double1Player2Id) matchSlots.push(otherComp.double1Player2Id);
+      }
+      if (otherFormat.numDoubles >= 2) {
+        if (otherComp.double2Player1Id) matchSlots.push(otherComp.double2Player1Id);
+        if (otherComp.double2Player2Id) matchSlots.push(otherComp.double2Player2Id);
+      }
 
       const isAssignedInOther = matchSlots.some(id => 
         id === adherent.id || 
@@ -799,7 +817,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     }
 
     return null;
-  }, [composition, rencontre, allRencontres, rencontresList]);
+  }, [composition, compFormat, matchDateInput, rencontre, allRencontres, rencontresList]);
 
   // Assigner un joueur à un poste
   const handleAssignPlayer = (adherent: Adherent, slotKey: SlotKey) => {
@@ -881,7 +899,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const handleValidateStep1Logistics = () => {
     const nextVal = !step1Done;
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
-    const updated: MatchComposition = {
+    const updated: MatchComposition = sanitizeCompositionForFormat({
       ...composition,
       dateRencontreValidee: matchDateInput,
       heureDebut: matchHourInput,
@@ -894,7 +912,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       ordreValide: step2Done,
       joueursValides: step3Done,
       valideParCapitaine: step3Done,
-    };
+    }, compFormat);
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
@@ -910,7 +928,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
   const handleValidateStep2Order = () => {
     const nextVal = !step2Done;
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
-    const updated: MatchComposition = {
+    const updated: MatchComposition = sanitizeCompositionForFormat({
       ...composition,
       dateRencontreValidee: matchDateInput,
       heureDebut: matchHourInput,
@@ -923,7 +941,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       ordreValide: nextVal,
       joueursValides: step3Done,
       valideParCapitaine: step3Done,
-    };
+    }, compFormat);
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
@@ -940,7 +958,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
 
     if (step3Done) {
-      const updated: MatchComposition = {
+      const updated: MatchComposition = sanitizeCompositionForFormat({
         ...composition,
         dateRencontreValidee: matchDateInput,
         heureDebut: matchHourInput,
@@ -953,7 +971,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         ordreValide: step2Done,
         joueursValides: false,
         valideParCapitaine: false,
-      };
+      }, compFormat);
       setComposition(updated);
       onSaveComposition(rencontre.id, updated);
       setBlockedAlertMessage(null);
@@ -977,7 +995,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       return;
     }
 
-    const updated: MatchComposition = {
+    const updated: MatchComposition = sanitizeCompositionForFormat({
       ...composition,
       dateRencontreValidee: matchDateInput,
       heureDebut: matchHourInput,
@@ -994,7 +1012,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       poidsDouble1: doublesWeightCheck.weightDouble1,
       poidsDouble2: doublesWeightCheck.weightDouble2,
       poidsDoublesValide: doublesWeightCheck.isValid,
-    };
+    }, compFormat);
     setComposition(updated);
     onSaveComposition(rencontre.id, updated);
     setBlockedAlertMessage(null);
@@ -1022,7 +1040,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
     const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
 
-    const updated: MatchComposition = {
+    const updated: MatchComposition = sanitizeCompositionForFormat({
       ...composition,
       logistiqueValidee: step1Done,
       ordreValide: step2Done,
@@ -1039,7 +1057,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
       poidsDouble1: doublesWeightCheck.weightDouble1,
       poidsDouble2: doublesWeightCheck.weightDouble2,
       poidsDoublesValide: doublesWeightCheck.isValid,
-    };
+    }, compFormat);
 
     setBlockedAlertMessage(null);
     setComposition(updated);
@@ -1053,7 +1071,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
     try {
       const effectiveVenue = matchVenueInput === 'autre' ? (customVenueInput.trim() || 'Lieu personnalisé') : matchVenueInput;
 
-      const updated: MatchComposition = {
+      const updated: MatchComposition = sanitizeCompositionForFormat({
         ...composition,
         logistiqueValidee: step1Done,
         ordreValide: step2Done,
@@ -1070,7 +1088,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         poidsDouble1: doublesWeightCheck.weightDouble1,
         poidsDouble2: doublesWeightCheck.weightDouble2,
         poidsDoublesValide: doublesWeightCheck.isValid,
-      };
+      }, compFormat);
 
       if (selectedSpreadsheetId) {
         let token: string | null = null;
@@ -1381,6 +1399,12 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                     <span className="text-orange-400 font-normal">vs</span>{' '}
                     {formatMuzillacClubName(rencontre.clubVisiteurNom, rencontre.numeroEquipe)}
                   </h2>
+                  {isAdherentView && !isComiteBye && matchVenueInput && (
+                    <p className="text-[11px] text-zinc-300 mt-1 flex items-center gap-1.5 truncate">
+                      <MapPin className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                      <span className="truncate">{matchVenueInput === 'autre' ? (customVenueInput || 'Lieu personnalisé') : matchVenueInput}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1396,7 +1420,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
             <div ref={modalBodyRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3.5 sm:p-6 space-y-4 sm:space-y-6 touch-pan-y">
 
               {/* ==================== BULLE DE RAPPEL DU RÈGLEMENT FFT ==================== */}
-              {(hasIneligiblePlayer || !rankingOrderCheck.isValid || (compFormat.doubleWeightStrict && !!doublesWeightCheck.errorMessage) || !!scheduleCheck.warning) && (
+              {!isAdherentView && (hasIneligiblePlayer || !rankingOrderCheck.isValid || (compFormat.doubleWeightStrict && !!doublesWeightCheck.errorMessage) || !!scheduleCheck.warning) && (
                 <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-[#290d14] via-[#1f0b14] to-[#170a14] border-2 border-rose-500/70 shadow-xl shadow-rose-950/50 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center space-x-2">
@@ -1544,7 +1568,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
           )}
 
           {/* ==================== BLOC 1 (INDÉPENDANT) : DATE, HEURE, TERRAINS & LIEU ==================== */}
-          {!isComiteBye && (canEdit || step1Done) ? (
+          {!isAdherentView && !isComiteBye && (canEdit || step1Done) ? (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1797,7 +1821,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
             </div>
           </div>
-          ) : !isComiteBye ? (
+          ) : !isAdherentView && !isComiteBye ? (
             <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] flex items-center gap-2.5 text-xs text-zinc-400">
               <Clock className="w-4 h-4 text-zinc-500 shrink-0" />
               <span>Les horaires et le lieu de la rencontre seront affichés dès qu'ils seront validés par le capitaine.</span>
@@ -1805,6 +1829,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
           ) : null}
 
           {/* ==================== CONTACTS DES CAPITAINES ==================== */}
+          {!isAdherentView && (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-[#0d1016] border border-[#232934] space-y-2 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               
@@ -1922,6 +1947,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
 
             </div>
           </div>
+          )}
 
           {/* ==================== SONDAGE DES DISPONIBILITÉS DU MATCH ==================== */}
           {onOpenSondageModal && userRole !== 'adherent' && (() => {
@@ -1979,6 +2005,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
           {!isComiteBye && (
             <>
               {/* BLOC 2 (INDÉPENDANT) : COMPOSITION DE L'ÉQUIPE (FORMAT LISTE CLAIRE « ENREGISTRER ») */}
+              {!isAdherentView && (
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -2346,6 +2373,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
                   );
                 })()}
               </div>
+              )}
 
               {/* BLOC 3 (INDÉPENDANT) : CRÉNEAUX & ORDRE DES MATCHS (TABLEAU UNIQUE AVEC NOM & CLASSEMENT) */}
               <div className="p-3.5 sm:p-4 rounded-2xl bg-[#090b0e] border border-[#232934] space-y-3">
@@ -2579,8 +2607,9 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
         </div>
 
         {/* ==================== PIED DE PAGE ET ACTIONS ==================== */}
-        <div className="shrink-0 p-3 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3">
+        <div className={`shrink-0 p-3 sm:p-5 border-t border-[#252b37] bg-[#11141a] flex flex-col sm:flex-row items-center gap-2.5 sm:gap-3 ${isAdherentView ? 'justify-end' : 'justify-between'}`}>
           
+          {!isAdherentView && (
           <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
             <a
               href={playersSmsHref}
@@ -2610,6 +2639,7 @@ export const CompositionModal: React.FC<CompositionModalProps> = ({
               <span>{copiedOpponentSms ? 'SMS ouvert !' : "SMS pour l'équipe adversaire"}</span>
             </a>
           </div>
+          )}
 
           <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
             <button

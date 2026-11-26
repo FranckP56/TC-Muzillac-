@@ -150,9 +150,12 @@ export function isBadenCupMatch(r?: {
   clubVisiteurNom?: string;
 } | null): boolean {
   if (!r) return false;
-  const combined = `${r.libelleHomologation || ''} ${r.categorieAgeHomologation || ''} ${r.division || ''} ${r.numeroEquipe || ''} ${r.clubAccueilNom || ''} ${r.clubVisiteurNom || ''}`.toLowerCase();
+  const combined = `${r.libelleHomologation || ''} ${r.categorieAgeHomologation || ''} ${r.division || ''} ${r.numeroEquipe || ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   return (
     combined.includes('baden') ||
-    (combined.includes('65') && (combined.includes('cup') || combined.includes('coupe') || combined.includes('semaine') || combined.includes('+65')))
+    (combined.includes('65') && (combined.includes('cup') || combined.includes('coupe') || combined.includes('semaine') || combined.includes('+65') || combined.includes('65 ans')))
   );
 }

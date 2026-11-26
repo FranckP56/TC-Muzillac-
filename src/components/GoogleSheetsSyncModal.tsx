@@ -27,6 +27,7 @@ import {
   COMPOSITIONS_SHEET_TITLE
 } from '../services/googleSheets';
 import { Adherent, Rencontre, MatchComposition } from '../types/tennis';
+import { getCompetitionFormat, sanitizeCompositionForFormat } from '../utils/competitionFormats';
 
 interface GoogleSheetsSyncModalProps {
   isOpen: boolean;
@@ -173,13 +174,14 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setSyncStatus("Lecture de l'onglet 'Compositions_Equipes'...");
       const compositionsMap = await readCompositionsFromSheet(selectedSpreadsheetId, token);
 
-      // Associer les compositions gelées aux rencontres
+      // Associer les compositions gelées aux rencontres (nettoyées selon le format réglementaire)
       const enrichedRencontres = rencontres.map(r => {
         const saved = compositionsMap.get(r.id);
         if (saved) {
+          const format = getCompetitionFormat(r);
           return {
             ...r,
-            composition: saved.composition,
+            composition: sanitizeCompositionForFormat(saved.composition, format),
           };
         }
         return r;

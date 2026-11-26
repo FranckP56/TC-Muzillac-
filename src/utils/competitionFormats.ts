@@ -786,3 +786,80 @@ export function checkRegionalDoublesWeight(
     isComplete: true,
   };
 }
+
+function isPosteWithinFormat(poste: string | undefined, format: CompetitionFormatInfo): boolean {
+  const clean = (poste || '').toLowerCase().trim();
+  if (!clean) return false;
+  if (clean.includes('simple 4') || clean === 's4') return format.numSingles >= 4;
+  if (clean.includes('simple 5') || clean === 's5') return format.numSingles >= 5;
+  if (clean.includes('simple 3') || clean === 's3') return format.numSingles >= 3;
+  if (clean.includes('simple 2') || clean === 's2') return format.numSingles >= 2;
+  if (clean.includes('simple 1') || clean === 's1') return format.numSingles >= 1;
+  if (clean.includes('double 2') || clean.startsWith('d2')) return format.numDoubles >= 2;
+  if (clean.includes('double 1') || clean.includes('double') || clean.startsWith('d1')) return format.numDoubles >= 1;
+  return true;
+}
+
+/**
+ * Nettoie une composition pour qu'elle ne contienne aucun poste hors format
+ * (ex: Simple 4 résiduel sur une rencontre Baden Cup limitée à 3 simples + 1 double).
+ */
+export function sanitizeCompositionForFormat(
+  comp: MatchComposition,
+  format: CompetitionFormatInfo
+): MatchComposition {
+  const validTokens = new Set<string>();
+  for (let i = 1; i <= format.numSingles; i++) validTokens.add(`S${i}`);
+  for (let d = 1; d <= format.numDoubles; d++) validTokens.add(`D${d}`);
+
+  const sanitized: MatchComposition = {
+    ...comp,
+    simple1Id: format.numSingles >= 1 ? comp.simple1Id : undefined,
+    simple2Id: format.numSingles >= 2 ? comp.simple2Id : undefined,
+    simple3Id: format.numSingles >= 3 ? comp.simple3Id : undefined,
+    simple4Id: format.numSingles >= 4 ? comp.simple4Id : undefined,
+    simple5Id: format.numSingles >= 5 ? comp.simple5Id : undefined,
+    double1Player1Id: format.numDoubles >= 1 ? comp.double1Player1Id : undefined,
+    double1Player2Id: format.numDoubles >= 1 ? comp.double1Player2Id : undefined,
+    double2Player1Id: format.numDoubles >= 2 ? comp.double2Player1Id : undefined,
+    double2Player2Id: format.numDoubles >= 2 ? comp.double2Player2Id : undefined,
+  };
+
+  if (Array.isArray(comp.frozenPlayers)) {
+    sanitized.frozenPlayers = comp.frozenPlayers.filter((fp) =>
+      isPosteWithinFormat(fp.poste, format)
+    );
+  }
+
+  if (Array.isArray(comp.ordreMatchs)) {
+    const filteredOrder = comp.ordreMatchs.filter((tok) => validTokens.has(tok));
+    sanitized.ordreMatchs = filteredOrder.length > 0 ? filteredOrder : undefined;
+  }
+
+  if (comp.heuresRotations && typeof comp.heuresRotations === 'object') {
+    const nextRot: Record<string, string> = {};
+    Object.entries(comp.heuresRotations).forEach(([k, v]) => {
+      if (validTokens.has(k) && v) nextRot[k] = v;
+    });
+    sanitized.heuresRotations = Object.keys(nextRot).length > 0 ? nextRot : undefined;
+  }
+
+  const hasValidSlot = Boolean(
+    sanitized.simple1Id ||
+    sanitized.simple2Id ||
+    sanitized.simple3Id ||
+    sanitized.simple4Id ||
+    sanitized.simple5Id ||
+    sanitized.double1Player1Id ||
+    sanitized.double1Player2Id ||
+    sanitized.double2Player1Id ||
+    sanitized.double2Player2Id
+  );
+
+  if (!hasValidSlot) {
+    sanitized.joueursValides = false;
+    sanitized.valideParCapitaine = false;
+  }
+
+  return sanitized;
+}

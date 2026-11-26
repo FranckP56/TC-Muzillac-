@@ -182,6 +182,16 @@ export interface MatchSlotSchedule {
   joueursTcm?: string;
 }
 
+export interface BureauMemberEntry {
+  id?: string;
+  nom: string;
+  role?: string;
+  telephone?: string;
+  email?: string;
+  licence?: string;
+  nonJoueur?: boolean;
+}
+
 export interface ClubInfo {
   nom: string;
   sigle: string;
@@ -203,6 +213,8 @@ export interface ClubInfo {
   tresorier: string;
   tresorierTelephone?: string;
   tresorierEmail?: string;
+  membresBureau?: BureauMemberEntry[];
+  membresNonJoueurs?: BureauMemberEntry[];
   enseignant?: string;
   enseignants: Enseignant[];
   installations: string[];

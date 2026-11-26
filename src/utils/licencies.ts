@@ -1,4 +1,92 @@
-import { Adherent } from '../types/tennis';
+import { Adherent, ClubInfo } from '../types/tennis';
+
+/**
+ * Normalise un nom complet indépendamment des accents, de la casse et de l'ordre Prénom/Nom.
+ * Ex: "Raphaël EVAIN" et "EVAIN Raphaël" -> "evain raphael"
+ */
+export function normalizeNameTokens(name?: string | null): string {
+  if (!name) return '';
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(' ');
+}
+
+function normalizeLicenceKey(lic?: string | null): string {
+  if (!lic) return '';
+  return lic.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+export function isAdherentMatchingEntry(
+  adherent: Adherent,
+  entry: { nom?: string; email?: string; licence?: string }
+): boolean {
+  if (!adherent || !entry) return false;
+  const adhTokens = normalizeNameTokens(
+    adherent.nomPrenom || `${adherent.nom || ''} ${adherent.prenom || ''}`
+  );
+  const adhEmail = (adherent.email || '').trim().toLowerCase();
+  const adhLicence = normalizeLicenceKey(adherent.licence);
+
+  const entryLic = normalizeLicenceKey(entry.licence);
+  if (adhLicence && entryLic && adhLicence === entryLic) {
+    return true;
+  }
+  const entryEmail = (entry.email || '').trim().toLowerCase();
+  if (adhEmail && entryEmail && adhEmail === entryEmail) {
+    return true;
+  }
+  const entryTokens = normalizeNameTokens(entry.nom);
+  if (adhTokens && entryTokens && adhTokens === entryTokens) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Identifie uniquement les licenciés (ex: membres du bureau ne pratiquant pas)
+ * explicitement déclarés comme non-joueurs afin de les exclure des listes d'assignation,
+ * tout en conservant les membres du bureau qui jouent normalement.
+ */
+export function isNonPlayingBureauMember(adherent: Adherent, clubInfo?: ClubInfo | null): boolean {
+  if (!adherent) return false;
+
+  if (clubInfo) {
+    for (const entry of clubInfo.membresNonJoueurs || []) {
+      if (isAdherentMatchingEntry(adherent, entry)) {
+        return true;
+      }
+    }
+
+    for (const entry of clubInfo.membresBureau || []) {
+      if (entry.nonJoueur && isAdherentMatchingEntry(adherent, entry)) {
+        return true;
+      }
+    }
+  }
+
+  // Repli explicite uniquement si une mention explicite de non-joueur figure dans le profil adhérent
+  const metaText = `${adherent.commentaire || ''} ${adherent.groupeEnseignement || ''} ${adherent.formuleCours || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  if (
+    metaText.includes('non joueur') ||
+    metaText.includes('non-joueur') ||
+    metaText.includes('ne joue pas')
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Critères officiels des licenciés du club affectables aux rencontres interclubs :

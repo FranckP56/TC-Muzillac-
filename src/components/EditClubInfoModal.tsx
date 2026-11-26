@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Save, 
@@ -21,12 +21,15 @@ import {
   Upload,
   RefreshCw,
   AlertCircle,
-  ShieldCheck
+  ShieldCheck,
+  Search,
+  UserX
 } from 'lucide-react';
-import { ClubInfo, Enseignant, ClubTarif } from '../types/tennis';
+import { Adherent, ClubInfo, Enseignant, ClubTarif, BureauMemberEntry } from '../types/tennis';
 import { getAccessToken, googleSignIn } from '../services/auth';
 import { saveClubInfoToSheet, TCM_DEFAULT_SHEET_ID } from '../services/googleSheets';
 import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
+import { filterLicenciesMuzillac, isAdherentMatchingEntry } from '../utils/licencies';
 
 interface EditClubInfoModalProps {
   isOpen: boolean;
@@ -34,6 +37,7 @@ interface EditClubInfoModalProps {
   clubInfo: ClubInfo;
   onSave: (updatedInfo: ClubInfo) => void;
   selectedSpreadsheetId?: string | null;
+  adherents?: Adherent[];
 }
 
 // Fonction de salubrité : corrige automatiquement les tarifs mal étiquetés 'jeune' alors qu'ils mentionnent adulte/adhésion
@@ -58,6 +62,7 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   clubInfo,
   onSave,
   selectedSpreadsheetId,
+  adherents = [],
 }) => {
   const [isPushingToGsheet, setIsPushingToGsheet] = useState(false);
   const [pushStatusMessage, setPushStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -72,6 +77,8 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
       ...e,
       telephone: formatFrenchPhoneNumber(e.telephone),
     })),
+    membresBureau: [...(clubInfo.membresBureau || [])],
+    membresNonJoueurs: [...(clubInfo.membresNonJoueurs || [])],
     installations: [...(clubInfo.installations || [])],
     tarifs: sanitizeClubTarifs(clubInfo.tarifs),
     horairesPermanence: clubInfo.horairesPermanence || 'Mercredi après-midi & Samedi matin',
@@ -96,6 +103,8 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
           ...e,
           telephone: formatFrenchPhoneNumber(e.telephone),
         })),
+        membresBureau: [...(clubInfo.membresBureau || [])],
+        membresNonJoueurs: [...(clubInfo.membresNonJoueurs || [])],
         installations: [...(clubInfo.installations || [])],
         tarifs: sanitizeClubTarifs(clubInfo.tarifs),
         horairesPermanence: clubInfo.horairesPermanence || 'Mercredi après-midi & Samedi matin',
@@ -113,6 +122,11 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   const [successSaved, setSuccessSaved] = useState(false);
 
   // New item states
+  const [newBureauNom, setNewBureauNom] = useState('');
+  const [newBureauRole, setNewBureauRole] = useState('Membre du bureau');
+  const [newBureauEmail, setNewBureauEmail] = useState('');
+  const [nonJoueurSearch, setNonJoueurSearch] = useState('');
+  const [newNonJoueurNom, setNewNonJoueurNom] = useState('');
   const [newEnseignantNom, setNewEnseignantNom] = useState('');
   const [newEnseignantDiplome, setNewEnseignantDiplome] = useState('Diplômé d\'État (DE)');
   const [newEnseignantTel, setNewEnseignantTel] = useState('');
@@ -124,6 +138,28 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
   const [newTarifMontant, setNewTarifMontant] = useState<number>(150);
   const [newTarifCat, setNewTarifCat] = useState<'jeune' | 'adulte' | 'competition' | 'adhesion'>('adulte');
   const [newTarifDesc, setNewTarifDesc] = useState('');
+
+  const clubLicencies = useMemo(() => {
+    const active = filterLicenciesMuzillac(adherents, '2027');
+    return active.length > 0 ? active : adherents;
+  }, [adherents]);
+
+  const matchingLicenciesForNonJoueur = useMemo(() => {
+    const q = nonJoueurSearch.trim().toLowerCase();
+    if (!q) return [];
+    const currentList = formData.membresNonJoueurs || [];
+    return clubLicencies
+      .filter((a) => {
+        const already = currentList.some((m) => isAdherentMatchingEntry(a, m));
+        if (already) return false;
+        return (
+          a.nomPrenom.toLowerCase().includes(q) ||
+          (a.licence || '').toLowerCase().includes(q) ||
+          (a.email || '').toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 8);
+  }, [nonJoueurSearch, clubLicencies, formData.membresNonJoueurs]);
 
   if (!isOpen) return null;
 
@@ -151,6 +187,77 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
     setFormData(prev => ({
       ...prev,
       enseignants: prev.enseignants.filter(e => e.id !== id),
+    }));
+  };
+
+  const handleAddBureauMember = () => {
+    if (!newBureauNom.trim()) return;
+    const entry: BureauMemberEntry = {
+      id: `bureau-custom-${Date.now()}`,
+      nom: newBureauNom.trim(),
+      role: newBureauRole.trim() || 'Membre du bureau',
+      email: newBureauEmail.trim() || undefined,
+      nonJoueur: false,
+    };
+    setFormData(prev => ({
+      ...prev,
+      membresBureau: [...(prev.membresBureau || []), entry],
+    }));
+    setNewBureauNom('');
+    setNewBureauEmail('');
+  };
+
+  const handleToggleBureauNonJoueur = (idx: number) => {
+    setFormData(prev => ({
+      ...prev,
+      membresBureau: (prev.membresBureau || []).map((mb, i) =>
+        i === idx ? { ...mb, nonJoueur: !mb.nonJoueur } : mb
+      ),
+    }));
+  };
+
+  const handleRemoveBureauMember = (idx: number) => {
+    setFormData(prev => ({
+      ...prev,
+      membresBureau: (prev.membresBureau || []).filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleAddNonJoueurFromAdherent = (adh: Adherent) => {
+    const entry: BureauMemberEntry = {
+      id: `nj-${adh.id}`,
+      nom: adh.nomPrenom,
+      role: 'Membre du bureau (non-joueur)',
+      email: adh.email || undefined,
+      licence: adh.licence || undefined,
+      nonJoueur: true,
+    };
+    setFormData(prev => ({
+      ...prev,
+      membresNonJoueurs: [...(prev.membresNonJoueurs || []), entry],
+    }));
+    setNonJoueurSearch('');
+  };
+
+  const handleAddManualNonJoueur = () => {
+    if (!newNonJoueurNom.trim()) return;
+    const entry: BureauMemberEntry = {
+      id: `nj-custom-${Date.now()}`,
+      nom: newNonJoueurNom.trim(),
+      role: 'Membre du bureau (non-joueur)',
+      nonJoueur: true,
+    };
+    setFormData(prev => ({
+      ...prev,
+      membresNonJoueurs: [...(prev.membresNonJoueurs || []), entry],
+    }));
+    setNewNonJoueurNom('');
+  };
+
+  const handleRemoveNonJoueur = (idx: number) => {
+    setFormData(prev => ({
+      ...prev,
+      membresNonJoueurs: (prev.membresNonJoueurs || []).filter((_, i) => i !== idx),
     }));
   };
 
@@ -790,6 +897,194 @@ export const EditClubInfoModal: React.FC<EditClubInfoModalProps> = ({
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* 4. Autres membres du bureau */}
+              <div className="p-3.5 bg-[#11141a] rounded-2xl border border-zinc-800 space-y-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">
+                    Autres membres du bureau
+                  </span>
+                  <p className="text-[11px] text-zinc-400 mt-1.5">
+                    Les membres du bureau qui jouent restent disponibles dans les sélections. Cochez « Non-joueur » uniquement pour ceux qui ne participent pas aux matchs.
+                  </p>
+                </div>
+
+                {(formData.membresBureau || []).filter(m => {
+                  const r = (m.role || '').toLowerCase();
+                  return !r.includes('présid') && !r.includes('presid') && !r.includes('secr') && !r.includes('trésor') && !r.includes('tresor');
+                }).length > 0 && (
+                  <div className="space-y-1.5">
+                    {(formData.membresBureau || []).map((mb, idx) => {
+                      const r = (mb.role || '').toLowerCase();
+                      if (r.includes('présid') || r.includes('presid') || r.includes('secr') || r.includes('trésor') || r.includes('tresor')) {
+                        return null;
+                      }
+                      return (
+                        <div key={mb.id || idx} className="p-2.5 bg-[#171b23] rounded-xl border border-zinc-800 flex items-center justify-between gap-2 text-xs">
+                          <div className="min-w-0">
+                            <span className="font-bold text-white">{mb.nom}</span>
+                            {mb.role && <span className="ml-2 text-[10px] text-sky-300 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">{mb.role}</span>}
+                            {mb.email && <span className="ml-2 text-[11px] text-zinc-400">{mb.email}</span>}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <label className="flex items-center gap-1.5 text-[11px] text-zinc-300 cursor-pointer select-none px-2 py-1 rounded-lg bg-black/25 border border-zinc-700/70 hover:border-amber-500/40">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(mb.nonJoueur)}
+                                onChange={() => handleToggleBureauNonJoueur(idx)}
+                                className="rounded accent-amber-500 w-3.5 h-3.5 cursor-pointer"
+                              />
+                              <span>Non-joueur</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBureauMember(idx)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition cursor-pointer shrink-0"
+                              title="Retirer ce membre du bureau"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={newBureauNom}
+                    onChange={(e) => setNewBureauNom(e.target.value)}
+                    placeholder="Nom Prénom..."
+                    className="px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={newBureauRole}
+                    onChange={(e) => setNewBureauRole(e.target.value)}
+                    placeholder="Fonction (ex: Vice-président)"
+                    className="px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                  />
+                  <div className="flex gap-1.5">
+                    <input
+                      type="email"
+                      value={newBureauEmail}
+                      onChange={(e) => setNewBureauEmail(e.target.value)}
+                      placeholder="Email (optionnel)"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-[#FF6D00] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddBureauMember}
+                      disabled={!newBureauNom.trim()}
+                      className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Ajouter</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Membres du bureau / licenciés non-joueurs (exclus des sélections d'équipe) */}
+              <div className="p-3.5 bg-[#11141a] rounded-2xl border border-amber-500/25 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/25 inline-flex items-center gap-1.5">
+                      <UserX className="w-3 h-3" />
+                      Membres non-joueurs (exclus des sélections)
+                    </span>
+                    <p className="text-[11px] text-zinc-400 mt-1.5">
+                      Ajoutez ici uniquement les membres du bureau qui détiennent une licence FFT sans jouer en compétition. Ils restent visibles dans « Licenciés » mais n&apos;apparaissent pas dans les listes de joueurs à assigner.
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20 shrink-0">
+                    {(formData.membresNonJoueurs || []).length}
+                  </span>
+                </div>
+
+                {(formData.membresNonJoueurs || []).length > 0 && (
+                  <div className="space-y-1.5">
+                    {(formData.membresNonJoueurs || []).map((nj, idx) => (
+                      <div key={nj.id || idx} className="p-2.5 bg-[#171b23] rounded-xl border border-amber-500/20 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <span className="font-bold text-white">{nj.nom}</span>
+                          {nj.licence && (
+                            <span className="ml-2 font-mono text-[11px] text-emerald-400">
+                              {nj.licence}
+                            </span>
+                          )}
+                          {nj.email && <span className="ml-2 text-[11px] text-zinc-400">{nj.email}</span>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveNonJoueur(idx)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition cursor-pointer shrink-0"
+                          title="Remettre ce licencié dans les joueurs disponibles"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {clubLicencies.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={nonJoueurSearch}
+                        onChange={(e) => setNonJoueurSearch(e.target.value)}
+                        placeholder="Rechercher un licencié non-joueur (nom ou N° licence)..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-amber-500 outline-none"
+                      />
+                    </div>
+                    {matchingLicenciesForNonJoueur.length > 0 && (
+                      <div className="max-h-40 overflow-y-auto rounded-xl border border-zinc-800 bg-[#0d1016] divide-y divide-zinc-800/70">
+                        {matchingLicenciesForNonJoueur.map((adh) => (
+                          <button
+                            key={adh.id}
+                            type="button"
+                            onClick={() => handleAddNonJoueurFromAdherent(adh)}
+                            className="w-full px-3 py-2 text-left hover:bg-amber-500/10 transition flex items-center justify-between gap-2 text-xs cursor-pointer"
+                          >
+                            <div className="min-w-0 truncate">
+                              <span className="font-bold text-white">{adh.nomPrenom}</span>
+                              <span className="ml-2 font-mono text-[11px] text-zinc-400">{adh.licence}</span>
+                            </div>
+                            <span className="text-[11px] font-bold text-amber-400 shrink-0 flex items-center gap-1">
+                              <Plus className="w-3 h-3" />
+                              Exclure des matchs
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newNonJoueurNom}
+                    onChange={(e) => setNewNonJoueurNom(e.target.value)}
+                    placeholder="Ou saisir manuellement (Nom Prénom)..."
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl bg-[#171b23] border border-zinc-700 text-white text-xs focus:border-amber-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddManualNonJoueur}
+                    disabled={!newNonJoueurNom.trim()}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Ajouter</span>
+                  </button>
                 </div>
               </div>
 

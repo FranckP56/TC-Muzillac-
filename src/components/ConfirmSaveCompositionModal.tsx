@@ -15,6 +15,7 @@ import {
   Layers
 } from 'lucide-react';
 import { Adherent, Rencontre, MatchComposition } from '../types/tennis';
+import { getCompetitionFormat, sanitizeCompositionForFormat } from '../utils/competitionFormats';
 
 interface ConfirmSaveCompositionModalProps {
   isOpen: boolean;
@@ -39,20 +40,28 @@ export const ConfirmSaveCompositionModal: React.FC<ConfirmSaveCompositionModalPr
 }) => {
   if (!isOpen) return null;
 
-  const slots = [
-    { label: 'Simple 1', id: composition.simple1Id },
-    { label: 'Simple 2', id: composition.simple2Id },
-    { label: 'Simple 3', id: composition.simple3Id },
-    { label: 'Simple 4', id: composition.simple4Id },
-    { label: 'Simple 5', id: composition.simple5Id },
-    { label: 'Double 1 (Joueur 1)', id: composition.double1Player1Id },
-    { label: 'Double 1 (Joueur 2)', id: composition.double1Player2Id },
-    { label: 'Double 2 (Joueur 1)', id: composition.double2Player1Id },
-    { label: 'Double 2 (Joueur 2)', id: composition.double2Player2Id },
-  ].filter(s => Boolean(s.id));
+  const compFormat = getCompetitionFormat(rencontre, { formatReduit: composition.formatReduit });
+  const cleanComp = sanitizeCompositionForFormat(composition, compFormat);
 
-  const ordreList = composition.ordreMatchs || [];
-  const rotMap = composition.heuresRotations || {};
+  const rawSlots: Array<{ label: string; id?: string }> = [];
+  for (let i = 1; i <= compFormat.numSingles; i++) {
+    rawSlots.push({
+      label: `Simple ${i}`,
+      id: cleanComp[`simple${i}Id` as keyof MatchComposition] as string | undefined,
+    });
+  }
+  if (compFormat.numDoubles >= 1) {
+    rawSlots.push({ label: 'Double 1 (Joueur 1)', id: cleanComp.double1Player1Id });
+    rawSlots.push({ label: 'Double 1 (Joueur 2)', id: cleanComp.double1Player2Id });
+  }
+  if (compFormat.numDoubles >= 2) {
+    rawSlots.push({ label: 'Double 2 (Joueur 1)', id: cleanComp.double2Player1Id });
+    rawSlots.push({ label: 'Double 2 (Joueur 2)', id: cleanComp.double2Player2Id });
+  }
+  const slots = rawSlots.filter(s => Boolean(s.id));
+
+  const ordreList = cleanComp.ordreMatchs || [];
+  const rotMap = cleanComp.heuresRotations || {};
 
   const modalNode = (
     <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">

@@ -1,8 +1,9 @@
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce, GoSportOffre } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce, GoSportOffre, BureauMemberEntry } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
 import { formatFrenchPhoneNumber } from '../utils/phoneUtils';
+import { getCompetitionFormat, sanitizeCompositionForFormat } from '../utils/competitionFormats';
 
 // URL Google Apps Script Web App (action=getAll / doPost)
 export const APPS_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx5gTcxhLQ1i2ZksvPGzzmJC4YXVvZp5-Rm7C74WZserM5mooPsMB450m128QdHMAV_TQ/exec";
@@ -24,14 +25,31 @@ export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
 export const TCM_CUSTOM_CLUB_INFO_KEY = 'tcm_custom_club_info_v3';
 export const TCM_CUSTOM_COMPOSITIONS_KEY = 'tcm_custom_compositions_v3';
+const LOCAL_COMPOSITION_TTL_MS = 20000;
+
+interface LocalCompositionRecord {
+  composition: MatchComposition;
+  savedAt: number;
+}
 
 export function saveLocalComposition(matchId: string, comp: MatchComposition): void {
   try {
     const raw = localStorage.getItem(TCM_CUSTOM_COMPOSITIONS_KEY);
-    const map = raw ? JSON.parse(raw) : {};
-    map[matchId] = comp;
-    map[normalizeSheetMatchKey(matchId)] = comp;
-    localStorage.setItem(TCM_CUSTOM_COMPOSITIONS_KEY, JSON.stringify(map));
+    const parsed = raw ? JSON.parse(raw) : {};
+    const now = Date.now();
+    const cleaned: Record<string, LocalCompositionRecord> = {};
+    if (parsed && typeof parsed === 'object') {
+      for (const [k, v] of Object.entries(parsed)) {
+        const rec = v as Partial<LocalCompositionRecord> | undefined;
+        if (rec && typeof rec.savedAt === 'number' && rec.composition && now - rec.savedAt <= LOCAL_COMPOSITION_TTL_MS) {
+          cleaned[k] = rec as LocalCompositionRecord;
+        }
+      }
+    }
+    const record: LocalCompositionRecord = { composition: comp, savedAt: now };
+    cleaned[matchId] = record;
+    cleaned[normalizeSheetMatchKey(matchId)] = record;
+    localStorage.setItem(TCM_CUSTOM_COMPOSITIONS_KEY, JSON.stringify(cleaned));
   } catch (e) {
     console.warn("Erreur sauvegarde locale composition:", e);
   }
@@ -40,9 +58,46 @@ export function saveLocalComposition(matchId: string, comp: MatchComposition): v
 export function loadLocalCompositions(): Record<string, MatchComposition> {
   try {
     const raw = localStorage.getItem(TCM_CUSTOM_COMPOSITIONS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      localStorage.removeItem(TCM_CUSTOM_COMPOSITIONS_KEY);
+      return {};
+    }
+    const now = Date.now();
+    const activeRecords: Record<string, LocalCompositionRecord> = {};
+    const activeComps: Record<string, MatchComposition> = {};
+    let hasExpired = false;
+
+    for (const [k, v] of Object.entries(parsed)) {
+      const rec = v as Partial<LocalCompositionRecord> | undefined;
+      if (rec && typeof rec.savedAt === 'number' && rec.composition && now - rec.savedAt <= LOCAL_COMPOSITION_TTL_MS) {
+        activeRecords[k] = rec as LocalCompositionRecord;
+        activeComps[k] = rec.composition;
+      } else {
+        hasExpired = true;
+      }
+    }
+
+    if (hasExpired) {
+      if (Object.keys(activeRecords).length === 0) {
+        localStorage.removeItem(TCM_CUSTOM_COMPOSITIONS_KEY);
+      } else {
+        localStorage.setItem(TCM_CUSTOM_COMPOSITIONS_KEY, JSON.stringify(activeRecords));
+      }
+    }
+
+    return activeComps;
   } catch {
     return {};
+  }
+}
+
+export function clearLocalCompositions(): void {
+  try {
+    localStorage.removeItem(TCM_CUSTOM_COMPOSITIONS_KEY);
+  } catch {
+    // Ignorer
   }
 }
 
@@ -98,6 +153,7 @@ export interface AppsScriptDataResult {
     president?: { nom: string; tel?: string; email?: string };
     secretaire?: { nom: string; tel?: string; email?: string };
     tresorier?: { nom: string; tel?: string; email?: string };
+    membresBureau?: BureauMemberEntry[];
     enseignants: Enseignant[];
   };
   installations?: string[];
@@ -114,6 +170,7 @@ export interface CachedDataset {
     president?: { nom: string; tel?: string; email?: string };
     secretaire?: { nom: string; tel?: string; email?: string };
     tresorier?: { nom: string; tel?: string; email?: string };
+    membresBureau?: BureauMemberEntry[];
     enseignants: Enseignant[];
   };
   installations?: string[];
@@ -176,14 +233,59 @@ let lastFetchTime = 0;
  * Normalisation insensible aux espaces et caractères spéciaux pour la clé de rencontre
  */
 export function normalizeSheetMatchKey(str: string): string {
-  return (str || '').toLowerCase().replace(/[\s\/\-_]/g, '');
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\s\/\-_]/g, '');
 }
+
+function normalizeSexKey(sexe?: string): string {
+  const s = (sexe || '').trim().toUpperCase();
+  if (!s) return '';
+  if (s === 'F' || s.startsWith('F') || s.includes('DAME') || s.includes('FEM')) return 'f';
+  if (s.includes('MIX')) return 'mix';
+  return 'h';
+}
+
+function buildScopedCompKeys(
+  dateStr: string,
+  numEqStr: string,
+  libelle?: string,
+  categorie?: string,
+  sexe?: string
+): string[] {
+  const normDate = normalizeSheetMatchKey(normalizeDateString(dateStr) || dateStr);
+  const normEq = normalizeSheetMatchKey(numEqStr);
+  const eqNumOnly = (numEqStr || '').replace(/\D/g, '');
+  const normLib = normalizeSheetMatchKey(libelle || '');
+  const normCat = normalizeSheetMatchKey(categorie || '');
+  const normSex = normalizeSexKey(sexe);
+  if (!normDate || !normEq || (!normLib && !normCat)) return [];
+
+  const suffix = `lib_${normLib}_cat_${normCat}_sex_${normSex}`;
+  const keys = [`scoped_${normDate}_eq_${normEq}_${suffix}`];
+  if (eqNumOnly && eqNumOnly !== normEq) {
+    keys.push(`scoped_${normDate}_eq_${eqNumOnly}_${suffix}`);
+  }
+  return keys;
+}
+
+type CompMapEntry = {
+  composition: MatchComposition;
+  frozenSlots: FrozenPlayerSlot[];
+  meta?: {
+    libelle?: string;
+    categorie?: string;
+    sexe?: string;
+  };
+};
 
 /**
  * Parsing des compositions depuis les lignes brutes de l'onglet Compositions_Equipes
  */
 function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }> {
-  const map = new Map<string, { composition: MatchComposition; frozenSlots: FrozenPlayerSlot[] }>();
+  const map = new Map<string, CompMapEntry>();
   if (!rawComps) return map;
 
   // 1. Cas où rawComps est un dictionnaire/objet renvoyé par Apps Script : { "rencontre-1": { matchId, ... } }
@@ -198,6 +300,9 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
       const dateVal = String(v.dateRencontre || '').trim();
       const normDateVal = normalizeDateString(dateVal);
       const numEqVal = String(v.numeroEquipe || '').trim();
+      const libelleVal = String(v.libelleHomologation || '').trim();
+      const catVal = String(v.categorieAgeHomologation || '').trim();
+      const sexeVal = String(v.sexeHomologation || '').trim();
 
       const frozenSlots: FrozenPlayerSlot[] = Array.isArray(v.frozenPlayers) ? v.frozenPlayers : [];
 
@@ -247,15 +352,16 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
         else if (cleanPoste.includes('double 2') && (cleanPoste.includes('j2') || cleanPoste.includes('2eme') || cleanPoste.includes('joueur 2'))) comp.double2Player2Id = pId;
       });
 
-      const entry = { composition: comp, frozenSlots };
+      const entry: CompMapEntry = {
+        composition: comp,
+        frozenSlots,
+        meta: { libelle: libelleVal, categorie: catVal, sexe: sexeVal },
+      };
       map.set(matchId, entry);
       map.set(normalizeSheetMatchKey(matchId), entry);
-      if (dateVal && numEqVal) {
-        map.set(`date_${normalizeSheetMatchKey(dateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
-        if (normDateVal) {
-          map.set(`date_${normalizeSheetMatchKey(normDateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
-        }
-      }
+      buildScopedCompKeys(dateVal, numEqVal, libelleVal, catVal, sexeVal).forEach((sk) => {
+        map.set(sk, entry);
+      });
     }
   }
 
@@ -268,6 +374,9 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
       const matchId = String(row[0] || '').trim();
       const dateVal = String(row[1] || '').trim();
       const numEqVal = String(row[2] || '').trim();
+      const libelleVal = String(row[3] || '').trim();
+      const catVal = String(row[4] || '').trim();
+      const sexeVal = String(row[5] || '').trim();
       const poste = String(row[8] || '').trim();
       const nomPrenom = String(row[9] || '').trim();
       const licence = String(row[10] || '').trim();
@@ -327,7 +436,7 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
       let entry = map.get(matchId);
       if (!entry) {
         const hasRealPlayer = Boolean(nomPrenom && poste !== 'Logistique & Ordre');
-        entry = {
+        const createdEntry: CompMapEntry = {
           composition: {
             valideParCapitaine: valide,
             dateValidation: dateEnreg,
@@ -349,15 +458,14 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
             frozenPlayers: [],
           },
           frozenSlots: [],
+          meta: { libelle: libelleVal, categorie: catVal, sexe: sexeVal },
         };
-        map.set(matchId, entry);
-        map.set(normalizeSheetMatchKey(matchId), entry);
-        if (dateVal && numEqVal) {
-          map.set(`date_${normalizeSheetMatchKey(dateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
-          if (normDateVal) {
-            map.set(`date_${normalizeSheetMatchKey(normDateVal)}_eq_${normalizeSheetMatchKey(numEqVal)}`, entry);
-          }
-        }
+        entry = createdEntry;
+        map.set(matchId, createdEntry);
+        map.set(normalizeSheetMatchKey(matchId), createdEntry);
+        buildScopedCompKeys(dateVal, numEqVal, libelleVal, catVal, sexeVal).forEach((sk) => {
+          map.set(sk, createdEntry);
+        });
       } else {
         if (ordreMatchs && !entry.composition.ordreMatchs) {
           entry.composition.ordreMatchs = ordreMatchs;
@@ -412,49 +520,23 @@ function parseCompositionsRows(rawComps: any): Map<string, { composition: MatchC
     }
   }
 
-  // 3. Fusion avec les compositions et horaires sauvegardés localement pour ne jamais les perdre
+  // 3. Fusion courte durée uniquement pour les modifications locales récentes (< 20s)
+  // afin d'éviter la résurrection de lignes supprimées dans Google Sheets
   try {
     const localMap = loadLocalCompositions();
     for (const [k, localComp] of Object.entries(localMap)) {
       if (!localComp) continue;
       const existing = map.get(k) || map.get(normalizeSheetMatchKey(k));
       if (!existing) {
-        map.set(k, { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
-        map.set(normalizeSheetMatchKey(k), { composition: localComp, frozenSlots: localComp.frozenPlayers || [] });
+        const entry: CompMapEntry = { composition: localComp, frozenSlots: localComp.frozenPlayers || [] };
+        map.set(k, entry);
+        map.set(normalizeSheetMatchKey(k), entry);
       } else {
-        if (localComp.dateRencontreValidee) {
-          existing.composition.dateRencontreValidee = localComp.dateRencontreValidee;
-        }
-        if (localComp.heureDebut) {
-          existing.composition.heureDebut = localComp.heureDebut;
-        }
-        if (localComp.lieuRencontre) {
-          existing.composition.lieuRencontre = localComp.lieuRencontre;
-        }
-        if (localComp.nombreCourts) {
-          existing.composition.nombreCourts = localComp.nombreCourts;
-        }
-        if (typeof localComp.formatReduit === 'boolean') {
-          existing.composition.formatReduit = localComp.formatReduit;
-        }
-        if (Array.isArray(localComp.ordreMatchs) && localComp.ordreMatchs.length > 0) {
-          existing.composition.ordreMatchs = localComp.ordreMatchs;
-        }
-        if (localComp.heuresRotations && Object.keys(localComp.heuresRotations).length > 0) {
-          existing.composition.heuresRotations = localComp.heuresRotations;
-        }
-        if (typeof localComp.logistiqueValidee === 'boolean') {
-          existing.composition.logistiqueValidee = localComp.logistiqueValidee;
-        }
-        if (typeof localComp.ordreValide === 'boolean') {
-          existing.composition.ordreValide = localComp.ordreValide;
-        }
-        if (typeof localComp.joueursValides === 'boolean') {
-          existing.composition.joueursValides = localComp.joueursValides;
-        }
-        if (typeof localComp.valideParCapitaine === 'boolean') {
-          existing.composition.valideParCapitaine = localComp.valideParCapitaine;
-        }
+        existing.composition = {
+          ...existing.composition,
+          ...localComp,
+        };
+        existing.frozenSlots = localComp.frozenPlayers || existing.frozenSlots;
       }
     }
   } catch (err) {
@@ -510,21 +592,24 @@ function parseBureauRows(rows: any[][]): {
   president?: { nom: string; tel?: string; email?: string };
   secretaire?: { nom: string; tel?: string; email?: string };
   tresorier?: { nom: string; tel?: string; email?: string };
+  membresBureau: BureauMemberEntry[];
   enseignants: Enseignant[];
 } {
   let president = { nom: '', tel: '', email: '' };
   let secretaire = { nom: '', tel: '', email: '' };
   let tresorier = { nom: '', tel: '', email: '' };
+  const membresBureau: BureauMemberEntry[] = [];
   const enseignants: Enseignant[] = [];
 
   if (!rows || rows.length <= 1) {
-    return { enseignants };
+    return { membresBureau, enseignants };
   }
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!Array.isArray(r) || r.length === 0) continue;
-    const role = String(r[0] || '').toLowerCase().trim();
+    const rawRole = String(r[0] || '').trim();
+    const role = rawRole.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const nomPrenom = String(r[1] || '').trim();
     const diplome = String(r[2] || '').trim();
     const tel = formatFrenchPhoneNumber(r[3]);
@@ -533,13 +618,36 @@ function parseBureauRows(rows: any[][]): {
 
     if (!nomPrenom) continue;
 
-    if (role.includes('presid') || role.includes('présid')) {
+    const combinedMeta = `${rawRole} ${diplome} ${desc}`
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const isNonJoueur =
+      combinedMeta.includes('non joueur') ||
+      combinedMeta.includes('non-joueur') ||
+      combinedMeta.includes('ne joue pas');
+
+    if (role.includes('presid') && !role.includes('vice')) {
       president = { nom: nomPrenom, tel, email };
-    } else if (role.includes('secr')) {
+      membresBureau.push({ id: `bureau-${i}`, nom: nomPrenom, role: rawRole || 'Président', telephone: tel || undefined, email: email || undefined, nonJoueur: isNonJoueur || undefined });
+    } else if (role.includes('secr') && !role.includes('adjoint')) {
       secretaire = { nom: nomPrenom, tel, email };
-    } else if (role.includes('trésor') || role.includes('tresor')) {
+      membresBureau.push({ id: `bureau-${i}`, nom: nomPrenom, role: rawRole || 'Secrétaire', telephone: tel || undefined, email: email || undefined, nonJoueur: isNonJoueur || undefined });
+    } else if (role.includes('tresor') && !role.includes('adjoint')) {
       tresorier = { nom: nomPrenom, tel, email };
-    } else if (role.includes('prof') || role.includes('enseign') || role.includes('coach') || role.includes('de') || role.includes('initiateur')) {
+      membresBureau.push({ id: `bureau-${i}`, nom: nomPrenom, role: rawRole || 'Trésorier', telephone: tel || undefined, email: email || undefined, nonJoueur: isNonJoueur || undefined });
+    } else if (
+      role.includes('prof') ||
+      role.includes('enseign') ||
+      role.includes('coach') ||
+      role.includes('moniteur') ||
+      role.includes('initiateur') ||
+      role.includes('bpjeps') ||
+      role.includes('desjeps') ||
+      role.includes('cqp') ||
+      /\bDE\b/.test(rawRole) ||
+      role.includes('dejeps')
+    ) {
       enseignants.push({
         id: `enseignant-${i}`,
         nomPrenom,
@@ -548,6 +656,16 @@ function parseBureauRows(rows: any[][]): {
         email: email || undefined,
         description: desc || undefined,
       });
+    } else {
+      // Tout autre membre du bureau (Vice-président, Membre du bureau, Trésorier adjoint, etc.)
+      membresBureau.push({
+        id: `bureau-${i}`,
+        nom: nomPrenom,
+        role: rawRole || 'Membre du bureau',
+        telephone: tel || undefined,
+        email: email || undefined,
+        nonJoueur: isNonJoueur || undefined,
+      });
     }
   }
 
@@ -555,6 +673,7 @@ function parseBureauRows(rows: any[][]): {
     president: president.nom ? president : undefined,
     secretaire: secretaire.nom ? secretaire : undefined,
     tresorier: tresorier.nom ? tresorier : undefined,
+    membresBureau,
     enseignants,
   };
 }
@@ -640,6 +759,18 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
       else if (normKey.includes('permanence') || normKey.includes('horaire')) result.horairesPermanence = val;
       else if (normKey.includes('badge') && (normKey.includes('message') || normKey.includes('texte') || normKey.includes('acces'))) result.badgeAccesMessage = val;
       else if (normKey.includes('ouverture') || normKey.includes('7/7') || normKey.includes('7j/7') || normKey.includes('court ouvert')) result.ouvertureCourtsMessage = val;
+      else if (normKey.includes('membres non joueurs') || normKey === 'membresnonjoueurs' || normKey.includes('licencies non joueurs')) {
+        try {
+          const parsedNj = JSON.parse(val);
+          if (Array.isArray(parsedNj)) result.membresNonJoueurs = parsedNj;
+        } catch { /* ignore */ }
+      }
+      else if (normKey.includes('membres bureau') || normKey === 'membresbureau') {
+        try {
+          const parsedMb = JSON.parse(val);
+          if (Array.isArray(parsedMb)) result.membresBureau = parsedMb;
+        } catch { /* ignore */ }
+      }
     }
   } else if (typeof rawClubInfo === 'object') {
     if (rawClubInfo.adresse) result.adresse = rawClubInfo.adresse;
@@ -668,6 +799,8 @@ function parseClubInfoData(rawClubInfo: any): Partial<ClubInfo> | undefined {
     if (rawClubInfo.tresorier) result.tresorier = rawClubInfo.tresorier;
     if (rawClubInfo.tresorierTelephone) result.tresorierTelephone = formatFrenchPhoneNumber(rawClubInfo.tresorierTelephone);
     if (rawClubInfo.tresorierEmail) result.tresorierEmail = rawClubInfo.tresorierEmail;
+    if (Array.isArray(rawClubInfo.membresBureau)) result.membresBureau = rawClubInfo.membresBureau;
+    if (Array.isArray(rawClubInfo.membresNonJoueurs)) result.membresNonJoueurs = rawClubInfo.membresNonJoueurs;
     if (rawClubInfo.modalitesPaiement) result.modalitesPaiement = rawClubInfo.modalitesPaiement;
     if (rawClubInfo.helloAssoUrl) result.helloAssoUrl = rawClubInfo.helloAssoUrl;
     if (rawClubInfo.logoUrl) result.logoUrl = rawClubInfo.logoUrl;
@@ -920,6 +1053,45 @@ export async function fetchAllDataFromAppsScript(
   }
 
   // 3. Parser Rencontres et attacher les compositions
+  const attachComposition = (parsed: Rencontre) => {
+    const compMap = compositionsMap as Map<string, CompMapEntry>;
+    let compEntry: CompMapEntry | undefined =
+      compMap.get(parsed.id) ||
+      compMap.get(normalizeSheetMatchKey(parsed.id));
+
+    if (compEntry?.meta && (compEntry.meta.categorie || compEntry.meta.libelle)) {
+      const mCat = normalizeSheetMatchKey(compEntry.meta.categorie || '');
+      const rCat = normalizeSheetMatchKey(parsed.categorieAgeHomologation || '');
+      const mLib = normalizeSheetMatchKey(compEntry.meta.libelle || '');
+      const rLib = normalizeSheetMatchKey(parsed.libelleHomologation || '');
+      if ((mCat && rCat && mCat !== rCat) || (mLib && rLib && mLib !== rLib)) {
+        compEntry = undefined;
+      }
+    }
+
+    if (!compEntry && parsed.dateRencontre && parsed.numeroEquipe) {
+      const scopedKeys = buildScopedCompKeys(
+        parsed.dateRencontre,
+        parsed.numeroEquipe,
+        parsed.libelleHomologation,
+        parsed.categorieAgeHomologation,
+        parsed.sexeHomologation
+      );
+      for (const sk of scopedKeys) {
+        const candidate = compMap.get(sk);
+        if (candidate) {
+          compEntry = candidate;
+          break;
+        }
+      }
+    }
+
+    if (compEntry) {
+      const fmt = getCompetitionFormat(parsed, { formatReduit: compEntry.composition.formatReduit });
+      parsed.composition = sanitizeCompositionForFormat(compEntry.composition, fmt);
+    }
+  };
+
   const rencontres: Rencontre[] = [];
   const rawRen = rawJson?.rencontres || [];
   if (Array.isArray(rawRen) && rawRen.length > 1) {
@@ -928,20 +1100,7 @@ export async function fetchAllDataFromAppsScript(
       for (let i = 1; i < rawRen.length; i++) {
         const parsed = parseRencontreRow(rawRen[i], headers, i);
         if (parsed) {
-          const parsedNumOnly = (parsed.numeroEquipe || '').replace(/\D/g, '');
-          const normDate = normalizeSheetMatchKey(parsed.dateRencontre);
-          
-          const compEntry = 
-            compositionsMap.get(parsed.id) ||
-            compositionsMap.get(normalizeSheetMatchKey(parsed.id)) ||
-            (parsed.dateRencontre && parsed.numeroEquipe ? 
-              (compositionsMap.get(`date_${normDate}_eq_${normalizeSheetMatchKey(parsed.numeroEquipe)}`) ||
-               (parsedNumOnly ? compositionsMap.get(`date_${normDate}_eq_${parsedNumOnly}`) : undefined)) : 
-              undefined);
-
-          if (compEntry) {
-            parsed.composition = compEntry.composition;
-          }
+          attachComposition(parsed);
           rencontres.push(parsed);
         }
       }
@@ -949,20 +1108,7 @@ export async function fetchAllDataFromAppsScript(
       for (const item of rawRen) {
         if (!item) continue;
         const parsed = { ...item };
-        const parsedNumOnly = (parsed.numeroEquipe || '').replace(/\D/g, '');
-        const normDate = normalizeSheetMatchKey(parsed.dateRencontre);
-        
-        const compEntry = 
-          compositionsMap.get(parsed.id) ||
-          compositionsMap.get(normalizeSheetMatchKey(parsed.id)) ||
-          (parsed.dateRencontre && parsed.numeroEquipe ? 
-            (compositionsMap.get(`date_${normDate}_eq_${normalizeSheetMatchKey(parsed.numeroEquipe)}`) ||
-             (parsedNumOnly ? compositionsMap.get(`date_${normDate}_eq_${parsedNumOnly}`) : undefined)) : 
-            undefined);
-
-        if (compEntry) {
-          parsed.composition = compEntry.composition;
-        }
+        attachComposition(parsed);
         rencontres.push(parsed);
       }
     }
@@ -1114,6 +1260,7 @@ export async function readBureauProfsFromSheet(): Promise<{
   president?: { nom: string; tel?: string; email?: string };
   secretaire?: { nom: string; tel?: string; email?: string };
   tresorier?: { nom: string; tel?: string; email?: string };
+  membresBureau?: BureauMemberEntry[];
   enseignants: Enseignant[];
 } | null> {
   const all = await fetchAllDataFromAppsScript();
@@ -1133,11 +1280,15 @@ export async function readInstallationsFromSheet(): Promise<string[] | null> {
  */
 export async function saveCompositionViaAppsScript(
   rencontre: Rencontre,
-  composition: MatchComposition,
+  rawComposition: MatchComposition,
   adherentsById: Map<string, Adherent>,
   appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
 ): Promise<{ success: boolean; rowsSaved?: number; error?: string }> {
   try {
+    invalidateAppsScriptCache();
+    const fmt = getCompetitionFormat(rencontre, { formatReduit: rawComposition.formatReduit });
+    const composition = sanitizeCompositionForFormat(rawComposition, fmt);
+
     const slots: Array<{
       poste: string;
       nomPrenom: string;
@@ -1148,20 +1299,21 @@ export async function saveCompositionViaAppsScript(
       typeLicence: string;
     }> = [];
 
-    const slotDefinitions = [
-      { key: 'simple1Id', label: 'Simple 1' },
-      { key: 'simple2Id', label: 'Simple 2' },
-      { key: 'simple3Id', label: 'Simple 3' },
-      { key: 'simple4Id', label: 'Simple 4' },
-      { key: 'simple5Id', label: 'Simple 5' },
-      { key: 'double1Player1Id', label: 'Double 1 (J1)' },
-      { key: 'double1Player2Id', label: 'Double 1 (J2)' },
-      { key: 'double2Player1Id', label: 'Double 2 (J1)' },
-      { key: 'double2Player2Id', label: 'Double 2 (J2)' },
-    ];
+    const slotDefinitions: Array<{ key: keyof MatchComposition; label: string }> = [];
+    for (let i = 1; i <= fmt.numSingles; i++) {
+      slotDefinitions.push({ key: `simple${i}Id` as keyof MatchComposition, label: `Simple ${i}` });
+    }
+    if (fmt.numDoubles >= 1) {
+      slotDefinitions.push({ key: 'double1Player1Id', label: 'Double 1 (J1)' });
+      slotDefinitions.push({ key: 'double1Player2Id', label: 'Double 1 (J2)' });
+    }
+    if (fmt.numDoubles >= 2) {
+      slotDefinitions.push({ key: 'double2Player1Id', label: 'Double 2 (J1)' });
+      slotDefinitions.push({ key: 'double2Player2Id', label: 'Double 2 (J2)' });
+    }
 
     slotDefinitions.forEach(({ key, label }) => {
-      const playerId = (composition as any)[key];
+      const playerId = composition[key] as string | undefined;
       if (playerId) {
         const adh = adherentsById.get(playerId);
         slots.push({
@@ -1176,22 +1328,7 @@ export async function saveCompositionViaAppsScript(
       }
     });
 
-    // Si des slots gelés existent déjà dans la composition
-    if (slots.length === 0 && composition.frozenPlayers && composition.frozenPlayers.length > 0) {
-      composition.frozenPlayers.forEach(fp => {
-        slots.push({
-          poste: fp.poste,
-          nomPrenom: fp.nomPrenom,
-          licence: fp.licence || '',
-          classementGele: fp.classementGele || 'NC',
-          dateNaissance: fp.dateNaissance || '',
-          ageSportif: fp.ageSportif || '',
-          typeLicence: fp.typeLicence || 'C',
-        });
-      });
-    }
-
-    // Persistance locale immédiate systématique
+    // Persistance locale courte durée (anti-flash post-sauvegarde)
     saveLocalComposition(rencontre.id, composition);
 
     const rotationsWithFlags: Record<string, unknown> = {
@@ -1329,6 +1466,8 @@ export async function saveClubInfoViaAppsScript(
         tresorier: clubInfo.tresorier || '',
         tresorierTelephone: formatFrenchPhoneNumber(clubInfo.tresorierTelephone),
         tresorierEmail: clubInfo.tresorierEmail || '',
+        membresBureau: clubInfo.membresBureau || [],
+        membresNonJoueurs: clubInfo.membresNonJoueurs || [],
         enseignants: (clubInfo.enseignants || []).map(e => ({
           ...e,
           telephone: formatFrenchPhoneNumber(e.telephone),
@@ -1390,25 +1529,28 @@ export async function saveClubInfoViaAppsScript(
 export async function saveCompositionToSheet(
   spreadsheetId: string | null | undefined,
   rencontre: Rencontre,
-  composition: MatchComposition,
+  rawComposition: MatchComposition,
   adherentsById: Map<string, Adherent>,
   accessToken?: string | null
 ): Promise<{ success: boolean; rowsSaved: number }> {
+  const fmt = getCompetitionFormat(rencontre, { formatReduit: rawComposition.formatReduit });
+  const composition = sanitizeCompositionForFormat(rawComposition, fmt);
   const appsScriptRes = await saveCompositionViaAppsScript(rencontre, composition, adherentsById);
 
   if (spreadsheetId && accessToken) {
     try {
-      const slotDefinitions = [
-        { key: 'simple1Id', label: 'Simple 1' },
-        { key: 'simple2Id', label: 'Simple 2' },
-        { key: 'simple3Id', label: 'Simple 3' },
-        { key: 'simple4Id', label: 'Simple 4' },
-        { key: 'simple5Id', label: 'Simple 5' },
-        { key: 'double1Player1Id', label: 'Double 1 (J1)' },
-        { key: 'double1Player2Id', label: 'Double 1 (J2)' },
-        { key: 'double2Player1Id', label: 'Double 2 (J1)' },
-        { key: 'double2Player2Id', label: 'Double 2 (J2)' },
-      ];
+      const slotDefinitions: Array<{ key: keyof MatchComposition; label: string }> = [];
+      for (let i = 1; i <= fmt.numSingles; i++) {
+        slotDefinitions.push({ key: `simple${i}Id` as keyof MatchComposition, label: `Simple ${i}` });
+      }
+      if (fmt.numDoubles >= 1) {
+        slotDefinitions.push({ key: 'double1Player1Id', label: 'Double 1 (J1)' });
+        slotDefinitions.push({ key: 'double1Player2Id', label: 'Double 1 (J2)' });
+      }
+      if (fmt.numDoubles >= 2) {
+        slotDefinitions.push({ key: 'double2Player1Id', label: 'Double 2 (J1)' });
+        slotDefinitions.push({ key: 'double2Player2Id', label: 'Double 2 (J2)' });
+      }
 
       const rowsToAppend: any[][] = [];
       const nowStr = composition.dateValidation || new Date().toLocaleDateString('fr-FR');
@@ -1423,7 +1565,7 @@ export async function saveCompositionToSheet(
       });
 
       slotDefinitions.forEach(({ key, label }) => {
-        const playerId = (composition as any)[key];
+        const playerId = composition[key] as string | undefined;
         if (playerId) {
           const adh = adherentsById.get(playerId);
           rowsToAppend.push([
@@ -1524,6 +1666,12 @@ export async function saveClubInfoToSheet(
         ["Secrétaire", clubInfo.secretaire || "", "Dirigeante", formatFrenchPhoneNumber(clubInfo.secretaireTelephone) || "", clubInfo.secretaireEmail || "", "Secrétariat et licences"],
         ["Trésorier", clubInfo.tresorier || "", "Dirigeant", formatFrenchPhoneNumber(clubInfo.tresorierTelephone) || "", clubInfo.tresorierEmail || "", "Comptabilité et finances"],
       ];
+      (clubInfo.membresBureau || []).forEach(mb => {
+        const mbRole = (mb.role || '').toLowerCase();
+        if (mb.nom && !mbRole.includes('présid') && !mbRole.includes('presid') && !mbRole.includes('secr') && !mbRole.includes('trésor') && !mbRole.includes('tresor')) {
+          bRows.push([mb.role || "Membre du bureau", mb.nom, "Dirigeant", formatFrenchPhoneNumber(mb.telephone) || "", mb.email || "", mb.nonJoueur ? "Non-joueur" : "Membre du bureau"]);
+        }
+      });
       (clubInfo.enseignants || []).forEach(p => {
         bRows.push(["Enseignant", p.nomPrenom, p.diplome, formatFrenchPhoneNumber(p.telephone) || "", p.email || "", p.description || ""]);
       });
@@ -1570,6 +1718,8 @@ export async function saveClubInfoToSheet(
         ["Trésorier", clubInfo.tresorier || ""],
         ["Téléphone Trésorier", formatFrenchPhoneNumber(clubInfo.tresorierTelephone) || ""],
         ["Email Trésorier", clubInfo.tresorierEmail || ""],
+        ["Membres Bureau", JSON.stringify(clubInfo.membresBureau || [])],
+        ["Membres Non Joueurs", JSON.stringify(clubInfo.membresNonJoueurs || [])],
         ["Logo URL", clubInfo.logoUrl || ""],
         ["Signature URL", clubInfo.signatureUrl || ""],
         ["Tampon Cachet URL", clubInfo.tamponUrl || ""],

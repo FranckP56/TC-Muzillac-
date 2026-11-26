@@ -20,12 +20,13 @@ import {
   Send,
   UserCheck
 } from 'lucide-react';
-import { Rencontre, Adherent, JoueurDisponibilite, DisponibiliteStatut, PreferenceJeu, CreneauPrefere } from '../types/tennis';
-import { filterLicenciesMuzillac } from '../utils/licencies';
+import { Rencontre, Adherent, ClubInfo, JoueurDisponibilite, DisponibiliteStatut, PreferenceJeu, CreneauPrefere } from '../types/tennis';
+import { filterLicenciesMuzillac, isNonPlayingBureauMember } from '../utils/licencies';
 
 interface SondageDisponibilitesModalProps {
   rencontre: Rencontre | null;
   adherents: Adherent[];
+  clubInfo?: ClubInfo;
   isOpen: boolean;
   onClose: () => void;
   onUpdateDisponibilites: (rencontreId: string, disponibilites: JoueurDisponibilite[]) => void;
@@ -36,6 +37,7 @@ interface SondageDisponibilitesModalProps {
 export const SondageDisponibilitesModal: React.FC<SondageDisponibilitesModalProps> = ({
   rencontre,
   adherents,
+  clubInfo,
   isOpen,
   onClose,
   onUpdateDisponibilites,
@@ -53,16 +55,17 @@ export const SondageDisponibilitesModal: React.FC<SondageDisponibilitesModalProp
     return rencontre.disponibilites || [];
   });
 
-  // Base des licenciés du club éligibles pour cette catégorie (saison active)
+  // Base des licenciés du club éligibles pour cette catégorie (saison active, hors membres du bureau non-joueurs)
   const licencies2027 = useMemo(() => {
     const list = filterLicenciesMuzillac(adherents, saison);
     const reqSex = rencontre.sexeHomologation;
     return list.filter(adh => {
+      if (isNonPlayingBureauMember(adh, clubInfo)) return false;
       if (reqSex === 'Mixte') return true;
       const adhSex = adh.civilite === 'Madame' ? 'Dames' : 'Messieurs';
       return adhSex === reqSex;
     });
-  }, [adherents, rencontre, saison]);
+  }, [adherents, clubInfo, rencontre, saison]);
 
   // Map des réponses par ID adhérent
   const dispoByAdhId = useMemo(() => {
