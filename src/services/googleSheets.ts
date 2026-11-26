@@ -1,4 +1,4 @@
-import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce, GoSportOffre, BureauMemberEntry } from '../types/tennis';
+import { Adherent, Rencontre, MatchComposition, FrozenPlayerSlot, Enseignant, ClubInfo, ClubTarif, TrocAnnonce, GoSportOffre, BureauMemberEntry, PartenaireLogo } from '../types/tennis';
 import { parseAdherentRow, parseRencontreRow } from './sheetParsers';
 import { cleanRanking, isValidTennisRanking } from '../utils/ranking';
 import { normalizeDateString } from '../utils/dateUtils';
@@ -20,6 +20,7 @@ export const CLUB_INFO_SHEET_TITLE = 'Club_Info';
 export const CLUB_INFO_SHEET_ALIASES = ['Club_Info', 'Club_infos', 'Club_Infos'];
 export const TROC_SHEET_TITLE = 'Troc_Annonces';
 export const GOSPORT_SHEET_TITLE = 'Partenaire_GOSport';
+export const PARTENAIRES_SHEET_TITLE = 'Partenaires';
 
 export const TCM_CACHE_KEY = 'tcm_google_sheets_dataset_v3';
 export const TCM_LAST_SYNC_KEY = 'tcm_last_sync_timestamp';
@@ -1856,7 +1857,9 @@ function parseTrocRowsOrObjects(raw: any): TrocAnnonce[] {
         categorie: String(item.categorie || 'Raquettes').trim(),
         taillePointure: String(item.taillePointure || '').trim(),
         etat: String(item.etat || 'Bon état').trim(),
-        photoUrl: String(item.photoUrl || '').trim() || undefined,
+        photoUrl: String(item.photoUrl || item.photo || item.Photo || '').trim() || undefined,
+        photoUrl2: String(item.photoUrl2 || item.photo2 || item['Photo 2'] || item.Photo2 || '').trim() || undefined,
+        photoUrl3: String(item.photoUrl3 || item.photo3 || item['Photo 3'] || item.Photo3 || '').trim() || undefined,
         prix: typeof item.prix === 'number' ? item.prix : (parseFloat(String(item.prix || '0').replace('€', '').replace(',', '.')) || 0),
         contactNom: String(item.contactNom || '').trim(),
         contactTel: formatFrenchPhoneNumber(item.contactTel || '') || undefined,
@@ -1867,6 +1870,16 @@ function parseTrocRowsOrObjects(raw: any): TrocAnnonce[] {
 
   // Cas 2 : tableau 2D de lignes Google Sheets (en-têtes en ligne 0)
   if (Array.isArray(raw[0])) {
+    const headers = raw[0].map((h: any) => String(h || '').trim().toLowerCase());
+    const findCol = (candidates: string[], fallbackIdx: number) => {
+      const found = headers.findIndex((h: string) =>
+        candidates.some((c) => h === c || h.replace(/[\s_-]+/g, '') === c.replace(/[\s_-]+/g, ''))
+      );
+      return found >= 0 ? found : fallbackIdx;
+    };
+    const idxPhoto2 = findCol(['photo 2', 'photo2', 'photo_2', 'photo_url_2', 'photourl2'], 12);
+    const idxPhoto3 = findCol(['photo 3', 'photo3', 'photo_3', 'photo_url_3', 'photourl3'], 13);
+
     const list: TrocAnnonce[] = [];
     for (let i = 1; i < raw.length; i++) {
       const row = raw[i];
@@ -1885,6 +1898,8 @@ function parseTrocRowsOrObjects(raw: any): TrocAnnonce[] {
         taillePointure: String(row[4] || '').trim(),
         etat: String(row[5] || 'Bon état').trim(),
         photoUrl: String(row[6] || '').trim() || undefined,
+        photoUrl2: String(row[idxPhoto2] || '').trim() || undefined,
+        photoUrl3: String(row[idxPhoto3] || '').trim() || undefined,
         prix: parseFloat(rawPrix) || 0,
         contactNom: String(row[8] || '').trim(),
         contactTel: formatFrenchPhoneNumber(row[9] || '') || undefined,
@@ -2015,6 +2030,8 @@ export async function saveTrocAnnonceToSheet(
     taillePointure: annonce.taillePointure.trim(),
     etat: annonce.etat,
     photoUrl: annonce.photoUrl?.trim() || '',
+    photoUrl2: annonce.photoUrl2?.trim() || '',
+    photoUrl3: annonce.photoUrl3?.trim() || '',
     prix: Number(annonce.prix) || 0,
     contactNom: annonce.contactNom.trim(),
     contactTel: cleanPhone,
@@ -2068,6 +2085,8 @@ export async function saveTrocAnnonceToSheet(
         cleanAnnonce.contactTel || '',
         cleanAnnonce.contactEmail || '',
         cleanAnnonce.statut,
+        cleanAnnonce.photoUrl2 || '',
+        cleanAnnonce.photoUrl3 || '',
       ]];
       const apiRes = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(TROC_SHEET_TITLE)}:append?valueInputOption=USER_ENTERED`,
@@ -2507,6 +2526,263 @@ export async function deleteGoSportOffreInSheet(
     }
   } catch {
     // Fallback direct
+  }
+
+  try {
+    await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      mode: 'no-cors',
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erreur réseau.' };
+  }
+}
+
+/**
+ * =========================================================================
+ * MODULE LOGOS & PARTENAIRES (Onglet 'Partenaires')
+ * Colonnes : ID, Nom, Rôle, Logo_URL, Site_URL, Ordre, Actif
+ * =========================================================================
+ */
+
+function parsePartenairesRowsOrObjects(raw: any): PartenaireLogo[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
+  const toActif = (val: any): boolean => {
+    if (typeof val === 'boolean') return val;
+    const s = String(val ?? 'OUI').trim().toUpperCase();
+    if (!s) return true;
+    return s !== 'NON' && s !== 'NO' && s !== 'FALSE' && s !== '0';
+  };
+
+  if (!Array.isArray(raw[0]) && typeof raw[0] === 'object') {
+    return raw
+      .filter((item: any) => item && (item.nom || item.Nom))
+      .map((item: any, idx: number) => ({
+        id: String(item.id || item.ID || `part-${idx + 1}`).trim(),
+        nom: String(item.nom || item.Nom || '').trim(),
+        role: String(item.role || item['Rôle'] || item.Role || item.categorie || 'club').trim(),
+        logoUrl: String(item.logoUrl || item.Logo_URL || item.logo || '').trim(),
+        siteUrl: String(item.siteUrl || item.Site_URL || item.site || '').trim() || undefined,
+        ordre: Number(item.ordre ?? item.Ordre ?? idx + 1) || idx + 1,
+        actif: toActif(item.actif ?? item.Actif),
+      }))
+      .sort((a, b) => (a.ordre ?? 999) - (b.ordre ?? 999));
+  }
+
+  if (Array.isArray(raw[0])) {
+    const headers = raw[0].map((h: any) => String(h || '').trim().toLowerCase());
+    const findCol = (candidates: string[], fallbackIdx: number) => {
+      const found = headers.findIndex((h: string) =>
+        candidates.some((c) => h === c || h.replace(/[\s_-]+/g, '') === c.replace(/[\s_-]+/g, ''))
+      );
+      return found >= 0 ? found : fallbackIdx;
+    };
+
+    const idxId = findCol(['id'], 0);
+    const idxNom = findCol(['nom', 'partenaire'], 1);
+    const idxRole = findCol(['rôle', 'role', 'categorie', 'catégorie', 'emplacement'], 2);
+    const idxLogo = findCol(['logo_url', 'logo url', 'logo'], 3);
+    const idxSite = findCol(['site_url', 'site url', 'site', 'lien', 'url'], 4);
+    const idxOrdre = findCol(['ordre', 'order'], 5);
+    const idxActif = findCol(['actif', 'active'], 6);
+
+    const list: PartenaireLogo[] = [];
+    for (let i = 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!Array.isArray(row) || row.length === 0) continue;
+      const nom = String(row[idxNom] || '').trim();
+      if (!nom) continue;
+      list.push({
+        id: String(row[idxId] || `part-${i}`).trim(),
+        nom,
+        role: String(row[idxRole] || 'club').trim(),
+        logoUrl: String(row[idxLogo] || '').trim(),
+        siteUrl: String(row[idxSite] || '').trim() || undefined,
+        ordre: Number(row[idxOrdre] ?? i) || i,
+        actif: toActif(row[idxActif]),
+      });
+    }
+    return list.sort((a, b) => (a.ordre ?? 999) - (b.ordre ?? 999));
+  }
+
+  return [];
+}
+
+export async function fetchPartenairesLive(
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL,
+  spreadsheetId?: string | null,
+  accessToken?: string | null
+): Promise<{
+  success: boolean;
+  partenaires: PartenaireLogo[];
+  error?: string;
+  scriptUpdateNeeded?: boolean;
+}> {
+  if (spreadsheetId && accessToken) {
+    try {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(PARTENAIRES_SHEET_TITLE)}?valueRenderOption=UNFORMATTED_VALUE`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return { success: true, partenaires: parsePartenairesRowsOrObjects(json.values || []) };
+      }
+    } catch (e) {
+      console.warn("Erreur lecture directe Partenaires via Sheets API:", e);
+    }
+  }
+
+  const urlToUse = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const liveUrl = `${urlToUse}?action=getPartenaires&_t=${Date.now()}`;
+
+  let json: any = null;
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(liveUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      json = await pRes.json();
+    }
+  } catch {
+    // Fallback direct
+  }
+
+  if (!json) {
+    try {
+      const directRes = await fetch(liveUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+      if (directRes.ok) {
+        json = await directRes.json();
+      }
+    } catch {
+      return { success: false, partenaires: [] };
+    }
+  }
+
+  if (json && json.success === false) {
+    const errMsg = String(json.error || '');
+    const isUnknownAction =
+      errMsg.toLowerCase().includes('action inconnue') ||
+      errMsg.toLowerCase().includes('getpartenaires');
+    return {
+      success: false,
+      partenaires: [],
+      scriptUpdateNeeded: isUnknownAction,
+      error: isUnknownAction
+        ? "L'action 'getPartenaires' n'est pas encore déployée dans votre Web App Google Apps Script (Code.gs)."
+        : errMsg,
+    };
+  }
+
+  const rawList = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json?.partenaires)
+      ? json.partenaires
+      : [];
+  return {
+    success: true,
+    partenaires: parsePartenairesRowsOrObjects(rawList),
+  };
+}
+
+export async function savePartenaireToSheet(
+  partenaire: Omit<PartenaireLogo, 'id'> & { id?: string },
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  const id = (partenaire.id || '').trim() || `part-${Date.now()}`;
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+
+  const cleanPartenaire = {
+    id,
+    nom: partenaire.nom.trim(),
+    role: (partenaire.role || 'club').trim(),
+    logoUrl: (partenaire.logoUrl || '').trim(),
+    siteUrl: (partenaire.siteUrl || '').trim(),
+    ordre: Number(partenaire.ordre ?? 1) || 1,
+    actif: partenaire.actif !== false ? 'OUI' : 'NON',
+  };
+
+  const payload = {
+    action: 'savePartenaire',
+    partenaire: cleanPartenaire,
+  };
+
+  let appsScriptError: string | undefined;
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
+      if (pJson && pJson.success === false) {
+        appsScriptError =
+          pJson.error || "Mettez à jour votre script Code.gs pour supporter 'savePartenaire'.";
+      } else {
+        return { success: true, id: pJson.id || id };
+      }
+    }
+  } catch {
+    // Fallback
+  }
+
+  if (!appsScriptError) {
+    try {
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors',
+      });
+      return { success: true, id };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Erreur réseau.' };
+    }
+  }
+
+  return { success: false, error: appsScriptError };
+}
+
+export async function deletePartenaireInSheet(
+  id: string,
+  appsScriptUrl: string = APPS_SCRIPT_WEB_APP_URL
+): Promise<{ success: boolean; error?: string }> {
+  const targetUrl = appsScriptUrl || APPS_SCRIPT_WEB_APP_URL;
+  const payload = { action: 'deletePartenaire', id };
+
+  try {
+    const proxyUrl = `/api/gas-proxy?url=${encodeURIComponent(targetUrl)}`;
+    const pRes = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    const ct = pRes.headers.get('content-type') || '';
+    if (pRes.ok && ct.includes('application/json')) {
+      const pJson = await pRes.json();
+      if (pJson && pJson.success === false) {
+        return { success: false, error: pJson.error || 'Erreur lors de la suppression.' };
+      }
+      return { success: true };
+    }
+  } catch {
+    // Fallback
   }
 
   try {

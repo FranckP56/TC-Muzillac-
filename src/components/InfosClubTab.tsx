@@ -11,10 +11,14 @@ import {
   GraduationCap,
   Euro,
   Settings,
-  CreditCard
+  CreditCard,
+  ExternalLink,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { ClubInfo } from '../types/tennis';
+import { ClubInfo, PartenaireLogo } from '../types/tennis';
 import { getNextFftMonthlyRankingRelease } from '../utils/fftCalendar';
+import { normalizePartnerSiteUrl } from '../utils/partnerLogos';
+import { PartenairesModal } from './PartenairesModal';
 
 interface InfosClubTabProps {
   clubInfo: ClubInfo;
@@ -31,6 +35,9 @@ interface InfosClubTabProps {
   onOpenEditClubModal?: () => void;
   isBureauMember?: boolean;
   isAdmin?: boolean;
+  partenaires?: PartenaireLogo[];
+  gasUrl?: string;
+  onRefreshPartenaires?: () => Promise<void>;
 }
 
 export const InfosClubTab: React.FC<InfosClubTabProps> = ({
@@ -42,9 +49,21 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
   onOpenEditClubModal,
   isBureauMember = true,
   isAdmin = false,
+  partenaires = [],
+  gasUrl,
+  onRefreshPartenaires,
 }) => {
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [isPartenairesModalOpen, setIsPartenairesModalOpen] = useState(false);
   const nextRanking = getNextFftMonthlyRankingRelease();
+  const activeClubPartenaires = partenaires.filter(
+    (p) => p.actif !== false && p.logoUrl && p.role === 'club'
+  );
+  const activeOtherPartenaires = partenaires.filter(
+    (p) => p.actif !== false && p.logoUrl && p.role !== 'club'
+  );
+  const visiblePartenaires =
+    activeClubPartenaires.length > 0 ? [...activeClubPartenaires, ...activeOtherPartenaires] : activeOtherPartenaires;
 
   const handleCopyAddress = () => {
     navigator.clipboard.writeText(`${clubInfo.adresse}, ${clubInfo.codePostal} ${clubInfo.ville}`);
@@ -525,6 +544,84 @@ export const InfosClubTab: React.FC<InfosClubTabProps> = ({
             </p>
           )}
         </div>
+      )}
+
+      {/* Nos Partenaires (Logos stockés dans Google Sheets 'Partenaires') */}
+      {(visiblePartenaires.length > 0 || isBureauMember) && (
+        <section className="bg-[#161a22] p-4 sm:p-6 rounded-3xl border border-[#252b37] shadow-sm space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-heading font-black text-white text-base">
+                Nos Partenaires
+              </h2>
+              <p className="text-[11px] text-zinc-400">
+                Soutiens et enseignes partenaires du Muzillac Tennis Club
+              </p>
+            </div>
+            {isBureauMember && (
+              <button
+                type="button"
+                onClick={() => setIsPartenairesModalOpen(true)}
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-[#FF6D00]" />
+                <span>Gérer logos &amp; liens</span>
+              </button>
+            )}
+          </div>
+
+          {visiblePartenaires.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {visiblePartenaires.map((p) => {
+                const safeSiteUrl = normalizePartnerSiteUrl(p.siteUrl);
+                const content = (
+                  <div className="h-20 rounded-2xl bg-white p-2.5 flex items-center justify-center relative group/logo shadow-sm">
+                    <img
+                      src={p.logoUrl}
+                      alt={p.nom}
+                      referrerPolicy="no-referrer"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                    {safeSiteUrl && (
+                      <ExternalLink className="w-3 h-3 text-zinc-500 absolute top-1.5 right-1.5 opacity-60 group-hover/logo:opacity-100" />
+                    )}
+                  </div>
+                );
+                return safeSiteUrl ? (
+                  <a
+                    key={p.id}
+                    href={safeSiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Visiter ${p.nom}`}
+                    className="block rounded-2xl hover:ring-2 hover:ring-[#FF6D00] transition"
+                  >
+                    {content}
+                  </a>
+                ) : (
+                  <div key={p.id} title={p.nom}>
+                    {content}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-500">
+              Aucun logo partenaire enregistré pour le moment. Utilisez « Gérer les logos » pour ajouter vos sponsors dans le Google Sheet.
+            </p>
+          )}
+        </section>
+      )}
+
+      {onRefreshPartenaires && (
+        <PartenairesModal
+          isOpen={isPartenairesModalOpen}
+          onClose={() => setIsPartenairesModalOpen(false)}
+          partenaires={partenaires}
+          gasUrl={gasUrl}
+          onRefreshPartenaires={onRefreshPartenaires}
+          defaultRole="club"
+        />
       )}
 
     </div>

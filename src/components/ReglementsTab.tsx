@@ -321,9 +321,6 @@ export const ReglementsTab: React.FC<ReglementsTabProps> = ({ userRole = 'adhere
           <h1 className="text-xl sm:text-2xl font-black font-heading text-white text-balance">
             Règlements des Championnats
           </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            FFT &amp; Bretagne 2027 · Règles communes regroupées et différences par niveau
-          </p>
         </div>
 
         {canEdit && (

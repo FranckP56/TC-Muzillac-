@@ -272,9 +272,6 @@ export const TutosInfosTab: React.FC<TutosInfosTabProps> = ({
               <h1 className="font-heading font-black text-white text-xl sm:text-2xl tracking-tight">
                 Tutos & Infos Pratiques
               </h1>
-              <p className="text-xs sm:text-sm text-zinc-400 mt-0.5 leading-relaxed">
-                Guides pas à pas pour utiliser Ten'Up, réserver un court, régler votre cotisation et jouer en équipe.
-              </p>
             </div>
           </div>
 

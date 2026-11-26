@@ -13,6 +13,7 @@ import {
   X,
   RefreshCw,
   UserCheck,
+  Handshake,
 } from 'lucide-react';
 import { ActiveTab, UserRole } from '../types/tennis';
 
@@ -115,6 +116,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       subtitle: 'Boutique club, offres GO Sport & annonces',
       visible: true,
       icon: <ShoppingBag className="w-5 h-5 text-sky-400" />,
+    },
+    {
+      id: 'partenaires',
+      label: 'Partenaires',
+      subtitle: 'Sponsors, enseignes & liens partenaires',
+      visible: true,
+      icon: <Handshake className="w-5 h-5 text-amber-400" />,
     },
   ];
 

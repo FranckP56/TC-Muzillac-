@@ -276,6 +276,7 @@ export type ActiveTab =
   | 'reglements'
   | 'tutos'
   | 'troc'
+  | 'partenaires'
   | 'mon_espace';
 
 export interface AdherentSession {
@@ -310,6 +311,8 @@ export interface TrocAnnonce {
   taillePointure: string;
   etat: TrocEtat | string;
   photoUrl?: string;
+  photoUrl2?: string;
+  photoUrl3?: string;
   prix: number;
   contactNom: string;
   contactTel?: string;
@@ -332,3 +335,16 @@ export interface GoSportOffre {
   taillesDispo: string;
   description: string;
 }
+
+export type PartenaireRole = 'boutique' | 'offre_magasin' | 'club';
+
+export interface PartenaireLogo {
+  id: string;
+  nom: string;
+  role: PartenaireRole | string;
+  logoUrl: string;
+  siteUrl?: string;
+  ordre?: number;
+  actif: boolean;
+}
+

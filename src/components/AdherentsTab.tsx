@@ -302,35 +302,12 @@ export const AdherentsTab: React.FC<AdherentsTabProps> = ({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center space-x-2">
           <h1 className="text-xl sm:text-2xl font-black font-heading text-white">
-            Annuaire des Adhérents
+            Adhérents
           </h1>
           <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-[#E65100]/25 text-[#FF6D00] border border-[#E65100]/40">
             {stats.total} inscrits
           </span>
         </div>
-
-        <button
-          type="button"
-          onClick={isSelectionMode ? exitSelectionMode : enterSelectionMode}
-          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
-            isSelectionMode
-              ? 'bg-[#E65100] text-white border-[#FF6D00] shadow-md shadow-orange-950/40'
-              : 'bg-[#141820] hover:bg-[#1c222e] text-zinc-300 border-[#252b37]'
-          }`}
-          title="Sélection multiple (ou appui long sur une carte)"
-        >
-          {isSelectionMode ? (
-            <>
-              <X className="w-3.5 h-3.5" />
-              <span>Quitter sélection</span>
-            </>
-          ) : (
-            <>
-              <CheckSquare className="w-3.5 h-3.5 text-[#FF6D00]" />
-              <span>Sélection multiple</span>
-            </>
-          )}
-        </button>
       </div>
 
       {/* ==================== STATISTIQUES (CALQUÉES SUR LICENCIÉS) ==================== */}

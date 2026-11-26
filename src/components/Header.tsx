@@ -22,7 +22,9 @@ import {
   KeyRound,
   Lock,
   BookOpen,
-  ShoppingBag
+  ShoppingBag,
+  Handshake,
+  MessageSquare,
 } from 'lucide-react';
 import { ActiveTab, UserRole } from '../types/tennis';
 import { UnlockRoleModal } from './UnlockRoleModal';
@@ -213,13 +215,12 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Ligne 1 : Logo, Titre Club, Badge Ten'Up & Sélecteur de rôle épuré */}
         <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
           
-          {/* Logo & Titre Club avec Badge Ten'Up */}
+          {/* Logo TCM */}
           <div 
             onClick={() => setActiveTab('infos')}
-            className="flex items-center space-x-2.5 sm:space-x-3 cursor-pointer group select-none shrink-0"
+            className="flex items-center cursor-pointer group select-none shrink-0"
             title={`Tennis Club de Muzillac • Saison ${saison}`}
           >
-            {/* Bulle orange TCM avec la saison (2027) demandée */}
             <div className="relative">
               <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-[#BF360C] via-[#E65100] to-[#FF6D00] flex flex-col items-center justify-center font-heading font-black text-white shadow-lg shadow-orange-950/60 border border-orange-400/40 group-hover:scale-105 transition-transform duration-200">
                 <span className="text-xs font-black tracking-tight leading-none">TCM</span>
@@ -227,21 +228,21 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#12151b] flex items-center justify-center" title={`Saison FFT ${saison} Active`} />
             </div>
-
-            <div className="flex flex-col">
-              <span className="font-heading font-black text-white text-sm sm:text-base tracking-tight group-hover:text-orange-400 transition-colors">
-                TC MUZILLAC
-              </span>
-              <p className="text-[10px] text-zinc-400 flex items-center gap-1.5">
-                <span>FFT 52 56 0212</span>
-                <span className="hidden xs:inline">•</span>
-                <span className="text-zinc-500 hidden xs:inline">Complexe du Clos des Moines</span>
-              </p>
-            </div>
           </div>
 
           {/* Côté Droit : Actualisation GSheet + Réglage Saison Admin + Sélecteur de rôle */}
           <div className="flex items-center space-x-2 shrink-0">
+            <a
+              href="https://wa.me/33664491763?text=Bonjour,%20j'ai%20une%20question%20concernant%20le%20développement%20de%20l'application%20Muzillac%20Tennis%20Club%20:%20"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-h-[40px] flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-bold transition shadow-sm cursor-pointer whitespace-nowrap"
+              title="Poser une question / FAQ WhatsApp"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Poser une question</span>
+            </a>
+
             {onRefreshFromFile && (
               <button
                 onClick={() => onRefreshFromFile()}
@@ -454,7 +455,20 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[11px] leading-tight tracking-tight truncate">ProShop</span>
             </button>
 
-            {/* 9. Mon Espace Adhérent (Tous) */}
+            {/* 9. Partenaires (Tous) */}
+            <button
+              onClick={() => setActiveTab('partenaires')}
+              className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${
+                activeTab === 'partenaires'
+                  ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              }`}
+            >
+              <Handshake className="w-4 h-4 shrink-0 mb-0.5 text-amber-400" />
+              <span className="text-[11px] leading-tight tracking-tight truncate">Partenaires</span>
+            </button>
+
+            {/* 10. Mon Espace Adhérent (Tous) */}
             <button
               onClick={() => setActiveTab('mon_espace')}
               className={`flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl font-bold transition-all duration-200 cursor-pointer ${

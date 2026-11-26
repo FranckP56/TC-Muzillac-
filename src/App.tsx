@@ -26,6 +26,7 @@ import { EditClubInfoModal } from './components/EditClubInfoModal';
 import { ReglesFftModal } from './components/ReglesFftModal';
 import { AttestationModal } from './components/AttestationModal';
 import { RelanceModal } from './components/RelanceModal';
+import { PartenairesTab } from './components/PartenairesTab';
 import { User } from 'firebase/auth';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { initAuth, getAccessToken } from './services/auth';
@@ -44,9 +45,10 @@ import {
   loadClubInfoFromLocal,
   saveLocalComposition,
   clearLocalCompositions,
-  invalidateAppsScriptCache
+  invalidateAppsScriptCache,
+  fetchPartenairesLive
 } from './services/googleSheets';
-import { Adherent, AdherentSession, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab } from './types/tennis';
+import { Adherent, AdherentSession, Rencontre, ClubInfo, ClubTarif, MatchComposition, UserRole, JoueurDisponibilite, ActiveTab, PartenaireLogo } from './types/tennis';
 import {
   clearStoredAdherentSession,
   loadStoredAdherentSession,
@@ -304,6 +306,24 @@ export default function App() {
   });
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
+  const [partenaires, setPartenaires] = useState<PartenaireLogo[]>([]);
+
+  const loadPartenairesLive = useCallback(async () => {
+    try {
+      const activeUrl = gasUrl || TCM_APPS_SCRIPT_URL;
+      const token = await getAccessToken().catch(() => null);
+      const res = await fetchPartenairesLive(activeUrl, selectedSpreadsheetId, token);
+      if (res.success) {
+        setPartenaires(res.partenaires);
+      }
+    } catch {
+      // Silencieux : repli automatique sur les logos par défaut
+    }
+  }, [gasUrl, selectedSpreadsheetId]);
+
+  useEffect(() => {
+    void loadPartenairesLive();
+  }, [loadPartenairesLive]);
 
   /**
    * CHARGEMENT EN DIRECT VIA APPS SCRIPT ANTI-CACHE
@@ -312,6 +332,7 @@ export default function App() {
   const handleLoadFromRealFile = useCallback(async (isInitial = false) => {
     setIsLoadingFile(true);
     setFileLoadError(null);
+    void loadPartenairesLive();
 
     try {
       const activeUrl = gasUrl || TCM_APPS_SCRIPT_URL;
@@ -745,7 +766,7 @@ export default function App() {
       />
 
       {/* 2. CONTENU PRINCIPAL (espacement adapté au header 1 ligne sur mobile + barre du bas) */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-20 md:pt-32 pb-8 md:pb-16">
+      <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-20 md:pt-32 ${activeTab === 'infos' ? 'pb-8 md:pb-16' : 'pb-24 md:pb-16'}`}>
         
         {/* BANNIÈRE D'ERREUR EXPLICITE SI LA CONNEXION ÉCHOUE (AUCUNE DONNÉE FICTIVE) */}
         {fileLoadError && (
@@ -870,6 +891,9 @@ export default function App() {
             onOpenEditClubModal={() => setIsEditClubModalOpen(true)}
             isBureauMember={userRole === 'admin' || userRole === 'bureau'}
             isAdmin={userRole === 'admin'}
+            partenaires={partenaires}
+            gasUrl={gasUrl}
+            onRefreshPartenaires={loadPartenairesLive}
           />
         )}
 
@@ -931,6 +955,18 @@ export default function App() {
             googleUser={googleUser}
             userRole={userRole}
             onOpenScriptModal={() => setIsScriptModalOpen(true)}
+            partenaires={partenaires}
+            onRefreshPartenaires={loadPartenairesLive}
+          />
+        )}
+
+        {/* Onglet dédié 'Partenaires' */}
+        {activeTab === 'partenaires' && (
+          <PartenairesTab
+            partenaires={partenaires}
+            userRole={userRole}
+            gasUrl={gasUrl}
+            onRefreshPartenaires={loadPartenairesLive}
           />
         )}
 
@@ -1117,61 +1153,63 @@ export default function App() {
         onAddMatch={handleAddMatch}
       />
 
-      {/* 4. FOOTER (dégagement en bas sur mobile pour ne pas être masqué par MobileBottomNav) */}
-      <footer className="border-t border-[#1e232d] bg-[#090b0e] pt-6 pb-24 md:pb-6 px-4 text-center text-xs text-zinc-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center space-x-2">
-            <span className="font-heading font-black text-white text-sm">Muzillac Tennis Club (TCM)</span>
-            <span>•</span>
-            <span className="text-zinc-400">
-              {clubInfo.adresse 
-                ? `${clubInfo.adresse}${clubInfo.codePostal || clubInfo.ville ? `, ${clubInfo.codePostal || ''} ${clubInfo.ville || ''}` : ''}` 
-                : 'Complexe du Clos des Moines, 56190 Muzillac'}
-            </span>
-          </div>
+      {/* 4. FOOTER (affiché uniquement sur la page Infos Club, avec dégagement mobile pour MobileBottomNav) */}
+      {activeTab === 'infos' && (
+        <footer className="border-t border-[#1e232d] bg-[#090b0e] pt-6 pb-24 md:pb-6 px-4 text-center text-xs text-zinc-500">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center space-x-2">
+              <span className="font-heading font-black text-white text-sm">Muzillac Tennis Club (TCM)</span>
+              <span>•</span>
+              <span className="text-zinc-400">
+                {clubInfo.adresse 
+                  ? `${clubInfo.adresse}${clubInfo.codePostal || clubInfo.ville ? `, ${clubInfo.codePostal || ''} ${clubInfo.ville || ''}` : ''}` 
+                  : 'Complexe du Clos des Moines, 56190 Muzillac'}
+              </span>
+            </div>
 
-          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-3 gap-y-1.5 text-zinc-400">
-            {/* Liens techniques d'administration réservés UNIQUEMENT au profil Admin */}
-            {userRole === 'admin' && (
-              <>
-                <button
-                  onClick={() => setIsGsheetModalOpen(true)}
-                  className="text-emerald-400 hover:text-emerald-300 font-semibold transition cursor-pointer"
-                  title="Réservé aux Administrateurs"
-                >
-                  Architecture GSheet (Données_appli)
-                </button>
-                <span>•</span>
-                <button
-                  onClick={() => setIsScriptModalOpen(true)}
-                  className="text-amber-400 hover:text-amber-300 font-semibold transition cursor-pointer"
-                  title="Réservé aux Administrateurs"
-                >
-                  Fichiers Code.gs
-                </button>
-                <span>•</span>
-              </>
-            )}
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-3 gap-y-1.5 text-zinc-400">
+              {/* Liens techniques d'administration réservés UNIQUEMENT au profil Admin */}
+              {userRole === 'admin' && (
+                <>
+                  <button
+                    onClick={() => setIsGsheetModalOpen(true)}
+                    className="text-emerald-400 hover:text-emerald-300 font-semibold transition cursor-pointer"
+                    title="Réservé aux Administrateurs"
+                  >
+                    Architecture GSheet (Données_appli)
+                  </button>
+                  <span>•</span>
+                  <button
+                    onClick={() => setIsScriptModalOpen(true)}
+                    className="text-amber-400 hover:text-amber-300 font-semibold transition cursor-pointer"
+                    title="Réservé aux Administrateurs"
+                  >
+                    Fichiers Code.gs
+                  </button>
+                  <span>•</span>
+                </>
+              )}
 
-            {/* Règles FFT et Portail FFT accessibles à TOUS les accès */}
-            <button
-              onClick={() => setIsRulesModalOpen(true)}
-              className="text-orange-400 hover:text-orange-300 font-semibold transition cursor-pointer"
-            >
-              Règles FFT 2027
-            </button>
-            <span>•</span>
-            <a
-              href="https://tenup.fft.fr"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-zinc-300 hover:text-white transition font-medium"
-            >
-              Portail FFT Ten'Up
-            </a>
+              {/* Règles FFT et Portail FFT accessibles à TOUS les accès */}
+              <button
+                onClick={() => setIsRulesModalOpen(true)}
+                className="text-orange-400 hover:text-orange-300 font-semibold transition cursor-pointer"
+              >
+                Règles FFT 2027
+              </button>
+              <span>•</span>
+              <a
+                href="https://tenup.fft.fr"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-zinc-300 hover:text-white transition font-medium"
+              >
+                Portail FFT Ten'Up
+              </a>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {/* 5. BARRE DE NAVIGATION FIXE EN BAS SUR MOBILE */}
       <MobileBottomNav

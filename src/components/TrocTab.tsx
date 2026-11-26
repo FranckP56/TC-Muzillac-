@@ -25,7 +25,6 @@ import {
   Pencil,
   Settings2,
   Store,
-  UserCheck,
   ArrowLeft,
   Minus,
   MessageCircle,
@@ -36,6 +35,8 @@ import {
   ChevronRight,
   Info,
   ShieldCheck,
+  LayoutGrid,
+  Shirt,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import {
@@ -44,6 +45,7 @@ import {
   TrocEtat,
   GoSportOffre,
   UserRole,
+  PartenaireLogo,
 } from '../types/tennis';
 import {
   fetchTrocAnnoncesLive,
@@ -55,6 +57,8 @@ import {
   TCM_APPS_SCRIPT_URL,
 } from '../services/googleSheets';
 import { getAccessToken } from '../services/auth';
+import { resolvePartnerLogoUrl } from '../utils/partnerLogos';
+import { PartenairesModal } from './PartenairesModal';
 
 /**
  * URL de la boutique officielle du club
@@ -65,7 +69,7 @@ const FAVORIS_STORAGE_KEY = 'club_tennis_favoris';
 const MES_ANNONCES_STORAGE_KEY = 'club_tennis_mes_annonces';
 const VENDEUR_PROFIL_STORAGE_KEY = 'club_tennis_vendeur_profil';
 
-type ProShopSubTab = 'gosport' | 'annonces' | 'mes_annonces';
+type ProShopSubTab = 'menu' | 'gosport' | 'annonces' | 'mes_annonces';
 
 interface SellerProfile {
   nom?: string;
@@ -79,6 +83,8 @@ interface TrocTabProps {
   googleUser?: User | null;
   userRole: UserRole;
   onOpenScriptModal?: () => void;
+  partenaires?: PartenaireLogo[];
+  onRefreshPartenaires?: () => Promise<void>;
 }
 
 const CATEGORIES: TrocCategorie[] = [
@@ -97,13 +103,296 @@ const ETATS: TrocEtat[] = [
 ];
 
 const GOSPORT_CATEGORIES_SUGGESTIONS = [
-  'Raquettes',
-  'Chaussures',
+  'Raquettes Adulte',
+  'Raquettes Enfant',
+  'Chaussures Homme',
+  'Chaussures Femme',
+  'Chaussures Enfant',
+  'Sac à dos',
+  'Thermobag',
+  'Grip',
+  'Surgrip',
+  'Cordages',
+  'Balles',
+  'Antivibrateurs',
+  'Bandeau',
+  'Poignet',
   'Tenues',
-  'Sacs',
-  'Balles & Cordages',
   'Accessoires',
 ];
+
+const GOSPORT_FAMILY_ORDER = [
+  'Raquettes',
+  'Chaussures',
+  'Sacs',
+  'Tenues',
+  'Balles',
+  'Cordages',
+  'Grips & Surgrips',
+  'Antivibrateurs',
+  'Bandeau',
+  'Poignet',
+  'Casquettes',
+  'Chaussettes',
+  'Accessoires',
+];
+
+const GOSPORT_SUBCAT_ORDER: Record<string, string[]> = {
+  Raquettes: ['Adulte', 'Enfant'],
+  Chaussures: ['Homme', 'Femme', 'Enfant'],
+  Sacs: ['Sac à dos', 'Thermobag'],
+  'Grips & Surgrips': ['Grip', 'Surgrip'],
+};
+
+function getGoSportCategoryFamily(rawCategorie: string): string {
+  const raw = (rawCategorie || '').trim();
+  const s = raw.toLowerCase();
+  if (!s) return 'Accessoires';
+  if (s.includes('antivibrateur') || s.includes('anti-vibrateur') || s.includes('anti vibrateur')) {
+    return 'Antivibrateurs';
+  }
+  if (s.includes('grip') || s.includes('surgrip') || s.includes('overgrip')) {
+    return 'Grips & Surgrips';
+  }
+  if (s.includes('cordage') || s.includes('bobine')) {
+    return 'Cordages';
+  }
+  if (s.includes('raquette')) {
+    return 'Raquettes';
+  }
+  if (s.includes('chaussure') || s.includes('basket')) {
+    return 'Chaussures';
+  }
+  if (s.includes('sac') || s.includes('housse') || s.includes('thermo') || s.includes('backpack')) {
+    return 'Sacs';
+  }
+  if (s.includes('balle')) {
+    return 'Balles';
+  }
+  if (s.includes('bandeau')) {
+    return 'Bandeau';
+  }
+  if (s.includes('poignet')) {
+    return 'Poignet';
+  }
+  if (
+    s.includes('tenue') ||
+    s.includes('textile') ||
+    s.includes('polo') ||
+    s.includes('short') ||
+    s.includes('tee') ||
+    s.includes('t-shirt') ||
+    s.includes('jupe') ||
+    s.includes('veste') ||
+    s.includes('pantalon')
+  ) {
+    return 'Tenues';
+  }
+  if (s.includes('casquette') || s.includes('visiere') || s.includes('visière')) {
+    return 'Casquettes';
+  }
+  if (s.includes('chaussette')) {
+    return 'Chaussettes';
+  }
+  return raw;
+}
+
+function getGoSportSubCategory(offre: GoSportOffre, family: string): string {
+  const rawCat = (offre.categorie || '').trim();
+  const sCat = rawCat.toLowerCase();
+  const sName = `${offre.nomProduit || ''} ${offre.description || ''}`.toLowerCase();
+  const combined = `${sCat} ${sName}`;
+
+  if (family === 'Raquettes') {
+    if (/\b(enfant|enfants|junior|kid|kids|jr)\b/.test(`${combined} ${offre.taillesDispo || ''}`.toLowerCase())) {
+      return 'Enfant';
+    }
+    return 'Adulte';
+  }
+
+  if (family === 'Chaussures') {
+    if (/^\s*chaussures?\s*f[\/\b]/i.test(rawCat) || /\b(femme|femmes|women|woman|lady|ladies|wmns|fille|filles)\b/.test(combined)) {
+      return 'Femme';
+    }
+    if (/^\s*chaussures?\s*e[\/\b]/i.test(rawCat) || /\b(enfant|enfants|junior|kid|kids|jr|gar[cç]on)\b/.test(combined)) {
+      return 'Enfant';
+    }
+    if (/^\s*chaussures?\s*h[\/\b]/i.test(rawCat) || /\b(homme|hommes|men|man)\b/.test(combined)) {
+      return 'Homme';
+    }
+    const nums = String(offre.taillesDispo || '')
+      .match(/\b\d{2}\b/g)
+      ?.map((n) => parseInt(n, 10))
+      .filter((n) => n >= 24 && n <= 48) || [];
+    if (nums.length > 0 && nums.every((n) => n <= 35)) {
+      return 'Enfant';
+    }
+    return 'Homme';
+  }
+
+  if (family === 'Sacs') {
+    if (/sac\s*[àa]\s*dos|backpack/i.test(combined)) {
+      return 'Sac à dos';
+    }
+    if (/thermo|housse|\b(6|9|12|15)\s*(r|raquettes|pack)\b/i.test(combined)) {
+      return 'Thermobag';
+    }
+    return rawCat || 'Thermobag';
+  }
+
+  if (family === 'Grips & Surgrips') {
+    if (sCat.includes('surgrip') || sCat.includes('overgrip') || sName.includes('surgrip') || sName.includes('overgrip')) {
+      return 'Surgrip';
+    }
+    return 'Grip';
+  }
+
+  return rawCat || family;
+}
+
+function renderAnnonceCategoryIcon(cat: string): React.ReactNode {
+  const s = (cat || '').toLowerCase().trim();
+  if (s === 'toutes' || s === 'tout') {
+    return <LayoutGrid className="w-5 h-5 shrink-0" aria-hidden="true" />;
+  }
+  if (s.includes('antivibrateur') || s.includes('anti-vibrateur') || s.includes('anti vibrateur')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M9.5 3.5v4M9.5 15.5v5" strokeWidth="1.45" opacity="0.8" />
+        <path d="M14.5 3.5v4M14.5 15.5v5" strokeWidth="1.45" opacity="0.8" />
+        <path d="M4.5 18h15" strokeWidth="1.45" opacity="0.7" />
+        <rect x="6.5" y="7.5" width="11" height="8" rx="4" />
+        <path d="M9.5 11.5h5" strokeWidth="1.6" />
+        <path d="M3.5 9.5c-.6 1.2-.6 2.8 0 4M20.5 9.5c.6 1.2.6 2.8 0 4" strokeWidth="1.3" opacity="0.65" />
+      </svg>
+    );
+  }
+  if (s.includes('grip') || s.includes('surgrip') || s.includes('overgrip')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M3.3 17.7 6.3 20.7a1 1 0 0 0 1.4 0l1.1-1.1-4.4-4.4-1.1 1.1a1 1 0 0 0 0 1.4Z" />
+        <path d="M5.3 15.7 14.8 6.2l3 3-9.5 9.5" />
+        <path d="M7.7 13.3 10.7 16.3M10.2 10.8 13.2 13.8M12.7 8.3 15.7 11.3" strokeWidth="1.4" />
+        <path d="M14.8 6.2 16.5 3.6M17.8 9.2 20.4 7.5" opacity="0.85" />
+      </svg>
+    );
+  }
+  if (s.includes('raquette')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <ellipse cx="14.5" cy="9.5" rx="5.5" ry="6.8" transform="rotate(45 14.5 9.5)" />
+        <path d="M10.2 13.8 4.2 19.8" strokeWidth="2.4" />
+        <path d="M12.2 7.2 16.8 11.8M11.6 10.6 16.6 5.6" strokeWidth="1.2" opacity="0.75" />
+      </svg>
+    );
+  }
+  if (s.includes('chaussure') || s.includes('basket')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M3 16.5v-3.2c0-.6.4-1.1 1-1.3l3.2-.9L10.5 7c.5-.6 1.4-.5 1.8.1.9 1.5 2.4 2.6 4.4 3l3.2.8c1 .2 1.6 1 1.6 2v3.6c0 .8-.7 1.5-1.5 1.5H4.5C3.7 18 3 17.3 3 16.5Z" />
+        <path d="M3 15.5h18.5" strokeWidth="1.4" opacity="0.7" />
+      </svg>
+    );
+  }
+  if (s.includes('bandeau')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M3.5 13.5c0-4.2 3.8-7 8.5-7s8.5 2.8 8.5 7" />
+        <path d="M3.5 13.5v3c0 .8.7 1.4 1.5 1.2 2-.6 4.4-.9 7-.9s5 .3 7 .9c.8.2 1.5-.4 1.5-1.2v-3" />
+        <path d="M4.2 13.2c2.4-.8 5-1.2 7.8-1.2s5.4.4 7.8 1.2" strokeWidth="1.3" opacity="0.75" />
+      </svg>
+    );
+  }
+  if (s.includes('poignet')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <rect x="6" y="5.5" width="12" height="13" rx="3" />
+        <path d="M10 6v12M14 6v12" strokeWidth="1.3" opacity="0.7" />
+        <path d="M6 9.5h12M6 14.5h12" strokeWidth="1.2" opacity="0.55" />
+      </svg>
+    );
+  }
+  if (s.includes('balle')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M6.2 6.2c3.2 3.2 3.2 8.4 0 11.6" />
+        <path d="M17.8 6.2c-3.2 3.2-3.2 8.4 0 11.6" />
+      </svg>
+    );
+  }
+  if (s.includes('cordage') || s.includes('bobine')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="16" rx="5" />
+        <path d="M8.5 4.3v15.4M12 4v16M15.5 4.3v15.4" strokeWidth="1.35" opacity="0.88" />
+        <path d="M4.3 8.5h15.4M4 12h16M4.3 15.5h15.4" strokeWidth="1.35" opacity="0.88" />
+      </svg>
+    );
+  }
+  if (s.includes('casquette') || s.includes('visiere') || s.includes('visière')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M4 14a7 7 0 0 1 14 0" />
+        <path d="M3 14h18c0 1.8-1.5 3-3.5 3H6.5C4.5 17 3 15.8 3 14Z" />
+      </svg>
+    );
+  }
+  if (s.includes('chaussette')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <path d="M9 4h6v8.5l3.5 2.5a2.5 2.5 0 0 1-2.8 4.1L9.5 15.5A2 2 0 0 1 8.5 14V4.5c0-.3.2-.5.5-.5Z" />
+        <path d="M9 7.5h6" strokeWidth="1.4" opacity="0.7" />
+      </svg>
+    );
+  }
+  if (s.includes('tenue') || s.includes('textile') || s.includes('polo') || s.includes('short') || s.includes('tee')) {
+    return <Shirt className="w-5 h-5 shrink-0" aria-hidden="true" />;
+  }
+  if (s.includes('sac') || s.includes('housse') || s.includes('thermo') || s.includes('backpack')) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0" aria-hidden="true">
+        <rect x="3" y="9" width="18" height="10" rx="3" />
+        <path d="M8 9V7a4 4 0 0 1 8 0v2" />
+        <path d="M3 13.5h18" strokeWidth="1.4" opacity="0.75" />
+      </svg>
+    );
+  }
+  return <Tag className="w-5 h-5 shrink-0" aria-hidden="true" />;
+}
+
+function getCategoryGridClass(count: number): string {
+  if (count <= 2) return 'grid-cols-2';
+  if (count === 3) return 'grid-cols-3';
+  if (count === 4) return 'grid-cols-4';
+  if (count === 5) return 'grid-cols-5';
+  if (count === 6) return 'grid-cols-6';
+  if (count === 7) return 'grid-cols-4 sm:grid-cols-7';
+  if (count === 8) return 'grid-cols-4 sm:grid-cols-8';
+  if (count === 9) return 'grid-cols-5 sm:grid-cols-9';
+  if (count === 10) return 'grid-cols-5 sm:grid-cols-10';
+  return 'grid-cols-5 sm:grid-cols-6 lg:grid-cols-11';
+}
+
+function getSubCategorySingleRowGridClass(count: number): string {
+  if (count <= 2) return 'grid-cols-2';
+  if (count === 3) return 'grid-cols-3';
+  if (count === 4) return 'grid-cols-4';
+  return 'grid-cols-5';
+}
+
+const SHORT_CATEGORY_LABELS: Record<string, string> = {
+  Toutes: 'Toutes',
+  Raquettes: 'Raquettes',
+  Chaussures: 'Chaussures',
+  Sacs: 'Sacs',
+  Tenues: 'Tenues',
+  'Sacs & Accessoires': 'Sacs',
+  'Balles & Cordages': 'Balles',
+  'Grips & Surgrips': 'Grips',
+  Cordages: 'Cordages',
+  Antivibrateurs: 'Antivibr.',
+};
 
 function formatPriceEur(value: number): string {
   if (Number.isInteger(value)) return `${value} €`;
@@ -343,10 +632,26 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   selectedSpreadsheetId,
   userRole,
   onOpenScriptModal,
+  partenaires = [],
+  onRefreshPartenaires,
 }) => {
-  const [subTab, setSubTab] = useState<ProShopSubTab>('gosport');
+  const [subTab, setSubTab] = useState<ProShopSubTab>('menu');
   const [isOfficialShopOpen, setIsOfficialShopOpen] = useState(false);
   const [isShopIframeLoading, setIsShopIframeLoading] = useState(true);
+  const [isPartenairesModalOpen, setIsPartenairesModalOpen] = useState(false);
+
+  const goSportLogoUrl = useMemo(
+    () => resolvePartnerLogoUrl(partenaires, 'gosport'),
+    [partenaires]
+  );
+  const mizunoLogoUrl = useMemo(
+    () => resolvePartnerLogoUrl(partenaires, 'mizuno'),
+    [partenaires]
+  );
+  const wilsonLogoUrl = useMemo(
+    () => resolvePartnerLogoUrl(partenaires, 'wilson'),
+    [partenaires]
+  );
 
   const openOfficialShop = () => {
     setIsShopIframeLoading(true);
@@ -360,6 +665,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [goSportScriptNeeded, setGoSportScriptNeeded] = useState<boolean>(false);
   const [goSportSearch, setGoSportSearch] = useState('');
   const [goSportSelectedCat, setGoSportSelectedCat] = useState<string>('Toutes');
+  const [goSportSelectedSubCat, setGoSportSelectedSubCat] = useState<string>('');
   const [goSportBrokenPhotos, setGoSportBrokenPhotos] = useState<Record<string, boolean>>({});
   const [selectedSizesByOffre, setSelectedSizesByOffre] = useState<Record<string, string>>({});
   const [sizeHintByOffre, setSizeHintByOffre] = useState<Record<string, boolean>>({});
@@ -439,6 +745,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategorie, setSelectedCategorie] = useState<string>('Toutes');
   const [showSold, setShowSold] = useState<boolean>(false);
+  const [showHeartedOnly, setShowHeartedOnly] = useState<boolean>(false);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -449,7 +756,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [lightboxPhoto, setLightboxPhoto] = useState<{ photos: string[]; index: number; titre: string } | null>(null);
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
 
-  // Favoris & Mes Annonces (localStorage)
+  // Coups de coeur & Mes Annonces (localStorage)
   const [favoriteIds, setFavoriteIds] = useState<string[]>(() =>
     readStringArrayFromStorage(FAVORIS_STORAGE_KEY)
   );
@@ -459,19 +766,23 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   const [sellerProfile, setSellerProfile] = useState<SellerProfile>(() => readSellerProfile());
   const [lookupContact, setLookupContact] = useState('');
 
-  // Champs du formulaire d'ajout Troc
+  // Champs du formulaire d'ajout Troc (1 photo obligatoire + 2 optionnelles)
   const [titre, setTitre] = useState('');
   const [categorie, setCategorie] = useState<TrocCategorie>('Raquettes');
   const [taillePointure, setTaillePointure] = useState('');
   const [etat, setEtat] = useState<TrocEtat>('Très bon état');
   const [prix, setPrix] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
-  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const [photoUrl2, setPhotoUrl2] = useState('');
+  const [photoUrl3, setPhotoUrl3] = useState('');
+  const [compressingPhotoSlot, setCompressingPhotoSlot] = useState<1 | 2 | 3 | null>(null);
   const [contactNom, setContactNom] = useState(() => readSellerProfile().nom || '');
   const [contactTel, setContactTel] = useState(() => readSellerProfile().tel || '');
   const [contactEmail, setContactEmail] = useState(() => readSellerProfile().email || '');
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef1 = useRef<HTMLInputElement>(null);
+  const fileInputRef2 = useRef<HTMLInputElement>(null);
+  const fileInputRef3 = useRef<HTMLInputElement>(null);
 
   // ==================== CHARGEMENTS EN DIRECT ====================
   const loadGoSportLive = useCallback(async () => {
@@ -1145,18 +1456,24 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   };
 
   // ==================== FORMULAIRE PETITES ANNONCES ====================
-  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoFileChange = async (
+    slot: 1 | 2 | 3,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    setIsCompressingPhoto(true);
+    setCompressingPhotoSlot(slot);
     setFormError(null);
     try {
       const compressed = await compressImageToBase64(file);
-      setPhotoUrl(compressed);
+      if (slot === 1) setPhotoUrl(compressed);
+      else if (slot === 2) setPhotoUrl2(compressed);
+      else setPhotoUrl3(compressed);
     } catch (err: any) {
       setFormError(err?.message || "Erreur lors du traitement de la photo.");
     } finally {
-      setIsCompressingPhoto(false);
+      setCompressingPhotoSlot(null);
     }
   };
 
@@ -1167,6 +1484,8 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     setEtat('Très bon état');
     setPrix('');
     setPhotoUrl('');
+    setPhotoUrl2('');
+    setPhotoUrl3('');
     setFormError(null);
   };
 
@@ -1185,6 +1504,10 @@ export const TrocTab: React.FC<TrocTabProps> = ({
     const numericPrice = parseFloat(prix.replace(',', '.'));
     if (isNaN(numericPrice) || numericPrice < 0) {
       setFormError("Veuillez saisir un prix valide en euros.");
+      return;
+    }
+    if (!photoUrl.trim()) {
+      setFormError("Veuillez ajouter la photo principale (Photo 1 obligatoire).");
       return;
     }
     if (!contactNom.trim()) {
@@ -1210,7 +1533,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         categorie,
         taillePointure,
         etat,
-        photoUrl,
+        photoUrl: photoUrl.trim(),
+        photoUrl2: photoUrl2.trim() || undefined,
+        photoUrl3: photoUrl3.trim() || undefined,
         prix: numericPrice,
         contactNom,
         contactTel,
@@ -1289,38 +1614,91 @@ export const TrocTab: React.FC<TrocTabProps> = ({
 
   // ==================== DONNÉES FILTRÉES ====================
   const goSportCategories = useMemo(() => {
-    const cats = Array.from(new Set(goSportOffres.map((o) => o.categorie).filter(Boolean)));
-    return ['Toutes', ...cats];
+    const families = Array.from(
+      new Set(goSportOffres.map((o) => getGoSportCategoryFamily(o.categorie)).filter(Boolean))
+    );
+    families.sort((a, b) => {
+      const idxA = GOSPORT_FAMILY_ORDER.indexOf(a);
+      const idxB = GOSPORT_FAMILY_ORDER.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b, 'fr');
+    });
+    return ['Toutes', ...families];
   }, [goSportOffres]);
+
+  const goSportSubCategories = useMemo(() => {
+    if (goSportSelectedCat === 'Toutes') return [];
+    const familyOffres = goSportOffres.filter(
+      (o) => getGoSportCategoryFamily(o.categorie) === goSportSelectedCat
+    );
+    const uniqueSubs = Array.from(
+      new Set(
+        familyOffres
+          .map((o) => getGoSportSubCategory(o, goSportSelectedCat))
+          .filter(Boolean)
+      )
+    );
+    if (goSportSelectedCat === 'Chaussures') {
+      return ['Homme', 'Femme', 'Enfant'];
+    }
+    if (uniqueSubs.length <= 1) return [];
+    const preferredOrder = GOSPORT_SUBCAT_ORDER[goSportSelectedCat] || [];
+    uniqueSubs.sort((a, b) => {
+      const idxA = preferredOrder.indexOf(a);
+      const idxB = preferredOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b, 'fr');
+    });
+    return uniqueSubs;
+  }, [goSportOffres, goSportSelectedCat]);
 
   const filteredGoSportOffres = useMemo(() => {
     const q = goSportSearch.trim().toLowerCase();
     return goSportOffres.filter((o) => {
-      if (goSportSelectedCat !== 'Toutes' && o.categorie !== goSportSelectedCat) return false;
+      const family = getGoSportCategoryFamily(o.categorie);
+      if (goSportSelectedCat !== 'Toutes' && family !== goSportSelectedCat) return false;
+      if (
+        goSportSelectedCat !== 'Toutes' &&
+        goSportSelectedSubCat &&
+        goSportSubCategories.length > 1
+      ) {
+        if (getGoSportSubCategory(o, family) !== goSportSelectedSubCat) return false;
+      }
       if (!q) return true;
       const hay = `${o.nomProduit} ${o.reference || ''} ${o.referenceFabricantClean || ''} ${o.categorie} ${o.description} ${o.taillesDispo}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [goSportOffres, goSportSearch, goSportSelectedCat]);
+  }, [
+    goSportOffres,
+    goSportSearch,
+    goSportSelectedCat,
+    goSportSelectedSubCat,
+    goSportSubCategories,
+  ]);
 
   const filteredAnnonces = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return annonces.filter((a) => {
       if (!showSold && a.statut.toLowerCase() === 'vendu') return false;
+      if (showHeartedOnly && !favoriteIds.includes(a.id)) return false;
       if (selectedCategorie !== 'Toutes' && a.categorie !== selectedCategorie) return false;
       if (!q) return true;
       const hay = `${a.titre} ${a.categorie} ${a.taillePointure} ${a.etat} ${a.contactNom}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [annonces, searchQuery, selectedCategorie, showSold]);
+  }, [annonces, searchQuery, selectedCategorie, showSold, showHeartedOnly, favoriteIds]);
 
   const activeCount = useMemo(
     () => annonces.filter((a) => a.statut.toLowerCase() !== 'vendu').length,
     [annonces]
   );
 
-  const favoriteAnnonces = useMemo(
-    () => annonces.filter((a) => favoriteIds.includes(a.id)),
+  const heartedCount = useMemo(
+    () => annonces.filter((a) => favoriteIds.includes(a.id)).length,
     [annonces, favoriteIds]
   );
 
@@ -1348,7 +1726,18 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   // ==================== RENDU CARTE PETITE ANNONCE ====================
   const renderAnnonceCard = (annonce: TrocAnnonce, options?: { allowOwnerActions?: boolean }) => {
     const isSold = annonce.statut.toLowerCase() === 'vendu';
-    const photoInvalid = !annonce.photoUrl || brokenPhotos[annonce.id];
+    const cardPhotoEntries = [
+      annonce.photoUrl && !brokenPhotos[`${annonce.id}:1`]
+        ? { slotKey: `${annonce.id}:1`, url: annonce.photoUrl }
+        : null,
+      annonce.photoUrl2 && !brokenPhotos[`${annonce.id}:2`]
+        ? { slotKey: `${annonce.id}:2`, url: annonce.photoUrl2 }
+        : null,
+      annonce.photoUrl3 && !brokenPhotos[`${annonce.id}:3`]
+        ? { slotKey: `${annonce.id}:3`, url: annonce.photoUrl3 }
+        : null,
+    ].filter((entry): entry is { slotKey: string; url: string } => Boolean(entry));
+    const mainPhotoEntry = cardPhotoEntries[0] || null;
     const isUpdating = updatingId === annonce.id;
     const isFavorite = favoriteIds.includes(annonce.id);
     const canDelete =
@@ -1365,29 +1754,48 @@ export const TrocTab: React.FC<TrocTabProps> = ({
           isSold ? 'border-zinc-800/80 opacity-80' : 'border-[#252b37] hover:border-orange-500/40'
         }`}
       >
-        <div className="flex items-start gap-3">
-          {/* Petite vignette recadrée pour smartphone */}
-          <div className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
-            {!photoInvalid ? (
+        <div className="flex items-start gap-3.5">
+          {/* Vignette agrandie pour smartphone + compteur multi-photos */}
+          <div className="relative w-24 h-24 sm:w-28 sm:h-28 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
+            {mainPhotoEntry ? (
               <button
                 type="button"
-                onClick={() => setLightboxPhoto({ photos: [annonce.photoUrl!], index: 0, titre: annonce.titre })}
+                onClick={() =>
+                  setLightboxPhoto({
+                    photos: cardPhotoEntries.map((p) => p.url),
+                    index: 0,
+                    titre: annonce.titre,
+                  })
+                }
                 className="w-full h-full block cursor-zoom-in"
-                title="Agrandir la photo"
+                title={
+                  cardPhotoEntries.length > 1
+                    ? `Voir les ${cardPhotoEntries.length} photos`
+                    : 'Agrandir la photo'
+                }
               >
                 <img
-                  src={annonce.photoUrl}
+                  src={mainPhotoEntry.url}
                   alt={annonce.titre}
                   referrerPolicy="no-referrer"
-                  onError={() => setBrokenPhotos((prev) => ({ ...prev, [annonce.id]: true }))}
+                  onError={() =>
+                    setBrokenPhotos((prev) => ({ ...prev, [mainPhotoEntry.slotKey]: true }))
+                  }
                   className="w-full h-full object-cover object-center"
                 />
               </button>
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
-                <Tag className="w-6 h-6 opacity-40" />
+                <Tag className="w-7 h-7 opacity-40" />
                 <span className="text-[10px] font-semibold">Sans photo</span>
               </div>
+            )}
+
+            {cardPhotoEntries.length > 1 && !isSold && (
+              <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/80 border border-white/15 text-white text-[9px] font-black inline-flex items-center gap-0.5 pointer-events-none">
+                <Camera className="w-2.5 h-2.5 text-[#FF6D00]" />
+                <span>{cardPhotoEntries.length}</span>
+              </span>
             )}
 
             {isSold && (
@@ -1399,9 +1807,9 @@ export const TrocTab: React.FC<TrocTabProps> = ({
             )}
           </div>
 
-          <div className="min-w-0 flex-1 space-y-1">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[10px] font-bold text-[#FF6D00] uppercase tracking-wide truncate">
+              <p className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide truncate">
                 {annonce.categorie} · {annonce.etat}
               </p>
               <button
@@ -1419,21 +1827,21 @@ export const TrocTab: React.FC<TrocTabProps> = ({
               </button>
             </div>
 
-            <h3 className="font-heading font-black text-white text-sm sm:text-base leading-snug line-clamp-2">
+            <h3 className="font-heading font-black text-white text-base sm:text-lg leading-snug line-clamp-2">
               {annonce.titre}
             </h3>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-              <span className="font-heading font-black text-white text-base tabular-nums">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 pt-0.5">
+              <span className="font-heading font-black text-[#FF6D00] text-xl sm:text-2xl tabular-nums">
                 {annonce.prix === 0 ? 'Gratuit / Don' : `${annonce.prix} €`}
               </span>
-              <span className="text-[11px] text-zinc-300 truncate">
-                Taille : <strong className="text-white">{annonce.taillePointure}</strong>
+              <span className="text-xs text-zinc-300 truncate">
+                <strong className="text-white">{annonce.taillePointure}</strong>
               </span>
             </div>
 
-            <p className="text-[11px] text-zinc-500 truncate">
-              {annonce.datePublication} · <span className="text-zinc-300 font-semibold">{annonce.contactNom}</span>
+            <p className="text-[11px] text-zinc-400 truncate">
+              {annonce.datePublication} · <span className="text-zinc-200 font-semibold">{annonce.contactNom}</span>
             </p>
           </div>
         </div>
@@ -1531,126 +1939,158 @@ export const TrocTab: React.FC<TrocTabProps> = ({
   };
 
   return (
-    <div className="space-y-5 animate-fadeIn">
-      {/* ==================== 1. BANNIÈRE FIXE BOUTIQUE OFFICIELLE DU CLUB ==================== */}
-      <section
-        aria-label="Boutique Officielle du Club"
-        className="relative overflow-hidden rounded-3xl border border-orange-500/40 bg-gradient-to-br from-[#BF360C] via-[#9B2908] to-[#141820] p-5 sm:p-7 shadow-2xl"
-      >
-        <div className="absolute -right-12 -top-12 w-48 h-48 rounded-full bg-orange-400/15 blur-2xl pointer-events-none" />
-        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-orange-200">
-              <Store className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>ProShop · Muzillac Tennis Club</span>
-            </div>
-            <h1 className="font-heading font-black text-white text-2xl sm:text-3xl tracking-tight">
-              Boutique Officielle du Club
+    <div className="space-y-4 animate-fadeIn">
+      {/* ==================== MENU HUB PROSHOP (4 BANDEAUX COMPACTS SUR 1 ÉCRAN SMARTPHONE) ==================== */}
+      {subTab === 'menu' ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h1 className="font-heading font-black text-white text-xl sm:text-2xl tracking-tight">
+              ProShop
             </h1>
-            <p className="text-xs sm:text-sm text-orange-100/90 leading-relaxed">
-              Équipez-vous aux couleurs du TCM : t-shirts d'équipe, sweats, vestes et tenues officielles du club disponibles en commande en ligne sur notre boutique partenaire.
-            </p>
+            {(userRole === 'admin' || userRole === 'bureau') && onRefreshPartenaires && (
+              <button
+                type="button"
+                onClick={() => setIsPartenairesModalOpen(true)}
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#141820] hover:bg-zinc-800 border border-[#252b37] text-zinc-300 text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-[#FF6D00]" />
+                <span>Logos GSheet</span>
+              </button>
+            )}
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3.5">
+            {/* BANDEAU 1 : BOUTIQUE OFFICIELLE DU CLUB */}
             <button
               type="button"
               onClick={openOfficialShop}
-              className="min-h-[48px] px-5 py-3 rounded-2xl bg-white text-[#9B2908] hover:bg-orange-50 font-heading font-black text-xs sm:text-sm inline-flex items-center justify-center gap-2.5 shadow-xl transition cursor-pointer whitespace-nowrap"
+              className="group text-left rounded-2xl border border-orange-500/45 bg-gradient-to-r from-[#BF360C]/90 via-[#8C2609] to-[#141820] px-4 py-3 sm:p-5 shadow-lg hover:border-[#FF6D00] transition cursor-pointer flex items-center justify-between gap-3 min-h-[76px] sm:min-h-[110px]"
             >
-              <ShoppingBag className="w-4 h-4 shrink-0" />
-              <span>Accéder à la boutique officielle</span>
+              <div className="min-w-0">
+                <h2 className="font-heading font-black text-white text-base sm:text-xl leading-tight">
+                  Boutique officielle du Club
+                </h2>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="bg-white rounded-xl px-2 py-1.5 flex items-center gap-2 shadow-sm">
+                  <img
+                    src={goSportLogoUrl}
+                    alt="GO Sport Muzillac"
+                    className="h-7 sm:h-9 w-auto max-w-[54px] object-contain"
+                  />
+                  <span className="h-5 w-px bg-zinc-200" aria-hidden="true" />
+                  <img
+                    src={mizunoLogoUrl}
+                    alt="Mizuno"
+                    className="h-6 sm:h-8 w-auto max-w-[68px] object-contain"
+                  />
+                </div>
+                <ChevronRight className="w-4 h-4 text-orange-200 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </button>
+
+            {/* BANDEAU 2 : OFFRE GO SPORT MUZILLAC */}
+            <button
+              type="button"
+              onClick={() => setSubTab('gosport')}
+              className="group text-left rounded-2xl border border-[#252b37] bg-[#141820] hover:border-orange-500/60 hover:bg-[#181d27] px-4 py-3 sm:p-5 shadow-lg transition cursor-pointer flex items-center justify-between gap-3 min-h-[76px] sm:min-h-[110px]"
+            >
+              <div className="min-w-0">
+                <h2 className="font-heading font-black text-white text-base sm:text-xl leading-tight">
+                  Offre GO Sport MUZILLAC
+                </h2>
+                <span className="text-[11px] font-mono font-bold text-[#FF6D00] tabular-nums">
+                  {isGoSportLoading ? '...' : `${goSportOffres.length} produits`}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="bg-white rounded-xl px-2 py-1.5 flex items-center gap-2 shadow-sm">
+                  <img
+                    src={goSportLogoUrl}
+                    alt="GO Sport Muzillac"
+                    className="h-7 sm:h-9 w-auto max-w-[54px] object-contain"
+                  />
+                  <span className="h-5 w-px bg-zinc-200" aria-hidden="true" />
+                  <img
+                    src={wilsonLogoUrl}
+                    alt="Wilson"
+                    className="h-7 sm:h-9 w-auto max-w-[44px] object-contain rounded"
+                  />
+                </div>
+                <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-[#FF6D00] group-hover:translate-x-0.5 transition" />
+              </div>
+            </button>
+
+            {/* BANDEAU 3 : PETITES ANNONCES */}
+            <button
+              type="button"
+              onClick={() => setSubTab('annonces')}
+              className="group text-left rounded-2xl border border-[#252b37] bg-[#141820] hover:border-orange-500/60 hover:bg-[#181d27] px-4 py-3 sm:p-5 shadow-lg transition cursor-pointer flex items-center justify-between gap-3 min-h-[72px] sm:min-h-[104px]"
+            >
+              <h2 className="font-heading font-black text-white text-base sm:text-xl leading-tight">
+                Petites Annonces
+              </h2>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-mono font-black text-emerald-400 tabular-nums">
+                  {isLoading ? '...' : `${activeCount} dispo`}
+                </span>
+                <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-[#FF6D00] group-hover:translate-x-0.5 transition" />
+              </div>
+            </button>
+
+            {/* BANDEAU 4 : MES ANNONCES */}
+            <button
+              type="button"
+              onClick={() => setSubTab('mes_annonces')}
+              className="group text-left rounded-2xl border border-[#252b37] bg-[#141820] hover:border-orange-500/60 hover:bg-[#181d27] px-4 py-3 sm:p-5 shadow-lg transition cursor-pointer flex items-center justify-between gap-3 min-h-[72px] sm:min-h-[104px]"
+            >
+              <h2 className="font-heading font-black text-white text-base sm:text-xl leading-tight">
+                Mes Annonces
+              </h2>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-mono font-black text-zinc-300 tabular-nums">
+                  {myAnnonces.length}
+                </span>
+                <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-[#FF6D00] group-hover:translate-x-0.5 transition" />
+              </div>
             </button>
           </div>
         </div>
-      </section>
-
-      {/* ==================== 2. BARRE DE SOUS-ONGLETS PROSHOP (3 VUES) ==================== */}
-      <div
-        role="tablist"
-        aria-label="Sections ProShop"
-        className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#141820] border border-[#252b37] p-2 rounded-2xl shadow-lg"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={subTab === 'gosport'}
-          onClick={() => setSubTab('gosport')}
-          className={`min-h-[46px] px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer flex items-center justify-center gap-2 ${
-            subTab === 'gosport'
-              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-              : 'text-zinc-400 hover:text-white hover:bg-[#191e28]'
-          }`}
-        >
-          <Award className="w-4 h-4 shrink-0" />
-          <span className="truncate">Offres GO Sport Muzillac</span>
-          <span className="text-[11px] font-mono tabular-nums opacity-85">
-            ({goSportOffres.length})
-          </span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={subTab === 'annonces'}
-          onClick={() => setSubTab('annonces')}
-          className={`min-h-[46px] px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer flex items-center justify-center gap-2 ${
-            subTab === 'annonces'
-              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-              : 'text-zinc-400 hover:text-white hover:bg-[#191e28]'
-          }`}
-        >
-          <Tag className="w-4 h-4 shrink-0" />
-          <span className="truncate">Petites Annonces</span>
-          <span className="text-[11px] font-mono tabular-nums opacity-85">
-            ({activeCount})
-          </span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={subTab === 'mes_annonces'}
-          onClick={() => setSubTab('mes_annonces')}
-          className={`min-h-[46px] px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer flex items-center justify-center gap-2 ${
-            subTab === 'mes_annonces'
-              ? 'bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white shadow-md shadow-orange-950/50'
-              : 'text-zinc-400 hover:text-white hover:bg-[#191e28]'
-          }`}
-        >
-          <Heart className="w-4 h-4 shrink-0" />
-          <span className="truncate">Mes Annonces / Favoris</span>
-          <span className="text-[11px] font-mono tabular-nums opacity-85">
-            ({favoriteAnnonces.length + myAnnonces.length})
-          </span>
-        </button>
-      </div>
+      ) : null}
 
       {/* ==================== ONGLET 1 : OFFRES GO SPORT MUZILLAC ==================== */}
       {subTab === 'gosport' && (
-        <div className="space-y-5 animate-fadeIn">
-          {/* En-tête filtres + bouton admin */}
-          <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-heading font-black text-white text-lg sm:text-xl tracking-tight">
-                  Offres Partenaire GO Sport Muzillac
-                </h2>
-                <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
-                  Tarifs négociés et exclusivités réservées aux licenciés du club · En stock au magasin de Muzillac
-                </p>
-              </div>
+        <div className="space-y-4 animate-fadeIn">
+          {/* En-tête unique : Retour + Logos + Admin + Recherche & Catégories */}
+          <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-3.5 sm:p-5 shadow-xl space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSubTab('menu')}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs sm:text-sm font-black inline-flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-orange-950/40 whitespace-nowrap"
+              >
+                <ArrowLeft className="w-4 h-4 shrink-0" />
+                <span>ProShop</span>
+              </button>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => loadGoSportLive()}
-                  disabled={isGoSportLoading}
-                  className="min-w-[44px] min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isGoSportLoading ? 'animate-spin text-orange-400' : ''}`} />
-                  <span>Actualiser</span>
-                </button>
+              <div className="flex items-center gap-2.5">
+                <div className="inline-flex items-center gap-2.5 bg-white rounded-xl px-3 py-1.5 shadow-sm">
+                  <img
+                    src={goSportLogoUrl}
+                    alt="GO Sport Muzillac"
+                    className="h-7 sm:h-9 w-auto object-contain"
+                  />
+                  <span className="h-5 w-px bg-zinc-200" aria-hidden="true" />
+                  <img
+                    src={wilsonLogoUrl}
+                    alt="Wilson"
+                    className="h-7 sm:h-9 w-auto object-contain rounded"
+                  />
+                </div>
 
                 {userRole === 'admin' && (
                   <button
@@ -1659,10 +2099,12 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                       setGoSportModalView('list');
                       setIsGoSportModalOpen(true);
                     }}
-                    className="min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap"
+                    aria-label="Gérer les offres GO Sport"
+                    title="Gérer les offres GO Sport"
+                    className="min-h-[42px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
                   >
                     <Settings2 className="w-4 h-4 shrink-0" />
-                    <span>Gérer les offres GO Sport</span>
+                    <span className="hidden sm:inline">Gérer</span>
                   </button>
                 )}
               </div>
@@ -1682,21 +2124,64 @@ export const TrocTab: React.FC<TrocTabProps> = ({
             </div>
 
             {goSportCategories.length > 1 && (
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {goSportCategories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setGoSportSelectedCat(cat)}
-                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
-                      goSportSelectedCat === cat
-                        ? 'bg-[#E65100] text-white shadow-md shadow-orange-950/40'
-                        : 'bg-[#0b0e14] border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
-                    }`}
+              <div className="space-y-2">
+                <div className={`grid ${getCategoryGridClass(goSportCategories.length)} gap-1.5 sm:gap-2 w-full`}>
+                  {goSportCategories.map((cat) => {
+                    const isSelected = goSportSelectedCat === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => {
+                          setGoSportSelectedCat(cat);
+                          setGoSportSelectedSubCat('');
+                        }}
+                        aria-pressed={isSelected}
+                        aria-label={cat}
+                        title={cat}
+                        className={`min-h-[44px] px-1.5 lg:px-2.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 min-w-0 ${
+                          isSelected
+                            ? 'bg-[#E65100] text-white shadow-md shadow-orange-950/40'
+                            : 'bg-[#0b0e14] border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                        }`}
+                      >
+                        {renderAnnonceCategoryIcon(cat)}
+                        <span className="hidden lg:inline truncate">
+                          {SHORT_CATEGORY_LABELS[cat] || cat}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {goSportSubCategories.length > 1 && (
+                  <div
+                    className={`pt-2 border-t border-zinc-800/80 grid ${getSubCategorySingleRowGridClass(
+                      goSportSubCategories.length
+                    )} gap-1.5 w-full`}
                   >
-                    {cat}
-                  </button>
-                ))}
+                    {goSportSubCategories.map((subCat) => {
+                      const isSubSelected = goSportSelectedSubCat === subCat;
+                      return (
+                        <button
+                          key={subCat}
+                          type="button"
+                          onClick={() =>
+                            setGoSportSelectedSubCat((prev) => (prev === subCat ? '' : subCat))
+                          }
+                          aria-pressed={isSubSelected}
+                          className={`min-h-[38px] px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center whitespace-nowrap truncate min-w-0 ${
+                            isSubSelected
+                              ? 'bg-orange-500/20 border border-[#FF6D00] text-orange-200 shadow-sm'
+                              : 'bg-[#0b0e14] border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                          }`}
+                        >
+                          <span className="truncate">{subCat}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1830,14 +2315,13 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                     key={offre.id}
                     className="bg-[#141820] border border-[#252b37] hover:border-orange-500/40 rounded-3xl p-3.5 sm:p-4 shadow-xl flex flex-col justify-between gap-3 transition"
                   >
-                    {/* En-tête compact smartphone : Petite vignette recadrée + Titre + Tarif + Accès fiche détaillée */}
+                    {/* En-tête produit : grande vignette + infos & prix agrandis (clic ouvre la fiche) */}
                     <button
                       type="button"
                       onClick={() => setDetailGoSportOffreId(offre.id)}
-                      className="w-full flex items-start gap-3 text-left group/card cursor-pointer"
-                      title="Ouvrir la fiche détaillée du produit"
+                      className="w-full flex items-start gap-3.5 text-left group/card cursor-pointer"
                     >
-                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
+                      <div className="relative w-24 h-24 sm:w-28 sm:h-28 shrink-0 rounded-2xl bg-[#0b0e14] border border-zinc-800 overflow-hidden">
                         {cardThumbUrl ? (
                           <img
                             src={cardThumbUrl}
@@ -1850,7 +2334,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
-                            <ShoppingBag className="w-6 h-6 opacity-40" />
+                            <ShoppingBag className="w-7 h-7 opacity-40" />
                             <span className="text-[10px] font-semibold">Visuel</span>
                           </div>
                         )}
@@ -1864,7 +2348,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
 
                       <div className="min-w-0 flex-1 space-y-1.5">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-[#FF6D00] uppercase tracking-wide">
+                          <span className="text-[11px] font-bold text-[#FF6D00] uppercase tracking-wide">
                             {offre.categorie}
                           </span>
                           {offre.excluClub && (
@@ -1880,25 +2364,19 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           )}
                         </div>
 
-                        <h3 className="font-heading font-black text-white text-sm sm:text-base leading-snug line-clamp-2 group-hover/card:text-orange-300 transition">
+                        <h3 className="font-heading font-black text-white text-base sm:text-lg leading-snug line-clamp-2 group-hover/card:text-orange-300 transition">
                           {offre.nomProduit}
                         </h3>
 
-                        <div className="flex items-baseline justify-between gap-2 pt-0.5">
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <span className="font-heading font-black text-lg text-[#FF6D00] tabular-nums">
-                              {formatPriceEur(clubPriceForMessage)}
-                            </span>
-                            {(hasAdherent || hasPromo) && (
-                              <span className="text-[11px] line-through text-zinc-500 font-mono tabular-nums">
-                                {formatPriceEur(offre.tarifMagasin)}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] font-bold text-zinc-400 group-hover/card:text-orange-300 inline-flex items-center gap-0.5 shrink-0 transition">
-                            <span>Détails</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                        <div className="flex items-baseline gap-2.5 flex-wrap pt-0.5">
+                          <span className="font-heading font-black text-xl sm:text-2xl text-[#FF6D00] tabular-nums">
+                            {formatPriceEur(clubPriceForMessage)}
                           </span>
+                          {(hasAdherent || hasPromo) && (
+                            <span className="text-xs sm:text-sm line-through text-zinc-500 font-mono tabular-nums">
+                              {formatPriceEur(offre.tarifMagasin)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -2010,16 +2488,6 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                           </button>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={() => setDetailGoSportOffreId(offre.id)}
-                          className="min-h-[40px] px-3 py-2 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition cursor-pointer shrink-0"
-                          title="Voir la fiche détaillée (réf. fournisseur & explication)"
-                        >
-                          <Info className="w-3.5 h-3.5 text-orange-400" />
-                          <span>Fiche</span>
-                        </button>
-
                         {userRole === 'admin' && (
                           <button
                             type="button"
@@ -2043,54 +2511,55 @@ export const TrocTab: React.FC<TrocTabProps> = ({
 
       {/* ==================== ONGLET 2 : PETITES ANNONCES (Troc_Annonces) ==================== */}
       {subTab === 'annonces' && (
-        <div className="space-y-5 animate-fadeIn">
-          {/* En-tête mobile-first */}
-          <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-4 sm:p-6 shadow-xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#BF360C] to-[#FF6D00] flex items-center justify-center shrink-0 shadow-lg shadow-orange-950/40">
-                  <ShoppingBag className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-heading font-black text-white text-xl sm:text-2xl tracking-tight">
-                      Petites Annonces TCM
-                    </h2>
-                    <span className="text-xs font-bold text-emerald-400 tabular-nums">
-                      {activeCount} {activeCount > 1 ? 'disponibles' : 'disponible'}
-                    </span>
-                  </div>
-                  <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
-                    Bourse au matériel entre adhérents · Chargement en direct depuis « Troc_Annonces »
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => loadAnnoncesLive()}
-                  disabled={isLoading}
-                  title="Recharger en direct depuis Google Sheets"
-                  className="min-w-[44px] min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-orange-400' : ''}`} />
-                  <span className="hidden sm:inline">Actualiser</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsFormOpen(true)}
-                  className="min-h-[44px] flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-orange-950/50 whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span>Déposer une annonce</span>
-                </button>
+        <div className="space-y-4 animate-fadeIn">
+          {/* En-tête simplifié : Retour + Titre + Déposer une annonce */}
+          <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-3.5 sm:p-5 shadow-xl space-y-3.5">
+            <div className="flex items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSubTab('menu')}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs sm:text-sm font-black inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4 shrink-0" />
+                <span>ProShop</span>
+              </button>
+              <div className="min-w-0 flex items-baseline gap-2">
+                <h2 className="font-heading font-black text-white text-base sm:text-xl tracking-tight truncate">
+                  Petites Annonces
+                </h2>
+                <span className="text-xs font-mono font-bold text-emerald-400 tabular-nums shrink-0">
+                  {activeCount}
+                </span>
               </div>
             </div>
 
-            {/* Barre de recherche et filtres */}
-            <div className="flex flex-col sm:flex-row gap-3">
+            {/* 2 boutons pleine largeur sur tous les écrans, au-dessus de Rechercher */}
+            <div className="grid grid-cols-2 gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setShowSold((v) => !v)}
+                className={`w-full min-h-[44px] px-3 py-2 rounded-xl border text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
+                  showSold
+                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
+                    : 'bg-[#0b0e14] border-zinc-800 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{showSold ? 'Masquer vendus' : 'Afficher vendus'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(true)}
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg shadow-orange-950/50 whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>Déposer</span>
+              </button>
+            </div>
+
+            {/* Barre de recherche et filtre favoris */}
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
@@ -2104,35 +2573,54 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowSold((v) => !v)}
-                className={`min-h-[44px] px-3.5 py-2.5 rounded-xl border text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center gap-2 ${
-                  showSold
-                    ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
-                    : 'bg-[#0b0e14] border-zinc-800 text-zinc-400 hover:text-white'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{showSold ? 'Masquer vendus' : 'Afficher vendus'}</span>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-              {['Toutes', ...CATEGORIES].map((cat) => (
+              {heartedCount > 0 && (
                 <button
-                  key={cat}
                   type="button"
-                  onClick={() => setSelectedCategorie(cat)}
-                  className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
-                    selectedCategorie === cat
-                      ? 'bg-[#E65100] text-white shadow-md shadow-orange-950/40'
-                      : 'bg-[#0b0e14] border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                  onClick={() => setShowHeartedOnly((v) => !v)}
+                  aria-pressed={showHeartedOnly}
+                  aria-label="Filtrer les annonces aimées"
+                  title="Afficher uniquement les annonces avec un cœur"
+                  className={`min-h-[44px] px-3 py-2.5 rounded-xl border text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 shrink-0 ${
+                    showHeartedOnly
+                      ? 'bg-rose-500/20 border-rose-500/50 text-rose-300'
+                      : 'bg-[#0b0e14] border-zinc-800 text-zinc-400 hover:text-rose-400'
                   }`}
                 >
-                  {cat}
+                  <Heart
+                    className={`w-4 h-4 shrink-0 ${
+                      showHeartedOnly ? 'fill-rose-500 text-rose-500' : 'text-rose-400'
+                    }`}
+                  />
+                  <span className="font-mono tabular-nums">{heartedCount}</span>
                 </button>
-              ))}
+              )}
+            </div>
+
+            {/* Raccourcis catégories en icônes sur 1 seule ligne (sans ascenseur horizontal) */}
+            <div className="grid grid-cols-6 gap-1.5 sm:gap-2 w-full">
+              {['Toutes', ...CATEGORIES].map((cat) => {
+                const isSelected = selectedCategorie === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategorie(cat)}
+                    aria-pressed={isSelected}
+                    aria-label={cat}
+                    title={cat}
+                    className={`min-h-[44px] px-1.5 lg:px-2.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-[#E65100] text-white shadow-md shadow-orange-950/40'
+                        : 'bg-[#0b0e14] border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
+                    }`}
+                  >
+                    {renderAnnonceCategoryIcon(cat)}
+                    <span className="hidden lg:inline truncate">
+                      {SHORT_CATEGORY_LABELS[cat] || cat}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -2244,107 +2732,70 @@ export const TrocTab: React.FC<TrocTabProps> = ({
         </div>
       )}
 
-      {/* ==================== ONGLET 3 : MES ANNONCES / FAVORIS ==================== */}
+      {/* ==================== ONGLET 3 : MES ANNONCES ==================== */}
       {subTab === 'mes_annonces' && (
-        <div className="space-y-6 animate-fadeIn">
-          {/* Section 1 : Mes Favoris */}
-          <section className="space-y-4">
-            <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
-                  <Heart className="w-5 h-5 fill-rose-500 text-rose-500" />
-                </div>
-                <div>
-                  <h2 className="font-heading font-black text-white text-lg">
-                    Mes Favoris ({favoriteAnnonces.length})
+        <div className="space-y-4 animate-fadeIn">
+          <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-3.5 sm:p-5 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setSubTab('menu')}
+                  className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white text-xs sm:text-sm font-black inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <ArrowLeft className="w-4 h-4 shrink-0" />
+                  <span>ProShop</span>
+                </button>
+                <div className="min-w-0 flex items-baseline gap-2">
+                  <h2 className="font-heading font-black text-white text-base sm:text-xl tracking-tight truncate">
+                    Mes Annonces
                   </h2>
-                  <p className="text-xs text-zinc-400">
-                    Annonces sauvegardées sur cet appareil · Cliquez sur le cœur rouge pour retirer
-                  </p>
+                  <span className="text-xs font-mono font-bold text-zinc-300 tabular-nums shrink-0">
+                    {myAnnonces.length}
+                  </span>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setIsFormOpen(true)}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-black inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Déposer</span>
+              </button>
             </div>
 
-            {favoriteAnnonces.length === 0 ? (
-              <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-6 sm:p-8 text-center space-y-3">
-                <p className="text-sm font-bold text-white">Aucun favori enregistré pour le moment</p>
-                <p className="text-xs text-zinc-400 max-w-md mx-auto">
-                  Parcourez les petites annonces et cliquez sur l'icône Cœur pour retrouver vos articles favoris ici.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setSubTab('annonces')}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  Voir les petites annonces
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {favoriteAnnonces.map((annonce) => renderAnnonceCard(annonce))}
-              </div>
-            )}
-          </section>
+            {/* Association optionnelle par email ou téléphone */}
+            <form onSubmit={handleSaveLookupProfile} className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-zinc-800/80">
+              <input
+                type="text"
+                value={lookupContact}
+                onChange={(e) => setLookupContact(e.target.value)}
+                placeholder="Retrouver mes annonces via mon email ou n° de téléphone..."
+                className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0e14] border border-zinc-700/80 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="min-h-[44px] px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer whitespace-nowrap"
+              >
+                Associer mes coordonnées
+              </button>
+            </form>
+          </div>
 
-          {/* Section 2 : Mes Annonces déposées */}
-          <section className="space-y-4">
-            <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-4 sm:p-5 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-[#FF6D00] shrink-0">
-                    <UserCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="font-heading font-black text-white text-lg">
-                      Mes Annonces déposées ({myAnnonces.length})
-                    </h2>
-                    <p className="text-xs text-zinc-400">
-                      Passez vos articles en « Vendu » ou supprimez-les directement dans « Troc_Annonces »
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsFormOpen(true)}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] text-white text-xs font-black inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Déposer une annonce</span>
-                </button>
-              </div>
-
-              {/* Association optionnelle par email ou téléphone */}
-              <form onSubmit={handleSaveLookupProfile} className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-zinc-800/80">
-                <input
-                  type="text"
-                  value={lookupContact}
-                  onChange={(e) => setLookupContact(e.target.value)}
-                  placeholder="Retrouver mes annonces via mon email ou n° de téléphone..."
-                  className="flex-1 min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0b0e14] border border-zinc-700/80 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold cursor-pointer whitespace-nowrap"
-                >
-                  Associer mes coordonnées
-                </button>
-              </form>
+          {myAnnonces.length === 0 ? (
+            <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-6 sm:p-8 text-center space-y-2">
+              <p className="text-sm font-bold text-white">Vous n'avez aucune annonce déposée depuis cet appareil</p>
+              <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                Déposez une annonce ou saisissez votre téléphone / email ci-dessus pour gérer vos annonces déjà en ligne.
+              </p>
             </div>
-
-            {myAnnonces.length === 0 ? (
-              <div className="bg-[#141820] border border-[#252b37] rounded-3xl p-6 sm:p-8 text-center space-y-2">
-                <p className="text-sm font-bold text-white">Vous n'avez aucune annonce déposée depuis cet appareil</p>
-                <p className="text-xs text-zinc-400 max-w-md mx-auto">
-                  Déposez une annonce ou saisissez votre téléphone / email ci-dessus pour gérer vos annonces déjà en ligne.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {myAnnonces.map((annonce) => renderAnnonceCard(annonce, { allowOwnerActions: true }))}
-              </div>
-            )}
-          </section>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myAnnonces.map((annonce) => renderAnnonceCard(annonce, { allowOwnerActions: true }))}
+            </div>
+          )}
         </div>
       )}
 
@@ -3460,55 +3911,177 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-2.5">
+              {/* Photos de l'annonce : Photo 1 obligatoire + Photo 2 & Photo 3 optionnelles */}
+              <div className="p-3.5 rounded-2xl bg-[#0b0e14] border border-zinc-800 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5 text-orange-400" />
-                    <span>Photo (optionnelle)</span>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-[#FF6D00]" />
+                    <span>Photos de l'article (1 obligatoire, jusqu'à 3 max) *</span>
                   </label>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoFileChange}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    disabled={isCompressingPhoto}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="min-h-[44px] px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    {isCompressingPhoto ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
-                    ) : (
-                      <Camera className="w-4 h-4 text-orange-400" />
-                    )}
-                    <span>{isCompressingPhoto ? 'Compression...' : 'Prendre / choisir photo'}</span>
-                  </button>
                 </div>
 
-                {photoUrl && photoUrl.startsWith('data:image') ? (
-                  <div className="relative h-32 rounded-xl overflow-hidden border border-zinc-700">
-                    <img src={photoUrl} alt="Aperçu" className="w-full h-full object-cover" />
+                {/* Slot 1 : Photo obligatoire */}
+                <div className="p-3 rounded-xl bg-[#141820] border border-zinc-700/80 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-black uppercase tracking-wide text-orange-300">
+                      Photo 1 · Obligatoire *
+                    </span>
+                    <input
+                      ref={fileInputRef1}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handlePhotoFileChange(1, e)}
+                      className="hidden"
+                    />
                     <button
                       type="button"
-                      onClick={() => setPhotoUrl('')}
-                      className="min-w-[44px] min-h-[44px] absolute top-1.5 right-1.5 rounded-xl bg-black/75 text-white flex items-center justify-center cursor-pointer"
+                      disabled={compressingPhotoSlot !== null}
+                      onClick={() => fileInputRef1.current?.click()}
+                      className="min-h-[40px] px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
                     >
-                      <X className="w-4 h-4" />
+                      {compressingPhotoSlot === 1 ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                      ) : (
+                        <Camera className="w-4 h-4 text-orange-400" />
+                      )}
+                      <span>
+                        {compressingPhotoSlot === 1
+                          ? 'Compression...'
+                          : photoUrl
+                            ? 'Changer'
+                            : 'Prendre / choisir'}
+                      </span>
                     </button>
                   </div>
-                ) : (
-                  <input
-                    type="url"
-                    inputMode="url"
-                    value={photoUrl}
-                    onChange={(e) => setPhotoUrl(e.target.value)}
-                    placeholder="Ou collez un lien d'image (https://...)"
-                    className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#141820] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
-                  />
-                )}
+
+                  {photoUrl ? (
+                    <div className="relative h-32 rounded-xl overflow-hidden border border-zinc-700 bg-[#0b0e14]">
+                      <img src={photoUrl} alt="Photo 1 principale" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        aria-label="Retirer la photo 1"
+                        onClick={() => setPhotoUrl('')}
+                        className="min-w-[36px] min-h-[36px] absolute top-1.5 right-1.5 rounded-xl bg-black/75 hover:bg-black text-white flex items-center justify-center cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="url"
+                      inputMode="url"
+                      value={photoUrl}
+                      onChange={(e) => setPhotoUrl(e.target.value)}
+                      placeholder="Ou coller un lien d'image (https://...)"
+                      className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-[#0b0e14] border border-zinc-700 text-white placeholder-zinc-500 text-base sm:text-xs focus:border-[#FF6D00] focus:outline-none"
+                    />
+                  )}
+                </div>
+
+                {/* Slots 2 & 3 : Photos optionnelles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Photo 2 optionnelle */}
+                  <div className="p-2.5 rounded-xl bg-[#141820] border border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                        Photo 2 (optionnelle)
+                      </span>
+                      <input
+                        ref={fileInputRef2}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handlePhotoFileChange(2, e)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        disabled={compressingPhotoSlot !== null}
+                        onClick={() => fileInputRef2.current?.click()}
+                        className="min-h-[36px] px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-bold transition cursor-pointer flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+                      >
+                        {compressingPhotoSlot === 2 ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5 text-orange-400" />
+                        )}
+                        <span>{photoUrl2 ? 'Changer' : 'Ajouter'}</span>
+                      </button>
+                    </div>
+                    {photoUrl2 ? (
+                      <div className="relative h-24 rounded-lg overflow-hidden border border-zinc-700 bg-[#0b0e14]">
+                        <img src={photoUrl2} alt="Photo 2" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          aria-label="Retirer la photo 2"
+                          onClick={() => setPhotoUrl2('')}
+                          className="min-w-[32px] min-h-[32px] absolute top-1 right-1 rounded-lg bg-black/75 hover:bg-black text-white flex items-center justify-center cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <input
+                        type="url"
+                        inputMode="url"
+                        value={photoUrl2}
+                        onChange={(e) => setPhotoUrl2(e.target.value)}
+                        placeholder="Lien https://... (optionnel)"
+                        className="w-full min-h-[38px] px-2.5 py-1.5 rounded-lg bg-[#0b0e14] border border-zinc-700/80 text-white placeholder-zinc-500 text-xs focus:border-[#FF6D00] focus:outline-none"
+                      />
+                    )}
+                  </div>
+
+                  {/* Photo 3 optionnelle */}
+                  <div className="p-2.5 rounded-xl bg-[#141820] border border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                        Photo 3 (optionnelle)
+                      </span>
+                      <input
+                        ref={fileInputRef3}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handlePhotoFileChange(3, e)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        disabled={compressingPhotoSlot !== null}
+                        onClick={() => fileInputRef3.current?.click()}
+                        className="min-h-[36px] px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-bold transition cursor-pointer flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+                      >
+                        {compressingPhotoSlot === 3 ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5 text-orange-400" />
+                        )}
+                        <span>{photoUrl3 ? 'Changer' : 'Ajouter'}</span>
+                      </button>
+                    </div>
+                    {photoUrl3 ? (
+                      <div className="relative h-24 rounded-lg overflow-hidden border border-zinc-700 bg-[#0b0e14]">
+                        <img src={photoUrl3} alt="Photo 3" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          aria-label="Retirer la photo 3"
+                          onClick={() => setPhotoUrl3('')}
+                          className="min-w-[32px] min-h-[32px] absolute top-1 right-1 rounded-lg bg-black/75 hover:bg-black text-white flex items-center justify-center cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <input
+                        type="url"
+                        inputMode="url"
+                        value={photoUrl3}
+                        onChange={(e) => setPhotoUrl3(e.target.value)}
+                        placeholder="Lien https://... (optionnel)"
+                        className="w-full min-h-[38px] px-2.5 py-1.5 rounded-lg bg-[#0b0e14] border border-zinc-700/80 text-white placeholder-zinc-500 text-xs focus:border-[#FF6D00] focus:outline-none"
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2.5 pt-1">
@@ -3569,7 +4142,7 @@ export const TrocTab: React.FC<TrocTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || isCompressingPhoto}
+                  disabled={isSubmitting || compressingPhotoSlot !== null}
                   className="min-h-[44px] flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#BF360C] to-[#E65100] hover:brightness-110 text-white text-xs font-black transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-orange-950/50"
                 >
                   {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -4314,6 +4887,17 @@ export const TrocTab: React.FC<TrocTabProps> = ({
           );
         })(),
         document.body
+      )}
+
+      {onRefreshPartenaires && (
+        <PartenairesModal
+          isOpen={isPartenairesModalOpen}
+          onClose={() => setIsPartenairesModalOpen(false)}
+          partenaires={partenaires}
+          gasUrl={gasUrl}
+          onRefreshPartenaires={onRefreshPartenaires}
+          defaultRole="boutique"
+        />
       )}
     </div>
   );

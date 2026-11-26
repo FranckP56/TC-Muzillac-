@@ -48,6 +48,7 @@ function doGet(e) {
         tarifs: getSheetRawValues('Cotisations_Tarifs'),
         troc: getSheetRawValues('Troc_Annonces'),
         gosport: getSheetRawValues('Partenaire_GOSport'),
+        partenaires: getSheetRawValues('Partenaires'),
         clubInfo: getClubInfoSheetValues()
       };
     } else if (action === 'getAdherents' || action === 'adherents') {
@@ -58,6 +59,8 @@ function doGet(e) {
       result = { success: true, data: getSheetRawValues('Troc_Annonces') };
     } else if (action === 'getGoSport' || action === 'gosport') {
       result = { success: true, data: getSheetRawValues('Partenaire_GOSport') };
+    } else if (action === 'getPartenaires' || action === 'partenaires') {
+      result = { success: true, data: getSheetRawValues('Partenaires') };
     } else if (action === 'getClubInfo' || action === 'clubinfo') {
       result = { success: true, data: getClubInfoSheetValues() };
     } else {
@@ -89,6 +92,10 @@ function doPost(e) {
       return handleSaveGoSportOffre(json);
     } else if (action === 'deleteGoSportOffre') {
       return handleDeleteGoSportOffre(json);
+    } else if (action === 'savePartenaire') {
+      return handleSavePartenaire(json);
+    } else if (action === 'deletePartenaire') {
+      return handleDeletePartenaire(json);
     } else if (action === 'requestAdherentOtp') {
       return handleRequestAdherentOtp(json);
     } else if (action === 'verifyAdherentOtp') {
@@ -332,11 +339,18 @@ function handleSaveTrocAnnonce(payload) {
     sheet.setTabColor('#E65100');
     sheet.appendRow([
       "ID", "Date Publication", "Titre", "Catégorie", "Taille / Pointure",
-      "État", "Photo", "Prix (€)", "Contact Nom", "Téléphone", "Email", "Statut"
+      "État", "Photo", "Prix (€)", "Contact Nom", "Téléphone", "Email", "Statut",
+      "Photo 2", "Photo 3"
     ]);
     sheet.setFrozenRows(1);
   }
   var a = payload.annonce || payload || {};
+  var hasExtraPhotos = Boolean((a.photoUrl2 && String(a.photoUrl2).trim()) || (a.photoUrl3 && String(a.photoUrl3).trim()));
+  if (hasExtraPhotos) {
+    var lastCol = sheet.getLastColumn();
+    if (lastCol < 13) sheet.getRange(1, 13).setValue('Photo 2');
+    if (lastCol < 14) sheet.getRange(1, 14).setValue('Photo 3');
+  }
   var id = a.id || ('troc-' + new Date().getTime());
   var nowDate = Utilities.formatDate(new Date(), "GMT+1", "dd/MM/yyyy");
   sheet.appendRow([
@@ -351,7 +365,9 @@ function handleSaveTrocAnnonce(payload) {
     safeCellValue(a.contactNom || ''),
     safeCellValue(a.contactTel || ''),
     safeCellValue(a.contactEmail || ''),
-    safeCellValue(a.statut || 'Disponible')
+    safeCellValue(a.statut || 'Disponible'),
+    safeCellValue(a.photoUrl2 || ''),
+    safeCellValue(a.photoUrl3 || '')
   ]);
   return createJsonResponse({ success: true, id: id });
 }
@@ -496,6 +512,63 @@ function handleDeleteGoSportOffre(payload) {
     }
   }
   return createJsonResponse({ success: false, error: 'Produit GO Sport introuvable.' });
+}
+
+function handleSavePartenaire(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Partenaires');
+  if (!sheet) {
+    sheet = ss.insertSheet('Partenaires');
+    sheet.setTabColor('#FF6D00');
+    sheet.appendRow(["ID", "Nom", "Rôle", "Logo_URL", "Site_URL", "Ordre", "Actif"]);
+    sheet.setFrozenRows(1);
+  }
+  var p = payload.partenaire || payload || {};
+  if (!p.nom || !String(p.nom).trim()) {
+    return createJsonResponse({ success: false, error: 'Le nom du partenaire est obligatoire.' });
+  }
+  var id = String(p.id || ('part-' + new Date().getTime())).trim();
+  var nomTrim = String(p.nom).trim();
+  var rows = sheet.getDataRange().getValues();
+  var matchRowIdx = -1;
+  for (var i = 1; i < rows.length; i++) {
+    var rId = String(rows[i][0] || '').trim();
+    var rNom = String(rows[i][1] || '').trim().toLowerCase();
+    if ((rId && rId === id) || (rNom && rNom === nomTrim.toLowerCase())) {
+      matchRowIdx = i;
+      break;
+    }
+  }
+  var rowArr = [
+    safeCellValue(id),
+    safeCellValue(nomTrim),
+    safeCellValue(String(p.role || 'club').trim()),
+    safeCellValue(String(p.logoUrl || '').trim()),
+    safeCellValue(String(p.siteUrl || '').trim()),
+    Number(p.ordre) || (matchRowIdx >= 1 ? matchRowIdx : rows.length),
+    (p.actif === false || String(p.actif || '').toUpperCase() === 'NON') ? 'NON' : 'OUI'
+  ];
+  if (matchRowIdx >= 1) {
+    sheet.getRange(matchRowIdx + 1, 1, 1, rowArr.length).setValues([rowArr]);
+    return createJsonResponse({ success: true, id: id, updated: true });
+  }
+  sheet.appendRow(rowArr);
+  return createJsonResponse({ success: true, id: id, created: true });
+}
+
+function handleDeletePartenaire(payload) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Partenaires');
+  if (!sheet) return createJsonResponse({ success: false, error: 'Onglet Partenaires introuvable.' });
+  var id = String(payload.id || '').trim();
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === id) {
+      sheet.deleteRow(i + 1);
+      return createJsonResponse({ success: true, id: id });
+    }
+  }
+  return createJsonResponse({ success: false, error: 'Partenaire introuvable.' });
 }
 
 function autoriserEnvoiEmails() {
